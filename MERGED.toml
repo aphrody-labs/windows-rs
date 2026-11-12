@@ -120,6 +120,7 @@ commit = "feadab8d32f06d7f6e87e5370b071103b175a595"
 commit-date = "2026-08-26T12:17:58-05:00"
 squash = "cd5802180a09e62104d0592890c64df33f18851e"
 workspace = "joined: 3 members"
+notes = ["sudo/.cargo/config.toml replaces crates-io with a private Azure DevOps feed (Sudo_PublicPackages, HTTP 401 without credentials, seen in CI 2026-11-12): run cargo from the root, which also drops its -Dwarnings/CFG/crt-static rustflags"]
 
 [project.webui]
 upstream = "https://github.com/microsoft/webui"

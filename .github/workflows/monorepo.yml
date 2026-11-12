@@ -45,13 +45,14 @@ jobs:
         include:
           - { name: edit, os: ubuntu-24.04, dir: edit, args: -p edit -p lsh }
           - { name: edit, os: windows-2025-vs2026, dir: edit, args: -p edit -p lsh }
-          - { name: sudo, os: windows-2025-vs2026, dir: sudo, args: -p sudo -p sudo_events -p win32resources }
+          # From the root: sudo/.cargo/config.toml replaces crates-io with a private Azure feed (401).
+          - { name: sudo, os: windows-2025-vs2026, dir: ., args: -p sudo -p sudo_events -p win32resources }
           - { name: litebox, os: ubuntu-24.04, dir: litebox, args: -p litebox -p litebox_platform_linux_userland -p litebox_shim_linux -p litebox_runner_linux_userland }
           - { name: litebox, os: windows-2025-vs2026, dir: litebox, args: -p litebox_platform_windows_userland -p litebox_runner_linux_on_windows_userland }
           - { name: windows-drivers-rs, os: windows-2025-vs2026, dir: windows-drivers-rs, args: -p wdk-build -p wdk-macros -p cargo-wdk }
           - { name: mxc, os: ubuntu-24.04, dir: mxc/src, args: -p mxc-sdk -p lxc }
           - { name: mxc, os: windows-2025-vs2026, dir: mxc/src, args: -p mxc-sdk -p mxc_ffi -p wxc }
-          - { name: webui, os: ubuntu-24.04, dir: webui, args: -p webui -p webui-cli }
+          - { name: webui, os: ubuntu-24.04, dir: webui, args: -p microsoft-webui -p microsoft-webui-cli }
           - { name: diskann, os: ubuntu-24.04, dir: diskann, args: -p diskann -p diskann-providers -p diskann-disk }
           - { name: nvx, os: ubuntu-24.04, dir: nvx/nvx-rs, args: --locked }
           - { name: nvx, os: windows-2025-vs2026, dir: nvx/nvx-rs, args: --locked }
