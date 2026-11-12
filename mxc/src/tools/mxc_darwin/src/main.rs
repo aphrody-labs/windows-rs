@@ -1,0 +1,246 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! `mxc-exec-mac` — macOS sandbox executor.
+//!
+//! Mirrors the CLI shape of `lxc-exec` (clap args, config loading, dry-run,
+//! log-file). On macOS it dispatches to `SeatbeltScriptRunner`; on every
+//! other platform it prints an explanatory error and exits 1 — that way
+//! `cargo build -p mxc_darwin` succeeds in CI from any host, while runtime
+//! use still requires macOS.
+
+use std::fmt::Write;
+
+use clap::Parser;
+use mxc_sdk::mxc_common::config_parser::load_one_shot_request;
+use mxc_sdk::mxc_common::logger::{Logger, Mode};
+use mxc_sdk::mxc_common::models::{CaptureDenialsConfig, CaptureDenialsMode, ExecutionRequest};
+use mxc_sdk::mxc_common::mxc_error::MxcError;
+use mxc_sdk::mxc_common::script_runner::{emit_mxc_error_exit, emit_warning_envelopes};
+
+#[cfg(target_os = "macos")]
+use mxc_sdk::mxc_common::models::ScriptResponse;
+#[cfg(target_os = "macos")]
+use std::time::Instant;
+
+#[cfg(target_os = "macos")]
+use mxc_sdk::mxc_common::script_runner::handle_dry_run_exit;
+
+#[derive(Parser)]
+#[command(name = "mxc-exec-mac", about = "macOS sandbox executor for MXC")]
+struct Cli {
+    /// Path to config JSON file (positional)
+    #[arg(value_name = "CONFIG_PATH")]
+    config_path: Option<String>,
+
+    /// Path to config JSON file
+    #[arg(long = "config")]
+    config: Option<String>,
+
+    /// Base64-encoded JSON config
+    #[arg(long = "config-base64")]
+    config_base64: Option<String>,
+
+    /// Enable debug/console output
+    #[arg(long)]
+    debug: bool,
+
+    /// Enable experimental features
+    #[arg(long)]
+    experimental: bool,
+
+    /// Parse and validate config then exit without executing
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+
+    /// Path to diagnostic log file (appends, creates if missing)
+    #[arg(long = "log-file")]
+    log_file: Option<String>,
+
+    /// Run with seatbelt.captureDenials in allow mode: default-denied
+    /// operations are allowed and recorded.
+    #[arg(long)]
+    audit: bool,
+}
+
+const AUDIT_CAPTURE_DENIALS_CONFLICT_MSG: &str =
+    "--audit cannot be combined with seatbelt.captureDenials; use captureDenials.mode: \"allow\" for permissive capture";
+
+fn apply_audit(request: &mut ExecutionRequest) -> Result<(), String> {
+    let seatbelt = request.seatbelt.get_or_insert_with(Default::default);
+    if seatbelt.capture_denials.is_some() {
+        return Err(AUDIT_CAPTURE_DENIALS_CONFLICT_MSG.to_string());
+    }
+    seatbelt.capture_denials = Some(CaptureDenialsConfig {
+        mode: CaptureDenialsMode::Allow,
+        ..Default::default()
+    });
+    Ok(())
+}
+
+fn log_request(request: &ExecutionRequest, logger: &mut Logger) {
+    let _ = writeln!(logger, "Script code length: {}", request.script_code.len());
+    let _ = writeln!(logger, "Working directory: {}", request.working_directory);
+    let _ = writeln!(logger, "Script timeout: {}", request.script_timeout);
+    let _ = writeln!(logger, "Container name: {}", request.container_id);
+}
+
+#[cfg(target_os = "macos")]
+fn display_script_results(response: &ScriptResponse, logger: &mut Logger) {
+    let code = response.exit_code;
+    let _ = writeln!(logger, "Exit code: {} (0x{:08X})", code, code as u32);
+    if !response.error_message.is_empty() {
+        let _ = writeln!(logger, "Error: {}", response.error_message);
+    }
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    // Determine config input.
+    let (config_data, is_base64) = if let Some(ref b64) = cli.config_base64 {
+        (b64.clone(), true)
+    } else if let Some(ref path) = cli.config {
+        (path.clone(), false)
+    } else if let Some(ref path) = cli.config_path {
+        (path.clone(), false)
+    } else {
+        emit_mxc_error_exit(&MxcError::malformed_request(
+            "No config provided. Use a positional path, --config, or --config-base64",
+        ));
+    };
+
+    let mut logger = Logger::new(if cli.debug {
+        Mode::Console
+    } else {
+        Mode::Buffer
+    });
+
+    if let Some(ref log_path) = cli.log_file {
+        if let Err(e) = logger.enable_file_sink(std::path::Path::new(log_path)) {
+            emit_warning_envelopes(&[format!("could not open log file '{log_path}': {e}")]);
+        }
+    }
+
+    let mut request = match load_one_shot_request(&config_data, &mut logger, is_base64) {
+        Ok(r) => r,
+        Err(error) => {
+            eprint!("{}", logger.get_buffer());
+            emit_mxc_error_exit(&error.to_mxc_error());
+        }
+    };
+
+    request.experimental_enabled = cli.experimental;
+    request.dry_run = cli.dry_run;
+    if cli.audit {
+        if let Err(message) = apply_audit(&mut request) {
+            emit_mxc_error_exit(&MxcError::malformed_request(message));
+        }
+    }
+
+    log_request(&request, &mut logger);
+
+    run_seatbelt(&request, &mut logger);
+}
+
+#[cfg(target_os = "macos")]
+fn run_seatbelt(request: &ExecutionRequest, logger: &mut Logger) -> ! {
+    use mxc_sdk::mxc_common::telemetry;
+
+    // ── Telemetry init ──────────────────────────────────────────────
+    // Mirrors lxc-exec / wxc-exec. The ETW provider has no macOS backend today,
+    // so `init` returns false and every emit below is a no-op; wiring it anyway
+    // keeps the three executors structurally identical and ready the moment
+    // telemetry gains a macOS sink.
+    let telemetry_active = request
+        .telemetry
+        .as_ref()
+        .map(|c| telemetry::init(c, logger))
+        .unwrap_or(false);
+    let requested_sandbox_kind = request
+        .telemetry
+        .as_ref()
+        .and_then(|config| config.requested_sandbox_kind);
+
+    // Install a crash-telemetry panic hook once telemetry is active, chaining
+    // the previously-installed hook so the default stderr backtrace still
+    // prints. The hook body is panic-free and emits no message text.
+    if telemetry_active {
+        telemetry::set_process_context_with_kind(&request.containment, requested_sandbox_kind);
+        telemetry::install_panic_hook();
+    }
+
+    telemetry::emit_execution_start(
+        telemetry_active,
+        requested_sandbox_kind,
+        telemetry::TelemetryContext {
+            backend: request.containment.wire_name(),
+            phase: "",
+            correlation_vector: "",
+        },
+    );
+
+    // Backend selection lives in `mxc_sdk::mxc_engine::run`, the single home for one-shot
+    // dispatch. On macOS it always resolves to Seatbelt (logging a note if the
+    // request asked for a different backend) and runs it to completion.
+    let run_start = Instant::now();
+    let response = match mxc_sdk::mxc_engine::run(request, logger) {
+        Ok(response) => response,
+        Err(e) => {
+            emit_warning_envelopes(logger.warnings());
+            eprint!("{}", logger.get_buffer());
+            emit_mxc_error_exit(&e.into_mxc_error());
+        }
+    };
+    let run_elapsed = run_start.elapsed();
+    let _ = writeln!(logger, "Runner completed in {}ms", run_elapsed.as_millis());
+
+    // Emitted before the dry-run branch below, which exits the process.
+    emit_warning_envelopes(response.warnings());
+
+    if request.dry_run {
+        handle_dry_run_exit(&response, logger);
+    }
+
+    display_script_results(&response, logger);
+
+    // ── Telemetry emit ──────────────────────────────────────────────
+    telemetry::emit_completion_with_kind(
+        telemetry_active,
+        &request.containment,
+        requested_sandbox_kind,
+        &response,
+        run_elapsed,
+    );
+
+    print!("{}", response.standard_out);
+    eprint!("{}", response.standard_err);
+    if let Some(pointer) = response
+        .output_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.capture_denials.as_ref())
+    {
+        // Workloads inherit stderr and may leave the last line unterminated.
+        match serde_json::to_string(pointer) {
+            Ok(line) => eprintln!("\n{line}"),
+            Err(error) => eprintln!("failed to serialize captureDenials output pointer: {error}"),
+        }
+    }
+
+    // Never exit non-zero on an infrastructure failure without a diagnostic:
+    // `display_script_results` only writes the error into the (buffered,
+    // non-debug-suppressed) logger, so surface it on stderr here for parity
+    // with lxc-exec / wxc-exec (issue #564).
+    mxc_sdk::mxc_common::script_runner::emit_backend_error_envelope(&response);
+
+    std::process::exit(response.exit_code);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_seatbelt(_request: &ExecutionRequest, logger: &mut Logger) -> ! {
+    print!("{}", logger.get_buffer());
+    emit_mxc_error_exit(&MxcError::backend_unavailable(
+        "mxc-exec-mac: the macOS sandbox backend is only available on macOS. \
+         This binary was built for a non-Darwin target and cannot execute scripts.",
+    ));
+}

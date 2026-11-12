@@ -1,0 +1,89 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Wire types for the mutable `1.1.0-alpha` state-aware configuration
+//! contract.
+
+macro_rules! string_marker {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident => $wire_value:literal;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        $vis struct $name;
+
+        #[cfg(feature = "schema-gen")]
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> String {
+                stringify!($name).to_string()
+            }
+
+            fn json_schema(
+                _generator: &mut schemars::gen::SchemaGenerator,
+            ) -> schemars::schema::Schema {
+                use schemars::schema::{
+                    InstanceType, Schema, SchemaObject, SingleOrVec,
+                };
+
+                Schema::Object(SchemaObject {
+                    instance_type: Some(SingleOrVec::Single(Box::new(
+                        InstanceType::String,
+                    ))),
+                    enum_values: Some(vec![serde_json::Value::String(
+                        $wire_value.to_string(),
+                    )]),
+                    ..Default::default()
+                })
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = <std::borrow::Cow<'de, str> as serde::Deserialize>::deserialize(deserializer)?;
+
+                if value == $wire_value {
+                    Ok(Self)
+                } else {
+                    Err(serde::de::Error::unknown_variant(&value, &[$wire_value]))
+                }
+            }
+        }
+    };
+}
+
+mod deprovision;
+mod deprovision_session;
+mod exec;
+mod phase;
+mod provision;
+mod provision_session;
+mod start;
+mod stop;
+
+pub use deprovision::{DeprovisionPhase, DeprovisionRequest};
+pub use deprovision_session::{DeprovisionSessionPhase, WslcDeprovisionSessionRequest};
+pub use exec::{ExecPhase, ExecRequest};
+pub use phase::{probe_phase, Phase, PhaseProbeError};
+pub use provision::{probe_containment, Containment, ContainmentProbeError};
+pub use provision::{
+    IsolationSessionContainment, IsolationSessionNetwork, IsolationSessionNetworkAllow,
+    IsolationSessionNetworkEgress, IsolationSessionNetworkIngress, IsolationSessionProvision,
+    IsolationSessionProvisionRequest, MicroVmContainment, MicroVmProvision,
+    MicroVmProvisionRequest, StateAwareIsolationSession, StateAwareMicroVm,
+};
+pub use provision::{ProvisionPhase, ProvisionRequest};
+pub use provision::{
+    StateAwareW365AgentsProvision, W365AgentsContainment, W365AgentsGuid, W365AgentsProvision,
+    W365AgentsProvisionRequest, W365AgentsUserType,
+};
+pub use provision::{StateAwareWslc, WslcContainment, WslcProvision, WslcProvisionRequest};
+pub use provision::{WindowsSandboxContainment, WindowsSandboxProvisionRequest};
+pub use provision_session::{
+    ProvisionSessionPhase, StateAwareWslcSession, WslcProvisionSession, WslcProvisionSessionRequest,
+};
+pub use start::{StartPhase, StartRequest};
+pub use stop::{StopPhase, StopRequest};

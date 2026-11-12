@@ -1,0 +1,274 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+import { describe, it, afterEach } from 'node:test';
+import assert from 'node:assert';
+import { policy } from '../../src/v1/index.js';
+
+import { execFileSync } from 'node:child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const { getAvailableToolsPolicy, getUserProfilePolicy, getTemporaryFilesPolicy } = policy.filesystem;
+
+// TODO: Investigate why Object.defineProperty(process, 'platform', ...) does not
+// take effect on Linux ADO pipeline runners (Node.js v20.19.x). These tests mock
+// process.platform to 'win32' and must be skipped on Linux until the root cause
+// is understood.
+const isLinux = process.platform === 'linux';
+
+describe('filesystem helper environment and options', () => {
+    it('cannot override host Windows safety exclusions through the discovery map', {
+        skip: process.platform !== 'win32',
+    }, () => {
+        const hostWindows = process.env['WINDIR'] || process.env['windir'] || 'C:\\Windows';
+        const system32 = path.join(hostWindows, 'System32');
+        assert.ok(fs.statSync(system32).isDirectory());
+        for (const WINDIR of [undefined, '', 'C:\\SpoofedWindows']) {
+            assert.deepStrictEqual(
+                getAvailableToolsPolicy({ PATH: hostWindows, WINDIR }).readonlyPaths,
+                [],
+            );
+            assert.deepStrictEqual(
+                getAvailableToolsPolicy({ JAVA_HOME: system32, WINDIR }).readonlyPaths,
+                [],
+            );
+        }
+    });
+
+    it('does not substitute the host environment for an empty map', () => {
+        assert.deepStrictEqual(getAvailableToolsPolicy({}), { readonlyPaths: [], readwritePaths: [] });
+        assert.deepStrictEqual(getUserProfilePolicy({}), { readonlyPaths: [], readwritePaths: [] });
+    });
+
+    it('filters missing PATH entries and deduplicates existing directories', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-tools-'));
+        try {
+            const tools = path.join(root, 'tools');
+            const missing = path.join(root, 'missing');
+            fs.mkdirSync(tools);
+            for (const PATH of [undefined, '', missing]) {
+                assert.deepStrictEqual(getAvailableToolsPolicy({ PATH }), {
+                    readonlyPaths: [], readwritePaths: [],
+                });
+            }
+            const duplicate = process.platform === 'win32' ? tools.toUpperCase() : tools;
+            const PATH = ['', tools, missing, duplicate, path.join(tools, '.'), ''].join(path.delimiter);
+            assert.deepStrictEqual(getAvailableToolsPolicy({ PATH }), {
+                readonlyPaths: [tools], readwritePaths: [],
+            });
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('discovers JAVA_HOME without PATH and ignores a missing installation', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-java-'));
+        try {
+            assert.deepStrictEqual(getAvailableToolsPolicy({ JAVA_HOME: root }), {
+                readonlyPaths: [root], readwritePaths: [],
+            });
+            assert.deepStrictEqual(getAvailableToolsPolicy({ JAVA_HOME: path.join(root, 'missing') }), {
+                readonlyPaths: [], readwritePaths: [],
+            });
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('splits PSModulePath without PATH and filters missing and duplicate directories', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-modules-'));
+        try {
+            const first = path.join(root, 'first');
+            const second = path.join(root, 'second');
+            fs.mkdirSync(first);
+            fs.mkdirSync(second);
+            const PSModulePath = [first, path.join(root, 'missing'), second, first].join(path.delimiter);
+            assert.deepStrictEqual(getAvailableToolsPolicy({ PSModulePath }), {
+                readonlyPaths: [first, second], readwritePaths: [],
+            });
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('discovers profile directories from the supplied environment', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-profile-'));
+        try {
+            const expected = process.platform === 'win32'
+                ? path.join(root, 'Programs', 'Tool') : path.join(root, '.local', 'bin');
+            fs.mkdirSync(expected, { recursive: true });
+            const environment = process.platform === 'win32' ? { localappdata: root } : { HOME: root };
+            assert.deepStrictEqual(getUserProfilePolicy(environment), {
+                readonlyPaths: [expected], readwritePaths: [],
+            });
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('uses existing temporary storage without creating a directory', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-temp-'));
+        try {
+            const environment = process.platform === 'win32' ? { temp: root } : { TMPDIR: root };
+            assert.deepStrictEqual(getTemporaryFilesPolicy(environment), {
+                readonlyPaths: [], readwritePaths: [root],
+            });
+            assert.deepStrictEqual(fs.readdirSync(root), []);
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('returns an empty Windows temp policy when TEMP and TMP are absent', {
+        skip: process.platform !== 'win32',
+    }, () => {
+        assert.deepStrictEqual(getTemporaryFilesPolicy({}), {
+            readonlyPaths: [], readwritePaths: [],
+        });
+    });
+
+    it('does not create a missing TEMP directory or fall back to TMP', {
+        skip: process.platform !== 'win32',
+    }, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-temp-'));
+        try {
+            const TEMP = path.join(root, 'missing');
+            assert.deepStrictEqual(getTemporaryFilesPolicy({ TEMP, TMP: root }), {
+                readonlyPaths: [], readwritePaths: [],
+            });
+            assert.deepStrictEqual(fs.readdirSync(root), []);
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('uses TMP when TEMP is absent and prefers TEMP when both exist', {
+        skip: process.platform !== 'win32',
+    }, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-temp-'));
+        try {
+            const preferred = path.join(root, 'preferred');
+            fs.mkdirSync(preferred);
+            assert.deepStrictEqual(getTemporaryFilesPolicy({ TMP: root }), {
+                readonlyPaths: [], readwritePaths: [root],
+            });
+            assert.deepStrictEqual(getTemporaryFilesPolicy({ TEMP: preferred, TMP: root }), {
+                readonlyPaths: [], readwritePaths: [preferred],
+            });
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+
+    it('filters ALL APPLICATION PACKAGES only when requested', { skip: process.platform !== 'win32' }, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mxc-tools & paths-'));
+        try {
+            execFileSync('icacls.exe', [root, '/grant', '*S-1-15-2-1:(OI)(CI)(RX)'], { windowsHide: true });
+            const environment = { path: root };
+            assert.deepStrictEqual(getAvailableToolsPolicy(environment).readonlyPaths, [root]);
+            assert.deepStrictEqual(
+                getAvailableToolsPolicy(environment, { containerType: 'processcontainer' }).readonlyPaths, [],
+            );
+        } finally {
+            fs.rmSync(root, { recursive: true });
+        }
+    });
+});
+
+describe('getAvailableToolsPolicy - PowerShell discovery', () => {
+    let originalPlatform: PropertyDescriptor | undefined;
+    let tmpDir: string | undefined;
+
+    const mockWindows = () => {
+        originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+    };
+
+    const mockLinux = () => {
+        originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+    };
+
+    /** Create a temp directory containing a fake pwsh.exe and return its path. */
+    const createFakePwshDir = (): string => {
+        tmpDir = fs.mkdtempSync(path.join(import.meta.dirname, 'mxc-test-'));
+        fs.writeFileSync(path.join(tmpDir, 'pwsh.exe'), '');
+        return tmpDir;
+    };
+
+    afterEach(() => {
+        if (originalPlatform) {
+            Object.defineProperty(process, 'platform', originalPlatform);
+            originalPlatform = undefined;
+        }
+        if (tmpDir) {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+            tmpDir = undefined;
+        }
+    });
+
+    it('should keep PowerShell reads scoped to the discovered tool directory', { skip: isLinux }, () => {
+        mockWindows();
+        const pwshDir = createFakePwshDir();
+        for (const SystemDrive of [undefined, '', 'Z:']) {
+            const result = getAvailableToolsPolicy({
+                PATH: pwshDir, USERPROFILE: 'C:\\Users\\TestUser', SystemDrive,
+            });
+            assert.deepStrictEqual(result.readonlyPaths, [path.resolve(pwshDir)]);
+        }
+    });
+
+    it('should add PSReadLine dir to readwritePaths when pwsh.exe is on PATH', { skip: isLinux }, () => {
+        mockWindows();
+        const pwshDir = createFakePwshDir();
+        const env = { PATH: pwshDir, USERPROFILE: 'C:\\Users\\TestUser' };
+        const result = getAvailableToolsPolicy(env);
+        const expected = path.join(
+            'C:\\Users\\TestUser', 'AppData', 'Roaming', 'Microsoft', 'Windows', 'PowerShell', 'PSReadLine',
+        );
+        assert.ok(
+            result.readwritePaths.some(p => p.toLowerCase() === expected.toLowerCase()),
+            'PSReadLine directory should be in readwritePaths',
+        );
+    });
+
+    it('should not add PowerShell paths when pwsh.exe is not on PATH', { skip: isLinux }, () => {
+        mockWindows();
+        const env = { PATH: 'C:\\Windows\\System32', USERPROFILE: 'C:\\Users\\TestUser' };
+        const result = getAvailableToolsPolicy(env);
+        assert.ok(
+            !result.readonlyPaths.some(p => /^[a-z]:\\$/i.test(p)),
+            'System root should not be in readonlyPaths when pwsh.exe is not on PATH',
+        );
+        assert.strictEqual(result.readwritePaths.length, 0,
+            'readwritePaths should be empty when pwsh.exe is not on PATH',
+        );
+    });
+
+    it('should return empty policy on non-Windows even when pwsh.exe is on PATH', { skip: isLinux }, () => {
+        mockLinux();
+        const pwshDir = createFakePwshDir();
+        const env = { PATH: pwshDir, USERPROFILE: 'C:\\Users\\TestUser' };
+        const result = getAvailableToolsPolicy(env);
+        assert.ok(
+            !result.readonlyPaths.some(p => /^[a-z]:\\$/i.test(p)),
+            'System root (e.g. C:\\) should not be in readonlyPaths on Linux',
+        );
+        assert.strictEqual(result.readwritePaths.length, 0,
+            'readwritePaths should be empty on Linux',
+        );
+    });
+
+    it('should not add PSReadLine path when USERPROFILE is not set', { skip: isLinux }, () => {
+        mockWindows();
+        const pwshDir = createFakePwshDir();
+        const env = { PATH: pwshDir };
+        const result = getAvailableToolsPolicy(env);
+        assert.deepStrictEqual(result.readonlyPaths, [path.resolve(pwshDir)]);
+        assert.strictEqual(result.readwritePaths.length, 0,
+            'readwritePaths should be empty without USERPROFILE',
+        );
+    });
+});
