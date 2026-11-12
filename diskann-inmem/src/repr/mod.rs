@@ -1,0 +1,303 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+//! # Data Representation
+//!
+//! A simplified interface for [`crate::Provider`] to use for building a graph index.
+
+mod internal_docs {
+    //! # Start Point Handling
+    //!
+    //! By default, start points get located at the beginning of the physical slot space.
+    //! So if a [`super::Representation`] has 10 start points, they will be located at
+    //! physical slots `0..10`.
+    //!
+    //! While we do not **guarantee** this for external users, this has some nice properties
+    //! with respect to serialization. Serialization can compact an index to remove deleted
+    //! holes - and the serialized graph can be re-loaded in either the compact form or in
+    //! a form that adds extra room to enable insertions.
+    //!
+    //! With the start points located at the beginning, a serialized graph can be reloaded
+    //! at any size and the internal edges to not need any processing to handle start point
+    //! relocation.
+}
+
+use diskann::{ANNResult, neighbor::Neighbor};
+
+use crate::{
+    counters::LocalCounters,
+    num::{Capacity, IdLimit, MaxDegree},
+};
+
+// Reexport
+#[doc(hidden)]
+pub use crate::neighbors::Snapshot as NeighborSnapshot;
+
+//---------//
+// Modules //
+//---------//
+
+mod internal;
+
+pub mod full;
+pub use full::{Full, FullPrecision};
+
+#[cfg(feature = "quantization")]
+#[cfg_attr(docsrs, doc(cfg(feature = "quantization")))]
+pub mod quantized;
+
+#[cfg(feature = "quantization")]
+#[cfg_attr(docsrs, doc(cfg(feature = "quantization")))]
+pub use quantized::Quantized;
+
+#[cfg(test)]
+mod test;
+
+//----------------//
+// Representation //
+//----------------//
+
+/// Deferred creation of [`Representation`]s.
+///
+/// This is used in APIs like [`crate::Provider::new`] to defer allocation of large
+/// in-memory data structures.
+pub trait RepresentationConfig {
+    /// The type of the resulting [`Representation`].
+    type Representation: Representation;
+
+    /// Build the target [`Representation`].
+    fn build(self) -> ANNResult<Self::Representation>;
+}
+
+/// Configurable data representation for [`crate::Provider`].
+///
+/// A representation owns the adjacency lists and vector data for a concurrent in-memory graph
+/// index. Representations are expected to be indexed using `u32` IDs from
+/// `0..self.id_limit()` with `self.capacity()` slots available for writing.
+///
+/// See also:
+///
+/// - [`Set`]: For assigning into the store.
+/// - [`Search`]: Search compatibility with [`crate::Provider`].
+/// - [`Insert`]: Insert compatibility with [`crate::Provider`].
+pub trait Representation: Send + Sync + 'static {
+    /// Return the [`MaxDegree`] of the internal graph.
+    fn max_degree(&self) -> MaxDegree;
+
+    /// Return the [`IdLimit`] for the data store.
+    fn id_limit(&self) -> IdLimit;
+
+    /// Return the functional [`Capacity`] for the data store.
+    fn capacity(&self) -> Capacity;
+
+    /// Retire the internal ID `i`. Such IDs will eventually be recycled for reuse.
+    fn retire(&self, i: u32) -> ANNResult<()>;
+
+    /// Return `true` if internal ID `i` is currently readable, returning `None` if `i`
+    /// is outside `0..self.id_limit()`.
+    fn is_readable(&self, i: u32) -> Option<bool>;
+}
+
+/// Attempt to write data into a [`Representation`].
+///
+/// This will attempt to find an available internal ID to which `element` can be assigned,
+/// failing if no such ID can be found. The write is not eagerly committed. Instead, a
+/// [`Guard`] is returned, allowing writes to be aborted if necessary.
+pub trait Set<T>: Representation {
+    /// The type of the [`Guard`] used to defer commitment of the write.
+    type Guard<'a>: Guard;
+
+    /// Attempt to write the data in `element` into the [`Representation`].
+    ///
+    /// Returns [`Self::Guard`] to retrieve the allocated internal ID for `element` and to
+    /// defer commitment of the write until external code is ready.
+    ///
+    /// Dropping an unpublished [`Guard`] must abort the write and leave its data unpublished.
+    fn set(&self, element: T) -> ANNResult<Self::Guard<'_>>;
+}
+
+/// An insert guard for [`Set`] providing deferred commitment of pending writes.
+///
+/// Guards provide several services:
+///
+/// * [`Guard::id`] returns the associated internal ID.
+/// * [`Guard::publish`] commits the change, making the data at the slot publicly visible.
+///
+/// Dropping a guard without calling [`Guard::publish`] indicates a failed insert and
+/// implementations should abort the write and leave the data unpublished.
+pub trait Guard {
+    fn id(&self) -> u32;
+    fn publish(self);
+}
+
+/// Enable search over vectors defined by a [`Representation`].
+pub trait Search: Representation {
+    /// The type of the query. This should be equivalent to the generic parameter in
+    /// [`Set`], but needs to be replicated here due to limitations in the current trait
+    /// design.
+    type Query<'a>;
+
+    /// Construct a [`crate::provider::SearchAccessor`] for the query.
+    #[doc(hidden)]
+    fn search_accessor<'a>(
+        &'a self,
+        query: Self::Query<'a>,
+        provider: &'a (dyn std::any::Any + Send + Sync),
+        counters: LocalCounters<'a>,
+    ) -> ANNResult<crate::provider::SearchAccessor<'a>>;
+}
+
+/// An insert-specific specialization of [`Search`].
+///
+/// Note that the bounds for this trait are unnecessarily complicated, but require changes
+/// to [`diskann`] to fully resolve.
+pub trait Insert: Search + for<'a> Set<Self::Query<'a>> {
+    #[doc(hidden)]
+    fn insert_search_accessor<'a>(
+        &'a self,
+        query: Self::Query<'a>,
+        provider: &'a (dyn std::any::Any + Send + Sync),
+        counters: LocalCounters<'a>,
+    ) -> ANNResult<crate::provider::SearchAccessor<'a>> {
+        self.search_accessor(query, provider, counters)
+    }
+
+    #[doc(hidden)]
+    fn prune_accessor<'a>(
+        &'a self,
+        counters: LocalCounters<'a>,
+    ) -> ANNResult<crate::provider::PruneAccessor<'a>>;
+}
+
+//------------------//
+// Temporary Traits //
+//------------------//
+
+// These are crate-private traits that are still used to implement public functionality
+// and work as a bridge to `diskann-disk`'s static build case.
+//
+// These are expected to be removed pending future architectural changes to `diskann`.
+
+/// Like [`Set`], but forces use of the exact internal ID.
+#[doc(hidden)]
+pub(crate) trait SetAt<T>: Set<T> {
+    #[doc(hidden)]
+    fn set_at(&self, id: u32, element: T) -> ANNResult<Self::Guard<'_>>;
+}
+
+#[doc(hidden)]
+pub trait InspectNeighbors {
+    #[doc(hidden)]
+    fn inspect_neighbors(&mut self) -> NeighborSnapshot<'_>;
+}
+
+//-----------------//
+// Internal Traits //
+//-----------------//
+
+/// Trait-object-based implementation of
+/// [`diskann::graph::glue::SearchAccessor::expand_beam`].
+///
+/// Dynamic dispatch is used to enable aggressive specialization of this primitive without
+/// monomorphizing the entire search algorithm. Example specializations include:
+///
+/// * Optimizing for certain fixed dimensions.
+/// * Inlining metric-specific distance functions.
+/// * Tailoring prefetching to the dimension.
+///
+/// # Safety
+///
+/// Implementors must ensure that every ID accepted by [`Self::id_limit`] can be passed to
+/// [`Self::expand_beam`] without an out-of-bounds memory access, including accesses performed
+/// for prefetching.
+pub(crate) unsafe trait ExpandBeam: Send + Sync + std::fmt::Debug {
+    /// Evaluate a raw distance against index `i`.
+    fn evaluate(&self, i: u32) -> ANNResult<Option<f32>>;
+
+    /// Return an [`IdLimit`] for this primitive.
+    ///
+    /// Callers must be able to use this limit to satisfy the safety pre-conditions for
+    /// [`Self::expand_beam`].
+    ///
+    /// See also: [`IdLimit::is_in_bounds`].
+    fn id_limit(&self) -> IdLimit;
+
+    /// Compute the distance between the query and each neighbor in `list`.
+    ///
+    /// Unreadable entries may be omitted. Return the number of entries in `buffer` that were
+    /// written so that `buffer[..returned]` contains the expansion IDs and distances.
+    ///
+    /// # Safety
+    ///
+    /// * All items in `list` must be in bounds with respect to [`Self::id_limit`].
+    /// * `buffer.len() >= list.len()`.
+    unsafe fn expand_beam(&self, list: &[u32], buffer: &mut [Neighbor<u32>]) -> ANNResult<usize>;
+}
+
+/// A safe entry-point for resting [`ExpandBeam::expand_beam`].
+#[cfg(test)]
+fn safe_expand_beam(
+    expand_beam: &dyn ExpandBeam,
+    list: &[u32],
+    buffer: &mut [Neighbor<u32>],
+) -> ANNResult<usize> {
+    assert!(list.len() <= buffer.len());
+
+    let limit = expand_beam.id_limit();
+    for id in list.iter() {
+        if !limit.is_in_bounds(*id) {
+            panic!("id {} is not within {} -- {:?}", id, limit, expand_beam);
+        }
+    }
+
+    // SAFETY: We have verified that:
+    //
+    // 1. All entries in `list` are less than `expand_beam.id_limit()`.
+    // 2 `buffer.len() >= list.len()`.
+    unsafe { expand_beam.expand_beam(list, buffer) }
+}
+
+pub(crate) trait PostProcess: Send + Sync + std::fmt::Debug {
+    fn post_process(&mut self, buffer: &mut Vec<Neighbor<u32>>) -> ANNResult<()>;
+}
+
+/// Trait-object-based implementation for [`diskann::graph::glue::PruneAccessor`].
+///
+/// Currently, we return raw slices to the underlying data. Limitations in the prune contract
+/// prevent us from doing any thing fancier.
+///
+/// ## Musings
+///
+/// Returning raw slices prevents us from doing something like hybrid pruning for PQ. At
+/// least not without some unpleasantness in `evaluate`. We accept this limitation for now
+/// since the performance of returning a raw slice is too tempting to give up.
+///
+/// A slightly better interface may be to use something like:
+/// ```text
+/// struct ElementRef<'a> {
+///     ptr: NonNull<()>,
+///     _lifetime: PhantomData<&'a ()>,
+/// }
+/// ```
+/// allowing us to store something slightly slimmer. However, because
+/// [`diskann::graph::glue::PruneAccessor::fill`] is a public method and
+/// [`diskann_vector::DistanceFunction`] is a safe trait with a safe method, we cannot
+/// expose these raw pointers soundly as someone in safe code could mix and match pointers.
+///
+/// At least slices have their length tagged. Our internal code does not yet do unsafe things
+/// assuming the lengths of two slices are the same. It would be nice to get there though.
+pub(crate) trait Prune: Send + Sync + std::fmt::Debug {
+    /// The the data associated with `id`.
+    ///
+    /// Return `None` if `id` is unreadable (including out-of-bounds).
+    fn get(&self, id: u32) -> Option<&[u8]>;
+
+    /// Compute the distance between the two raw elements.
+    ///
+    /// Implementations may assume that `a` and `b` were produced by a call to
+    /// [`Self::get`] and are allowed to panic if this is violated. This property may
+    /// **not** be relied on for `unsafe` code.
+    fn evaluate(&self, a: &[u8], b: &[u8]) -> f32;
+}

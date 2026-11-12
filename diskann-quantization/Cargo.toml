@@ -1,0 +1,84 @@
+[package]
+name = "diskann-quantization"
+version.workspace = true
+description.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition = "2024"
+
+[dependencies]
+bytemuck = { workspace = true, features = ["derive"] }
+cfg-if = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+diskann-vector = { workspace = true }
+diskann-wide = { workspace = true }
+diskann-linalg = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+flatbuffers = { version = "25.2.10", optional = true }
+half = { version = "2.6.0", features = ["bytemuck"] }
+diskann-utils = { workspace = true }
+
+# Detect L1/L2 cache sizes to size matrix-kernel tile budgets.
+[target.'cfg(any(all(target_arch = "x86", not(target_env = "sgx"), target_feature = "sse"), all(target_arch = "x86_64", not(target_env = "sgx"))))'.dependencies]
+raw-cpuid = "11.5"
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2.148"
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_SystemInformation"] }
+
+[lints.clippy]
+allow_attributes = "warn"
+undocumented_unsafe_blocks = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+uninlined_format_args = "allow"
+
+[dev-dependencies]
+diskann-utils = { workspace = true, features = ["testing"] }
+cfg-if = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+trybuild = "1.0.120"
+rand_distr = { workspace = true }
+
+[[bin]]
+name = "detect-cache"
+path = "detect-cache/main.rs"
+required-features = ["cache-diagnostics"]
+
+[features]
+default = ["rayon"]
+
+# Expose cache internals to the detect-cache binary.
+cache-diagnostics = []
+
+# Add support for linear-algebran enhanced routines.
+linalg = ["dep:diskann-linalg"]
+
+# Compile support for serializing and deserializing to flatbuffers.
+flatbuffers = ["dep:flatbuffers"]
+
+# Enable Rayon-based Parallelism for tagged kernels.
+rayon = ["dep:rayon", "diskann-utils/rayon"]
+
+# Instantiate well named functions for distance functions whose aseembly we care about.
+#
+# This adds to the compile time of the library without meaningfully adding features to the
+# library and is meant to help with tooling.
+codegen = []
+
+# Note
+#
+# Build docs locally with
+# ```
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc \
+#    --package quantization \
+#    --features rayon,linalg,flatbuffers \
+#    --no-deps
+# ```
+[package.metadata.docs.rs]
+features = ["rayon", "linalg", "flatbuffers"]
+rustdoc-args = ["--cfg", "docsrs"]
