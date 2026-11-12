@@ -1169,7 +1169,7 @@ pub const SEC_CHANNEL_BINDINGS_RESULT_VALID_MISSING: i32 = 64;
 pub const SEC_CHANNEL_BINDINGS_RESULT_VALID_PROXY: i32 = 32;
 pub const SEC_CHANNEL_BINDINGS_VALID_FLAGS: i32 = 1;
 pub type SEC_CHAR = i8;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const SEC_DELETED_HANDLE: super::ULONG_PTR = 4294967294;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

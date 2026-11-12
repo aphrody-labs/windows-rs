@@ -857,7 +857,7 @@ pub const IPPROTO_SCTP: IPPROTO = 132;
 pub const IPPROTO_ST: IPPROTO = 5;
 pub const IPPROTO_TCP: IPPROTO = 6;
 pub const IPPROTO_UDP: IPPROTO = 17;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IPV6_ADDRESS_BITS: u32 = 128;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IPV6_ADDRESS_BITS: u64 = 128;
@@ -1666,16 +1666,16 @@ pub struct WSAMSG {
     pub dwFlags: super::ULONG,
 }
 pub const WSK_SO_BASE: i32 = 16384;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const _SS_ALIGNSIZE: u32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const _SS_ALIGNSIZE: u64 = 8;
 pub const _SS_MAXSIZE: i32 = 128;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const _SS_PAD1SIZE: u32 = 6;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const _SS_PAD1SIZE: u64 = 6;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const _SS_PAD2SIZE: u32 = 112;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const _SS_PAD2SIZE: u64 = 112;

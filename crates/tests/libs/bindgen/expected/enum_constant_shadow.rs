@@ -1,8 +1,18 @@
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(
+    target_arch = "arm64ec",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
 pub const Aligned: Pool = 4;
 #[cfg(target_arch = "aarch64")]
 pub const Aligned: Pool = 516;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(
+    target_arch = "arm64ec",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
 pub const Default: Pool = 0;
 #[cfg(target_arch = "aarch64")]
 pub const Default: Pool = 512;

@@ -35,13 +35,13 @@ impl Full {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FullPointer {
     pub unsigned: usize,
     pub signed: isize,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl FullPointer {
     pub fn Unsigned(&self) -> usize {
         const _: () = assert!(usize::BITS >= 32, "bitfield exceeds target storage width");

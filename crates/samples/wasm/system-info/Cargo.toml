@@ -1,0 +1,15 @@
+[package]
+name = "wasm-system-info"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies.windows-sys]
+workspace = true
+features = ["sysinfoapi", "winternl"]
+
+[lints]
+workspace = true

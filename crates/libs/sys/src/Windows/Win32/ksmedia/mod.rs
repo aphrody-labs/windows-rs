@@ -2077,7 +2077,7 @@ impl Default for KSNODEPROPERTY {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "ks", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct KSNODEPROPERTY_AUDIO_3D_LISTENER {
@@ -2085,7 +2085,7 @@ pub struct KSNODEPROPERTY_AUDIO_3D_LISTENER {
     pub ListenerId: super::PVOID,
     pub Reserved: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "ks", feature = "shared", feature = "winnt"))]
 impl Default for KSNODEPROPERTY_AUDIO_3D_LISTENER {
     fn default() -> Self {
@@ -2137,7 +2137,7 @@ impl Default for KSNODEPROPERTY_AUDIO_DEV_SPECIFIC {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "ks", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct KSNODEPROPERTY_AUDIO_PROPERTY {
@@ -2146,7 +2146,7 @@ pub struct KSNODEPROPERTY_AUDIO_PROPERTY {
     pub Length: super::ULONG,
     pub Reserved: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "ks", feature = "shared", feature = "winnt"))]
 impl Default for KSNODEPROPERTY_AUDIO_PROPERTY {
     fn default() -> Self {
@@ -5020,15 +5020,15 @@ pub struct KS_RGBQUAD {
     pub rgbReserved: super::BYTE,
 }
 pub const KS_SECURE_CAMERA_SCENARIO_ID: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0xae53fc6e_8d89_4488_9d2e_4d008731c5fd);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KS_SIZE_EGA_PALETTE: u32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KS_SIZE_EGA_PALETTE: u64 = 64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KS_SIZE_MASKS: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KS_SIZE_MASKS: u64 = 12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KS_SIZE_PALETTE: u32 = 1024;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KS_SIZE_PALETTE: u64 = 1024;

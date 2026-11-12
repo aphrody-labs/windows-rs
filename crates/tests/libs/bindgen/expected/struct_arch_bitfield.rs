@@ -4,7 +4,7 @@ pub type Alias = Scalar;
 pub struct Member {
     pub storage: u64,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Member {
     pub fn value(&self) -> Alias {
         ((((self.storage) & 15) as i32) << 28) >> 28
@@ -26,7 +26,7 @@ impl Member {
         self.storage = (self.storage & !15) | (value & 15);
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type Scalar = i32;
 #[cfg(any(
     target_arch = "aarch64",
@@ -39,7 +39,7 @@ pub type Scalar = u64;
 pub struct Storage {
     pub _bitfield: Alias,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Storage {
     pub fn value(&self) -> i32 {
         (self._bitfield << 28) >> 28

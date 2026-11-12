@@ -14,13 +14,13 @@ windows_link::link!("kernel32.dll" "system" fn RtlCaptureContext(contextrecord :
 windows_link::link!("ntdll.dll" "system" fn RtlCaptureContext2(contextrecord : PCONTEXT));
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 windows_link::link!("kernel32.dll" "system" fn RtlCaptureStackBackTrace(framestoskip : super::DWORD, framestocapture : super::DWORD, backtrace : *mut PVOID, backtracehash : super::PDWORD) -> super::WORD);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 windows_link::link!("ntdll.dll" "system" "RtlCompareMemory" fn RtlCompareDeviceMemory(source1 : *const core::ffi::c_void, source2 : *const core::ffi::c_void, length : super::SIZE_T) -> super::SIZE_T);
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 windows_link::link!("kernel32.dll" "system" "RtlCompareMemory" fn RtlCompareDeviceMemory(source1 : *const core::ffi::c_void, source2 : *const core::ffi::c_void, length : super::SIZE_T) -> super::SIZE_T);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 windows_link::link!("ntdll.dll" "system" fn RtlCompareMemory(source1 : *const core::ffi::c_void, source2 : *const core::ffi::c_void, length : super::SIZE_T) -> super::SIZE_T);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -109,10 +109,10 @@ windows_link::link!("ntdll.dll" "system" fn RtlRaiseCustomSystemEventTrigger(tri
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 windows_link::link!("kernel32.dll" "system" fn RtlRaiseException(exceptionrecord : PEXCEPTION_RECORD));
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 windows_link::link!("ntdll.dll" "system" fn RtlRaiseException(exceptionrecord : PEXCEPTION_RECORD));
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 windows_link::link!("ntdll.dll" "C" fn RtlRestoreContext(contextrecord : PCONTEXT, exceptionrecord : *const EXCEPTION_RECORD));
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -629,7 +629,7 @@ pub type ARM64_FNPDATA_FLAGS = i32;
 pub const ARM64_MAX_BREAKPOINTS: i32 = 8;
 pub const ARM64_MAX_WATCHPOINTS: i32 = 2;
 #[repr(C, align(16))]
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct ARM64_NT_CONTEXT {
@@ -646,7 +646,7 @@ pub struct ARM64_NT_CONTEXT {
     pub Wcr: [super::DWORD; 2],
     pub Wvr: [super::DWORD64; 2],
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 impl Default for ARM64_NT_CONTEXT {
     fn default() -> Self {
@@ -654,14 +654,14 @@ impl Default for ARM64_NT_CONTEXT {
     }
 }
 #[repr(C)]
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union ARM64_NT_CONTEXT_0 {
     pub Anonymous: ARM64_NT_CONTEXT_0_0,
     pub X: [super::DWORD64; 31],
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 impl Default for ARM64_NT_CONTEXT_0 {
     fn default() -> Self {
@@ -669,7 +669,7 @@ impl Default for ARM64_NT_CONTEXT_0 {
     }
 }
 #[repr(C)]
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct ARM64_NT_CONTEXT_0_0 {
@@ -1193,7 +1193,7 @@ pub const COMPRESSION_FORMAT_XPRESS_HUFF: i32 = 4;
 pub const COMPRESSION_FORMAT_ZLIB: i32 = 8;
 pub const CONTAINER_INHERIT_ACE: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct CONTEXT {
@@ -1223,7 +1223,7 @@ pub struct CONTEXT {
     pub SegSs: super::DWORD,
     pub ExtendedRegisters: [super::BYTE; 512],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for CONTEXT {
     fn default() -> Self {
@@ -1338,7 +1338,7 @@ impl Default for CONTEXT_0_0 {
 #[cfg(target_arch = "aarch64")]
 #[cfg(feature = "shared")]
 pub type CONTEXT = ARM64_NT_CONTEXT;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_ALL: i32 = 65599;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_ALL: i32 = 1048607;
@@ -1359,13 +1359,13 @@ pub const CONTEXT_ARM64_RET_TO_GUEST: i32 = 67108864;
 pub const CONTEXT_ARM64_UNWOUND_TO_CALL: i32 = 536870912;
 pub const CONTEXT_ARM64_X18: i32 = 4194320;
 pub const CONTEXT_ARM64_XSTATE: i32 = 4194336;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_CONTROL: i32 = 65537;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_CONTROL: i32 = 1048577;
 #[cfg(target_arch = "aarch64")]
 pub const CONTEXT_CONTROL: i32 = 4194305;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_DEBUG_REGISTERS: i32 = 65552;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_DEBUG_REGISTERS: i32 = 1048592;
@@ -1374,21 +1374,21 @@ pub const CONTEXT_DEBUG_REGISTERS: i32 = 4194312;
 pub const CONTEXT_EXCEPTION_ACTIVE: i32 = 134217728;
 pub const CONTEXT_EXCEPTION_REPORTING: u32 = 2147483648;
 pub const CONTEXT_EXCEPTION_REQUEST: i32 = 1073741824;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_EXTENDED_REGISTERS: i32 = 65568;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_FLOATING_POINT: i32 = 65544;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_FLOATING_POINT: i32 = 1048584;
 #[cfg(target_arch = "aarch64")]
 pub const CONTEXT_FLOATING_POINT: i32 = 4194308;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_FULL: i32 = 65543;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_FULL: i32 = 1048587;
 #[cfg(target_arch = "aarch64")]
 pub const CONTEXT_FULL: i32 = 4194311;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_INTEGER: i32 = 65538;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_INTEGER: i32 = 1048578;
@@ -1396,23 +1396,23 @@ pub const CONTEXT_INTEGER: i32 = 1048578;
 pub const CONTEXT_INTEGER: i32 = 4194306;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_KERNEL_CET: i32 = 1048704;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_RET_TO_GUEST: i32 = 67108864;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_SEGMENTS: i32 = 65540;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_SEGMENTS: i32 = 1048580;
 pub const CONTEXT_SERVICE_ACTIVE: i32 = 268435456;
 pub const CONTEXT_UNWOUND_TO_CALL: i32 = 536870912;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_XSTATE: i32 = 65600;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONTEXT_XSTATE: i32 = 1048640;
 #[cfg(target_arch = "aarch64")]
 pub const CONTEXT_XSTATE: i32 = 4194336;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_i386: i32 = 65536;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONTEXT_i486: i32 = 65536;
 pub const CORE_PARKING_POLICY_CHANGE_IDEAL: i32 = 0;
 pub const CORE_PARKING_POLICY_CHANGE_MAX: i32 = 3;
@@ -1570,7 +1570,7 @@ pub struct DISPATCHER_CONTEXT {
 #[cfg(all(feature = "excpt", feature = "shared"))]
 pub type DISPATCHER_CONTEXT = DISPATCHER_CONTEXT_ARM64;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "excpt", feature = "shared"))]
 #[derive(Clone, Copy, Default)]
 pub struct DISPATCHER_CONTEXT_ARM64 {
@@ -2073,7 +2073,7 @@ pub struct EXCEPTION_REGISTRATION_RECORD {
     pub Next: *mut Self,
     pub Handler: PEXCEPTION_ROUTINE,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "excpt", feature = "shared"))]
 pub type EXCEPTION_ROUTINE = Option<unsafe extern "system" fn(exceptionrecord: *mut EXCEPTION_RECORD, establisherframe: PVOID, contextrecord: *mut CONTEXT, dispatchercontext: PVOID) -> super::EXCEPTION_DISPOSITION>;
 #[cfg(target_arch = "aarch64")]
@@ -2498,7 +2498,7 @@ pub struct FLOAT128 {
     pub HighPart: i64,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct FLOATING_SAVE_AREA {
@@ -2512,7 +2512,7 @@ pub struct FLOATING_SAVE_AREA {
     pub RegisterArea: [super::BYTE; 80],
     pub Spare0: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for FLOATING_SAVE_AREA {
     fn default() -> Self {
@@ -2525,7 +2525,7 @@ pub const FLUSH_FLAGS_FILE_DATA_ONLY: i32 = 1;
 pub const FLUSH_FLAGS_FILE_DATA_SYNC_ONLY: i32 = 4;
 pub const FLUSH_FLAGS_FLUSH_AND_PURGE: i32 = 8;
 pub const FLUSH_FLAGS_NO_SYNC: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const FLUSH_NV_MEMORY_DEFAULT_TOKEN: super::ULONG_PTR = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -3664,7 +3664,7 @@ impl Default for IMAGE_DOS_HEADER {
     }
 }
 pub const IMAGE_DOS_SIGNATURE: i32 = 23117;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_DYNAMIC_RELOCATION = IMAGE_DYNAMIC_RELOCATION32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -3713,7 +3713,7 @@ pub const IMAGE_DYNAMIC_RELOCATION_GUARD_RF_PROLOGUE: i32 = 1;
 pub const IMAGE_DYNAMIC_RELOCATION_GUARD_SWITCHTABLE_BRANCH: i32 = 5;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IMAGE_DYNAMIC_RELOCATION_IMPORT_CONTROL_TRANSFER: i32 = 3;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub const IMAGE_DYNAMIC_RELOCATION_IMPORT_CONTROL_TRANSFER: i32 = 8;
 #[repr(C, packed(4))]
 #[cfg(feature = "shared")]
@@ -3722,13 +3722,13 @@ pub struct IMAGE_DYNAMIC_RELOCATION_TABLE {
     pub Version: super::DWORD,
     pub Size: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_DYNAMIC_RELOCATION_V2 = IMAGE_DYNAMIC_RELOCATION32_V2;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_DYNAMIC_RELOCATION_V2 = IMAGE_DYNAMIC_RELOCATION64_V2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_ENCLAVE_CONFIG = IMAGE_ENCLAVE_CONFIG32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -3807,7 +3807,7 @@ pub const IMAGE_ENCLAVE_IMPORT_MATCH_IMAGE_ID: i32 = 4;
 pub const IMAGE_ENCLAVE_IMPORT_MATCH_NONE: i32 = 0;
 pub const IMAGE_ENCLAVE_IMPORT_MATCH_UNIQUE_ID: i32 = 1;
 pub const IMAGE_ENCLAVE_LONG_ID_LENGTH: i32 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const IMAGE_ENCLAVE_MINIMUM_CONFIG_SIZE: super::LONG = 0x48_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4172,7 +4172,7 @@ pub struct IMAGE_IMPORT_CONTROL_TRANSFER_DYNAMIC_RELOCATION {
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_IMPORT_CONTROL_TRANSFER_RELOCATION = IMAGE_IMPORT_CONTROL_TRANSFER_DYNAMIC_RELOCATION;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_IMPORT_CONTROL_TRANSFER_RELOCATION = IMAGE_IMPORT_CONTROL_TRANSFER_ARM64_RELOCATION;
 #[repr(C, packed(4))]
@@ -4245,7 +4245,7 @@ pub struct IMAGE_LOAD_CONFIG_CODE_INTEGRITY {
     pub CatalogOffset: super::DWORD,
     pub Reserved: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_LOAD_CONFIG_DIRECTORY = IMAGE_LOAD_CONFIG_DIRECTORY32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4361,7 +4361,7 @@ pub struct IMAGE_LOAD_CONFIG_DIRECTORY64 {
     pub GuardMemcpyFunctionPointer: super::ULONGLONG,
     pub UmaFunctionPointers: super::ULONGLONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_NT_HEADERS = IMAGE_NT_HEADERS32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4385,13 +4385,13 @@ pub struct IMAGE_NT_HEADERS64 {
 }
 pub const IMAGE_NT_OPTIONAL_HDR32_MAGIC: i32 = 267;
 pub const IMAGE_NT_OPTIONAL_HDR64_MAGIC: i32 = 523;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IMAGE_NT_OPTIONAL_HDR_MAGIC: i32 = 267;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IMAGE_NT_OPTIONAL_HDR_MAGIC: i32 = 523;
 pub const IMAGE_NT_SIGNATURE: i32 = 17744;
 pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES: i32 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_OPTIONAL_HEADER = IMAGE_OPTIONAL_HEADER32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4480,7 +4480,7 @@ impl Default for IMAGE_OPTIONAL_HEADER64 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IMAGE_ORDINAL_FLAG: u32 = 2147483648;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IMAGE_ORDINAL_FLAG: u64 = 9223372036854775808;
@@ -4989,7 +4989,7 @@ impl Default for IMAGE_ROM_OPTIONAL_HEADER {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_RUNTIME_FUNCTION_ENTRY = _IMAGE_RUNTIME_FUNCTION_ENTRY;
 #[cfg(target_arch = "aarch64")]
@@ -5255,7 +5255,7 @@ pub const IMAGE_SYM_TYPE_VOID: i32 = 1;
 pub const IMAGE_SYM_TYPE_WORD: i32 = 13;
 #[cfg(feature = "shared")]
 pub const IMAGE_SYM_UNDEFINED: super::SHORT = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_THUNK_DATA = IMAGE_THUNK_DATA32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -5315,7 +5315,7 @@ impl Default for IMAGE_THUNK_DATA64_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type IMAGE_TLS_DIRECTORY = IMAGE_TLS_DIRECTORY32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -6238,7 +6238,7 @@ pub const KEY_WOW64_64KEY: i32 = 256;
 pub const KEY_WOW64_RES: i32 = 768;
 pub const KEY_WRITE: i32 = 131078;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct KNONVOLATILE_CONTEXT_POINTERS {
@@ -6716,16 +6716,16 @@ pub const MAXBYTE: i32 = 255;
 pub const MAXCHAR: i32 = 127;
 pub const MAXDWORD: u32 = 4294967295;
 pub const MAXIMUM_ALLOWED: i32 = 33554432;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXIMUM_PROCESSORS: i32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAXIMUM_PROCESSORS: i32 = 64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXIMUM_PROC_PER_GROUP: i32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAXIMUM_PROC_PER_GROUP: i32 = 64;
 pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: i32 = 16384;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXIMUM_SUPPORTED_EXTENSION: i32 = 512;
 pub const MAXIMUM_SUSPEND_COUNT: i32 = 127;
 pub const MAXIMUM_WAIT_OBJECTS: i32 = 64;
@@ -6744,18 +6744,18 @@ pub const MAXWORD: i32 = 65535;
 pub const MAX_ACL_REVISION: i32 = 4;
 pub const MAX_CLASS_NAME: ReplacesCorHdrNumericDefines = 1024;
 pub const MAX_HW_COUNTERS: i32 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAX_NATURAL_ALIGNMENT: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAX_NATURAL_ALIGNMENT: u64 = 8;
 pub const MAX_PACKAGE_NAME: ReplacesCorHdrNumericDefines = 1024;
 pub const MAX_UCSCHAR: i32 = 1114111;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MEMORY_ALLOCATION_ALIGNMENT: i32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MEMORY_ALLOCATION_ALIGNMENT: i32 = 16;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct MEMORY_BASIC_INFORMATION {
@@ -7078,12 +7078,12 @@ pub struct NETWORK_APP_INSTANCE_EA {
 }
 pub const NLS_VALID_LOCALE_MASK: i32 = 1048575;
 pub const NONVOL_FP_NUMREG_ARM64: i32 = 8;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NONVOL_FP_SIZE_ARM64: u32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NONVOL_FP_SIZE_ARM64: u64 = 64;
 pub const NONVOL_INT_NUMREG_ARM64: i32 = 11;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NONVOL_INT_SIZE_ARM64: u32 = 88;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NONVOL_INT_SIZE_ARM64: u64 = 88;
@@ -7465,7 +7465,7 @@ pub type PCOMPARTMENT_ID = *mut COMPARTMENT_ID;
 pub type PCOMPATIBILITY_CONTEXT_ELEMENT = *mut COMPATIBILITY_CONTEXT_ELEMENT;
 #[cfg(feature = "shared")]
 pub type PCOMPONENT_FILTER = *mut COMPONENT_FILTER;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type PCONTEXT = *mut CONTEXT;
 #[cfg(target_arch = "aarch64")]
@@ -7578,7 +7578,7 @@ pub type PEXCEPTION_RECORD32 = *mut EXCEPTION_RECORD32;
 pub type PEXCEPTION_RECORD64 = *mut EXCEPTION_RECORD64;
 #[cfg(all(feature = "excpt", feature = "shared"))]
 pub type PEXCEPTION_REGISTRATION_RECORD = *mut EXCEPTION_REGISTRATION_RECORD;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "excpt", feature = "shared"))]
 pub type PEXCEPTION_ROUTINE = Option<unsafe extern "system" fn(exceptionrecord: *mut EXCEPTION_RECORD, establisherframe: PVOID, contextrecord: *mut CONTEXT, dispatchercontext: PVOID) -> super::EXCEPTION_DISPOSITION>;
 #[cfg(target_arch = "aarch64")]
@@ -7605,7 +7605,7 @@ pub type PFILE_STAT_INFORMATION = *mut FILE_STAT_INFORMATION;
 pub type PFILE_STAT_LX_INFORMATION = *mut FILE_STAT_LX_INFORMATION;
 pub type PFIRMWARE_TYPE = *mut FIRMWARE_TYPE;
 pub type PFLOAT128 = *mut FLOAT128;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PFLOATING_SAVE_AREA = *mut FLOATING_SAVE_AREA;
 pub type PFLS_CALLBACK_FUNCTION = Option<unsafe extern "system" fn(lpflsdata: PVOID)>;
@@ -7684,7 +7684,7 @@ pub const PF_FLOATING_POINT_PRECISION_ERRATA: i32 = 0;
 pub const PF_MMX_INSTRUCTIONS_AVAILABLE: i32 = 3;
 pub const PF_MONITORX_INSTRUCTION_AVAILABLE: i32 = 35;
 pub const PF_MOVDIR64B_INSTRUCTION_AVAILABLE: i32 = 61;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const PF_NON_TEMPORAL_LEVEL_ALL: i32 = 0;
 #[cfg(target_arch = "aarch64")]
 pub const PF_NON_TEMPORAL_LEVEL_ALL: i32 = 3;
@@ -7703,15 +7703,15 @@ pub const PF_SSE4_1_INSTRUCTIONS_AVAILABLE: i32 = 37;
 pub const PF_SSE4_2_INSTRUCTIONS_AVAILABLE: i32 = 38;
 pub const PF_SSE_DAZ_MODE_AVAILABLE: i32 = 11;
 pub const PF_SSSE3_INSTRUCTIONS_AVAILABLE: i32 = 36;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const PF_TEMPORAL_LEVEL_1: i32 = 1;
 #[cfg(target_arch = "aarch64")]
 pub const PF_TEMPORAL_LEVEL_1: i32 = 0;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const PF_TEMPORAL_LEVEL_2: i32 = 2;
 #[cfg(target_arch = "aarch64")]
 pub const PF_TEMPORAL_LEVEL_2: i32 = 1;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const PF_TEMPORAL_LEVEL_3: i32 = 3;
 #[cfg(target_arch = "aarch64")]
 pub const PF_TEMPORAL_LEVEL_3: i32 = 2;
@@ -7789,7 +7789,7 @@ pub type PIMAGE_DEBUG_MISC = *mut IMAGE_DEBUG_MISC;
 pub type PIMAGE_DELAYLOAD_DESCRIPTOR = *mut IMAGE_DELAYLOAD_DESCRIPTOR;
 #[cfg(feature = "shared")]
 pub type PIMAGE_DOS_HEADER = *mut IMAGE_DOS_HEADER;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_DYNAMIC_RELOCATION = *mut IMAGE_DYNAMIC_RELOCATION32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7805,13 +7805,13 @@ pub type PIMAGE_DYNAMIC_RELOCATION64 = *mut IMAGE_DYNAMIC_RELOCATION64;
 pub type PIMAGE_DYNAMIC_RELOCATION64_V2 = *mut IMAGE_DYNAMIC_RELOCATION64_V2;
 #[cfg(feature = "shared")]
 pub type PIMAGE_DYNAMIC_RELOCATION_TABLE = *mut IMAGE_DYNAMIC_RELOCATION_TABLE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_DYNAMIC_RELOCATION_V2 = *mut IMAGE_DYNAMIC_RELOCATION32_V2;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_DYNAMIC_RELOCATION_V2 = *mut IMAGE_DYNAMIC_RELOCATION64_V2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_ENCLAVE_CONFIG = *mut IMAGE_ENCLAVE_CONFIG32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7868,14 +7868,14 @@ pub type PIMAGE_IMPORT_CONTROL_TRANSFER_DYNAMIC_RELOCATION = *mut IMAGE_IMPORT_C
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_IMPORT_CONTROL_TRANSFER_RELOCATION = *mut IMAGE_IMPORT_CONTROL_TRANSFER_DYNAMIC_RELOCATION;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_IMPORT_CONTROL_TRANSFER_RELOCATION = *mut IMAGE_IMPORT_CONTROL_TRANSFER_ARM64_RELOCATION;
 #[cfg(feature = "shared")]
 pub type PIMAGE_INDIR_CONTROL_TRANSFER_DYNAMIC_RELOCATION = *mut IMAGE_INDIR_CONTROL_TRANSFER_DYNAMIC_RELOCATION;
 #[cfg(feature = "shared")]
 pub type PIMAGE_LOAD_CONFIG_CODE_INTEGRITY = *mut IMAGE_LOAD_CONFIG_CODE_INTEGRITY;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_LOAD_CONFIG_DIRECTORY = *mut IMAGE_LOAD_CONFIG_DIRECTORY32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7885,7 +7885,7 @@ pub type PIMAGE_LOAD_CONFIG_DIRECTORY = *mut IMAGE_LOAD_CONFIG_DIRECTORY64;
 pub type PIMAGE_LOAD_CONFIG_DIRECTORY32 = *mut IMAGE_LOAD_CONFIG_DIRECTORY32;
 #[cfg(feature = "shared")]
 pub type PIMAGE_LOAD_CONFIG_DIRECTORY64 = *mut IMAGE_LOAD_CONFIG_DIRECTORY64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_NT_HEADERS = *mut IMAGE_NT_HEADERS32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7895,7 +7895,7 @@ pub type PIMAGE_NT_HEADERS = *mut IMAGE_NT_HEADERS64;
 pub type PIMAGE_NT_HEADERS32 = *mut IMAGE_NT_HEADERS32;
 #[cfg(feature = "shared")]
 pub type PIMAGE_NT_HEADERS64 = *mut IMAGE_NT_HEADERS64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_OPTIONAL_HEADER = *mut IMAGE_OPTIONAL_HEADER32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7923,7 +7923,7 @@ pub type PIMAGE_RESOURCE_DIR_STRING_U = *mut IMAGE_RESOURCE_DIR_STRING_U;
 pub type PIMAGE_ROM_HEADERS = *mut IMAGE_ROM_HEADERS;
 #[cfg(feature = "shared")]
 pub type PIMAGE_ROM_OPTIONAL_HEADER = *mut IMAGE_ROM_OPTIONAL_HEADER;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_RUNTIME_FUNCTION_ENTRY = *mut _IMAGE_RUNTIME_FUNCTION_ENTRY;
 #[cfg(target_arch = "aarch64")]
@@ -7935,7 +7935,7 @@ pub type PIMAGE_SECTION_HEADER = *mut IMAGE_SECTION_HEADER;
 pub type PIMAGE_SEPARATE_DEBUG_HEADER = *mut IMAGE_SEPARATE_DEBUG_HEADER;
 #[cfg(feature = "shared")]
 pub type PIMAGE_SWITCHTABLE_BRANCH_DYNAMIC_RELOCATION = *mut IMAGE_SWITCHTABLE_BRANCH_DYNAMIC_RELOCATION;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_THUNK_DATA = *mut IMAGE_THUNK_DATA32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -7947,7 +7947,7 @@ pub type PIMAGE_THUNK_DATA32 = *mut IMAGE_THUNK_DATA32;
 pub type PIMAGE_THUNK_DATA64 = *mut IMAGE_THUNK_DATA64;
 #[cfg(feature = "shared")]
 pub type PIMAGE_TLS_CALLBACK = Option<unsafe extern "system" fn(dllhandle: PVOID, reason: super::DWORD, reserved: PVOID)>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PIMAGE_TLS_DIRECTORY = *mut IMAGE_TLS_DIRECTORY32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -8002,7 +8002,7 @@ pub type PJOBOBJECT_SECURITY_LIMIT_INFORMATION = *mut JOBOBJECT_SECURITY_LIMIT_I
 pub type PJOB_SET_ARRAY = *mut JOB_SET_ARRAY;
 #[cfg(feature = "shared")]
 pub type PKERNEL_CET_CONTEXT = *mut KERNEL_CET_CONTEXT;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
 pub type PKNONVOLATILE_CONTEXT_POINTERS = *mut KNONVOLATILE_CONTEXT_POINTERS;
 #[cfg(target_arch = "aarch64")]
@@ -9936,7 +9936,7 @@ pub type PSID_NAME_USE = *mut SID_NAME_USE;
 #[cfg(feature = "shared")]
 pub type PSILOOBJECT_BASIC_INFORMATION = *mut SILOOBJECT_BASIC_INFORMATION;
 pub type PSINGLE_LIST_ENTRY = *mut SINGLE_LIST_ENTRY;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type PSLIST_ENTRY = *mut SINGLE_LIST_ENTRY;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub type PSLIST_ENTRY = *mut SLIST_ENTRY;
@@ -10167,7 +10167,7 @@ pub type PZPWSTR = *mut *mut u16;
 pub type PZZSTR = *mut i8;
 pub type PZZTSTR = *mut i8;
 pub type PZZWSTR = *mut u16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PcTeb: i32 = 24;
 pub const PdataCrChained: ARM64_FNPDATA_CR = 3;
 pub const PdataCrChainedWithPac: ARM64_FNPDATA_CR = 2;
@@ -11176,7 +11176,7 @@ pub struct SECURITY_DESCRIPTOR {
     pub Dacl: PACL,
 }
 pub type SECURITY_DESCRIPTOR_CONTROL = u16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SECURITY_DESCRIPTOR_MIN_LENGTH: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SECURITY_DESCRIPTOR_MIN_LENGTH: u64 = 40;
@@ -11399,7 +11399,7 @@ pub const SECURITY_MANDATORY_UNTRUSTED_RID: i32 = 0;
 pub const SECURITY_MAX_ALWAYS_FILTERED: i32 = 999;
 pub const SECURITY_MAX_BASE_RID: i32 = 111;
 pub const SECURITY_MAX_IMPERSONATION_LEVEL: SECURITY_IMPERSONATION_LEVEL = 3;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SECURITY_MAX_SID_SIZE: u32 = 68;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SECURITY_MAX_SID_SIZE: u64 = 68;
@@ -11863,9 +11863,9 @@ pub struct SINGLE_LIST_ENTRY {
     pub Next: *mut Self,
 }
 pub const SIZEOF_RFPO_DATA: i32 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIZE_OF_80387_REGISTERS: i32 = 80;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type SLIST_ENTRY = SINGLE_LIST_ENTRY;
 #[repr(C, align(16))]
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -11874,14 +11874,14 @@ pub struct SLIST_ENTRY {
     pub Next: *mut Self,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union SLIST_HEADER {
     pub Alignment: super::ULONGLONG,
     pub Anonymous: SLIST_HEADER_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SLIST_HEADER {
     fn default() -> Self {
@@ -11889,7 +11889,7 @@ impl Default for SLIST_HEADER {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SLIST_HEADER_0 {
@@ -12359,7 +12359,7 @@ impl Default for SYSTEM_BATTERY_STATE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const SYSTEM_CACHE_ALIGNMENT_SIZE: i32 = 64;
 #[cfg(target_arch = "aarch64")]
 pub const SYSTEM_CACHE_ALIGNMENT_SIZE: i32 = 128;
@@ -12924,7 +12924,7 @@ pub const TOKEN_ALL_ACCESS_P: i32 = 983295;
 pub struct TOKEN_APPCONTAINER_INFORMATION {
     pub TokenAppContainer: PSID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TOKEN_APPCONTAINER_SID_MAX_SIZE: u32 = 72;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TOKEN_APPCONTAINER_SID_MAX_SIZE: u64 = 76;
@@ -13007,7 +13007,7 @@ pub struct TOKEN_GROUPS_AND_PRIVILEGES {
 }
 pub const TOKEN_IMPERSONATE: i32 = 4;
 pub type TOKEN_INFORMATION_CLASS = i32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const TOKEN_INTEGRITY_LEVEL_MAX_SIZE: super::DWORD = 76;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -13062,7 +13062,7 @@ pub struct TOKEN_ORIGIN {
 pub struct TOKEN_OWNER {
     pub Owner: PSID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TOKEN_OWNER_MAX_SIZE: u32 = 72;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TOKEN_OWNER_MAX_SIZE: u64 = 76;
@@ -13141,7 +13141,7 @@ pub struct TOKEN_USER {
 pub struct TOKEN_USER_CLAIMS {
     pub UserClaims: PCLAIMS_BLOB,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TOKEN_USER_MAX_SIZE: u32 = 76;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TOKEN_USER_MAX_SIZE: u64 = 84;
@@ -14076,7 +14076,7 @@ pub struct XSAVE_CET_U_FORMAT {
     pub Ia32Pl3SspMsr: super::DWORD64,
 }
 #[repr(C, align(16))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct XSAVE_FORMAT {
@@ -14097,7 +14097,7 @@ pub struct XSAVE_FORMAT {
     pub XmmRegisters: [M128A; 8],
     pub Reserved4: [super::BYTE; 224],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for XSAVE_FORMAT {
     fn default() -> Self {
@@ -14256,7 +14256,7 @@ pub struct XSTATE_CONFIGURATION_1_1_0_0 {
     pub _bitfield: u16,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct XSTATE_CONTEXT {
@@ -14269,7 +14269,7 @@ pub struct XSTATE_CONTEXT {
     pub Buffer: PVOID,
     pub Reserved3: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for XSTATE_CONTEXT {
     fn default() -> Self {
@@ -14313,7 +14313,7 @@ pub const XSTATE_IPT: i32 = 8;
 pub const XSTATE_LEGACY_FLOATING_POINT: i32 = 0;
 pub const XSTATE_LEGACY_SSE: i32 = 1;
 pub const XSTATE_LWP: i32 = 62;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const XSTATE_MASK_ALLOWED: u64 = 4611686018427388415;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const XSTATE_MASK_ALLOWED: u64 = 4611686018428308991;
@@ -14335,9 +14335,9 @@ pub const XSTATE_MASK_GSSE: u64 = 4;
 pub const XSTATE_MASK_IPT: u64 = 256;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const XSTATE_MASK_LARGE_FEATURES: u64 = 262144;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub const XSTATE_MASK_LARGE_FEATURES: u64 = 0;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const XSTATE_MASK_LEGACY: u64 = 3;
 #[cfg(target_arch = "aarch64")]
 pub const XSTATE_MASK_LEGACY: u64 = 0;
@@ -14346,11 +14346,11 @@ pub const XSTATE_MASK_LEGACY_SSE: u64 = 2;
 pub const XSTATE_MASK_LWP: u64 = 4611686018427387904;
 pub const XSTATE_MASK_MPX: u64 = 24;
 pub const XSTATE_MASK_PASID: u64 = 1024;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const XSTATE_MASK_PERSISTENT: u64 = 4611686018427387920;
 #[cfg(target_arch = "aarch64")]
 pub const XSTATE_MASK_PERSISTENT: u64 = 0;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const XSTATE_MASK_USER_VISIBLE_SUPERVISOR: u64 = 2048;
 #[cfg(target_arch = "aarch64")]
 pub const XSTATE_MASK_USER_VISIBLE_SUPERVISOR: u64 = 0;
@@ -14389,13 +14389,13 @@ impl Default for _IMAGE_RUNTIME_FUNCTION_ENTRY_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const _MM_HINT_NTA: i32 = 0;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const _MM_HINT_T0: i32 = 1;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const _MM_HINT_T1: i32 = 2;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const _MM_HINT_T2: i32 = 3;
 #[repr(C)]
 #[cfg(feature = "shared")]
@@ -14622,6 +14622,6 @@ pub struct _TP_WAIT(pub u8);
 #[derive(Clone, Copy, Default)]
 pub struct _TP_WORK(pub u8);
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct _UNWIND_HISTORY_TABLE(pub u8);

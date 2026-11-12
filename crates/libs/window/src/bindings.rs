@@ -6,7 +6,7 @@ windows_core::link!("user32.dll" "system" fn DispatchMessageW(lpmsg : *const MSG
 windows_core::link!("user32.dll" "system" fn GetClientRect(hwnd : HWND, lprect : LPRECT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetDpiForSystem() -> UINT);
 windows_core::link!("user32.dll" "system" fn GetMessageW(lpmsg : LPMSG, hwnd : HWND, wmsgfiltermin : UINT, wmsgfiltermax : UINT) -> windows_core::BOOL);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 windows_core::link!("user32.dll" "system" "GetWindowLongW" fn GetWindowLongPtrW(hwnd : HWND, nindex : i32) -> LONG);
 #[cfg(any(
     target_arch = "aarch64",
@@ -20,7 +20,7 @@ windows_core::link!("user32.dll" "system" fn PostQuitMessage(nexitcode : i32));
 windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : UINT, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetProcessDpiAwarenessContext(value : DPI_AWARENESS_CONTEXT) -> windows_core::BOOL);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 windows_core::link!("user32.dll" "system" "SetWindowLongW" fn SetWindowLongPtrW(hwnd : HWND, nindex : i32, dwnewlong : LONG) -> LONG);
 #[cfg(any(
     target_arch = "aarch64",

@@ -112,13 +112,13 @@ pub unsafe fn I_RpcClearMutex(mutex: I_RPC_MUTEX) {
     windows_core::link!("rpcrt4.dll" "system" fn I_RpcClearMutex(mutex : I_RPC_MUTEX));
     unsafe { I_RpcClearMutex(mutex as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn I_RpcConnectionInqSockBuffSize(recvbuffsize: *mut u32, sendbuffsize: *mut u32) -> windows_core::RPC_STATUS {
     windows_core::link!("rpcrt4.dll" "system" fn I_RpcConnectionInqSockBuffSize(recvbuffsize : *mut u32, sendbuffsize : *mut u32) -> windows_core::RPC_STATUS);
     unsafe { I_RpcConnectionInqSockBuffSize(recvbuffsize as _, sendbuffsize as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn I_RpcConnectionSetSockBuffSize(recvbuffsize: u32, sendbuffsize: u32) -> windows_core::RPC_STATUS {
     windows_core::link!("rpcrt4.dll" "system" fn I_RpcConnectionSetSockBuffSize(recvbuffsize : u32, sendbuffsize : u32) -> windows_core::RPC_STATUS);
@@ -1097,7 +1097,7 @@ pub unsafe fn NdrSendReceive(pstubmsg: PMIDL_STUB_MESSAGE, pbufferend: *mut u8) 
     windows_core::link!("rpcrt4.dll" "system" fn NdrSendReceive(pstubmsg : PMIDL_STUB_MESSAGE, pbufferend : *mut u8) -> *mut u8);
     unsafe { NdrSendReceive(pstubmsg as _, pbufferend as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn NdrServerCall(prpcmsg: PRPC_MESSAGE) {
     windows_core::link!("rpcrt4.dll" "system" fn NdrServerCall(prpcmsg : PRPC_MESSAGE));
@@ -1174,14 +1174,14 @@ pub unsafe fn NdrServerInitializeUnmarshall(pstubmsg: PMIDL_STUB_MESSAGE, pstubd
     windows_core::link!("rpcrt4.dll" "system" fn NdrServerInitializeUnmarshall(pstubmsg : PMIDL_STUB_MESSAGE, pstubdescriptor : PMIDL_STUB_DESC, prpcmsg : PRPC_MESSAGE) -> *mut u8);
     unsafe { NdrServerInitializeUnmarshall(pstubmsg as _, pstubdescriptor, prpcmsg as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "objidlbase", feature = "shared", feature = "webauthn"))]
 #[inline]
 pub unsafe fn NdrServerMarshall(pthis: *mut core::ffi::c_void, pchannel: *mut core::ffi::c_void, pstubmsg: PMIDL_STUB_MESSAGE, pformat: PFORMAT_STRING) {
     windows_core::link!("rpcrt4.dll" "system" fn NdrServerMarshall(pthis : *mut core::ffi::c_void, pchannel : *mut core::ffi::c_void, pstubmsg : PMIDL_STUB_MESSAGE, pformat : PFORMAT_STRING));
     unsafe { NdrServerMarshall(pthis as _, pchannel as _, pstubmsg as _, pformat) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "objidlbase", feature = "shared", feature = "webauthn"))]
 #[inline]
 pub unsafe fn NdrServerUnmarshall(pchannel: *mut core::ffi::c_void, prpcmsg: PRPC_MESSAGE, pstubmsg: PMIDL_STUB_MESSAGE, pstubdescriptor: PMIDL_STUB_DESC, pformat: PFORMAT_STRING, pparamlist: *mut core::ffi::c_void) -> i32 {
@@ -1230,7 +1230,7 @@ pub unsafe fn NdrSimpleTypeUnmarshall(pstubmsg: PMIDL_STUB_MESSAGE, pmemory: *mu
     windows_core::link!("rpcrt4.dll" "system" fn NdrSimpleTypeUnmarshall(pstubmsg : PMIDL_STUB_MESSAGE, pmemory : *mut u8, formatchar : u8));
     unsafe { NdrSimpleTypeUnmarshall(pstubmsg as _, pmemory as _, formatchar) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn NdrStubCall(pthis: *mut core::ffi::c_void, pchannel: *mut core::ffi::c_void, prpcmsg: PRPC_MESSAGE, pdwstubphase: *mut u32) -> i32 {
     windows_core::link!("rpcrt4.dll" "system" fn NdrStubCall(pthis : *mut core::ffi::c_void, pchannel : *mut core::ffi::c_void, prpcmsg : PRPC_MESSAGE, pdwstubphase : *mut u32) -> i32);
@@ -2571,7 +2571,7 @@ pub struct ARRAY_INFO {
     pub ActualCountArray: *mut u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct BinaryParam {
     pub Buffer: *mut core::ffi::c_void,
@@ -2656,7 +2656,7 @@ pub const I_RRPCUNINITIALIZENDROLE_EXPORT_NAME: windows_core::PCSTR = windows_co
 pub type I_RpcFreeCalloutStateFn = Option<unsafe extern "system" fn(calloutstate: *mut RDR_CALLOUT_STATE)>;
 pub type I_RpcPerformCalloutFn = Option<unsafe extern "system" fn(context: *mut core::ffi::c_void, calloutstate: *mut RDR_CALLOUT_STATE, stage: RPC_HTTP_REDIRECTOR_STAGE) -> windows_core::RPC_STATUS>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct I_RpcProxyCallbackInterface {
     pub IsValidMachineFn: I_RpcProxyIsValidMachineFn,
@@ -3170,7 +3170,7 @@ pub type PSEC_WINNT_AUTH_IDENTITY_W = *mut SEC_WINNT_AUTH_IDENTITY_W;
 #[cfg(all(feature = "objidlbase", feature = "shared", feature = "webauthn"))]
 pub type PXMIT_ROUTINE_QUINTUPLE = *mut XMIT_ROUTINE_QUINTUPLE;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct RDR_CALLOUT_STATE {
     pub LastError: windows_core::RPC_STATUS,
@@ -3234,7 +3234,7 @@ pub type RPC_ADDRESS_CHANGE_FN = Option<unsafe extern "system" fn(arg: *mut core
 pub type RPC_ADDRESS_CHANGE_TYPE = i32;
 pub type RPC_ASYNC_EVENT = i32;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union RPC_ASYNC_NOTIFICATION_INFO {
@@ -3244,7 +3244,7 @@ pub union RPC_ASYNC_NOTIFICATION_INFO {
     pub hEvent: super::HANDLE,
     pub NotificationRoutine: PFN_RPCNOTIFICATION_ROUTINE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 impl Default for RPC_ASYNC_NOTIFICATION_INFO {
     fn default() -> Self {
@@ -3252,7 +3252,7 @@ impl Default for RPC_ASYNC_NOTIFICATION_INFO {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RPC_ASYNC_NOTIFICATION_INFO_0 {
@@ -3260,7 +3260,7 @@ pub struct RPC_ASYNC_NOTIFICATION_INFO_0 {
     pub hThread: super::HANDLE,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_ASYNC_NOTIFICATION_INFO_1 {
@@ -3270,7 +3270,7 @@ pub struct RPC_ASYNC_NOTIFICATION_INFO_1 {
     pub lpOverlapped: super::LPOVERLAPPED,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_ASYNC_NOTIFICATION_INFO_2 {
@@ -3322,7 +3322,7 @@ pub struct RPC_ASYNC_NOTIFICATION_INFO_2 {
     pub Msg: super::UINT,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct RPC_ASYNC_STATE {
@@ -3338,7 +3338,7 @@ pub struct RPC_ASYNC_STATE {
     pub u: RPC_ASYNC_NOTIFICATION_INFO,
     pub Reserved: [super::LONG_PTR; 4],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "shared", feature = "windef", feature = "winnt"))]
 impl Default for RPC_ASYNC_STATE {
     fn default() -> Self {
@@ -3369,7 +3369,7 @@ impl Default for RPC_ASYNC_STATE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RPC_ASYNC_VERSION_1_0: u32 = 68;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RPC_ASYNC_VERSION_1_0: u64 = 112;
@@ -3382,7 +3382,7 @@ pub const RPC_BHO_NONCAUSAL: i32 = 1;
 pub const RPC_BHT_OBJECT_UUID_VALID: i32 = 1;
 pub type RPC_BINDING_HANDLE = *mut core::ffi::c_void;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_BINDING_HANDLE_OPTIONS_V1 {
     pub Version: u32,
@@ -3400,7 +3400,7 @@ pub struct RPC_BINDING_HANDLE_OPTIONS_V1 {
     pub CallTimeout: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_BINDING_HANDLE_SECURITY_V1_A {
     pub Version: u32,
@@ -3422,7 +3422,7 @@ pub struct RPC_BINDING_HANDLE_SECURITY_V1_A {
     pub SecurityQos: *mut RPC_SECURITY_QOS,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_BINDING_HANDLE_SECURITY_V1_W {
     pub Version: u32,
@@ -3444,7 +3444,7 @@ pub struct RPC_BINDING_HANDLE_SECURITY_V1_W {
     pub SecurityQos: *mut RPC_SECURITY_QOS,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_BINDING_HANDLE_TEMPLATE_V1_A {
     pub Version: u32,
@@ -3455,19 +3455,19 @@ pub struct RPC_BINDING_HANDLE_TEMPLATE_V1_A {
     pub u1: RPC_BINDING_HANDLE_TEMPLATE_V1_A_0,
     pub ObjectUuid: UUID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_A {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_BINDING_HANDLE_TEMPLATE_V1_A_0 {
     pub Reserved: *mut u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_A_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -3504,7 +3504,7 @@ impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_A_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_BINDING_HANDLE_TEMPLATE_V1_W {
     pub Version: u32,
@@ -3515,19 +3515,19 @@ pub struct RPC_BINDING_HANDLE_TEMPLATE_V1_W {
     pub u1: RPC_BINDING_HANDLE_TEMPLATE_V1_W_0,
     pub ObjectUuid: UUID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_W {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_BINDING_HANDLE_TEMPLATE_V1_W_0 {
     pub Reserved: *mut u16,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_W_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -3564,13 +3564,13 @@ impl Default for RPC_BINDING_HANDLE_TEMPLATE_V1_W_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RPC_BINDING_VECTOR {
     pub Count: u32,
     pub BindingH: [RPC_BINDING_HANDLE; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_BINDING_VECTOR {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -3599,7 +3599,7 @@ pub type RPC_BUFPTR = *mut u8;
 #[cfg(feature = "winnt")]
 pub type RPC_CALL_ATTRIBUTES = RPC_CALL_ATTRIBUTES_V3_A;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V1_A {
     pub Version: u32,
@@ -3627,7 +3627,7 @@ pub struct RPC_CALL_ATTRIBUTES_V1_A {
     pub NullSession: windows_core::BOOL,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V1_W {
     pub Version: u32,
@@ -3655,7 +3655,7 @@ pub struct RPC_CALL_ATTRIBUTES_V1_W {
     pub NullSession: windows_core::BOOL,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V2_A {
@@ -3703,7 +3703,7 @@ pub struct RPC_CALL_ATTRIBUTES_V2_A {
     pub InterfaceUuid: UUID,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V2_W {
@@ -3751,7 +3751,7 @@ pub struct RPC_CALL_ATTRIBUTES_V2_W {
     pub InterfaceUuid: UUID,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V3_A {
@@ -3803,7 +3803,7 @@ pub struct RPC_CALL_ATTRIBUTES_V3_A {
     pub ClientIdentifier: *mut u8,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_ATTRIBUTES_V3_W {
@@ -3856,7 +3856,7 @@ pub struct RPC_CALL_ATTRIBUTES_V3_W {
 }
 pub const RPC_CALL_ATTRIBUTES_VERSION: i32 = 3;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CALL_LOCAL_ADDRESS_V1 {
     pub Version: u32,
@@ -3879,7 +3879,7 @@ pub const RPC_CALL_STATUS_DISCONNECTED: i32 = 2;
 pub type RPC_CLIENT_ALLOC = Option<unsafe extern "system" fn(size: super::size_t) -> *mut core::ffi::c_void>;
 pub type RPC_CLIENT_FREE = Option<unsafe extern "system" fn(ptr: *const core::ffi::c_void)>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_CLIENT_INFORMATION1 {
     pub UserName: *mut u8,
@@ -3897,7 +3897,7 @@ pub struct RPC_CLIENT_INFORMATION1 {
     pub AuthFlags: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct RPC_CLIENT_INTERFACE {
@@ -3927,7 +3927,7 @@ pub struct RPC_CLIENT_INTERFACE {
     pub Flags: u32,
 }
 pub const RPC_CONTEXT_HANDLE_DEFAULT_FLAGS: u32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RPC_CONTEXT_HANDLE_DEFAULT_GUARD: *mut core::ffi::c_void = core::ptr::without_provenance_mut::<core::ffi::c_void>((-4083i32) as usize);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RPC_CONTEXT_HANDLE_DEFAULT_GUARD: *mut core::ffi::c_void = core::ptr::without_provenance_mut::<core::ffi::c_void>(4294963213usize);
@@ -4014,7 +4014,7 @@ pub const RPC_C_OPT_BINDING_NONCAUSAL: i32 = 9;
 pub const RPC_C_OPT_CALL_TIMEOUT: i32 = 12;
 pub const RPC_C_OPT_COOKIE_AUTH: i32 = 7;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_C_OPT_COOKIE_AUTH_DESCRIPTOR {
     pub BufferSize: u32,
@@ -4085,7 +4085,7 @@ pub const RPC_C_VERS_MAJOR_ONLY: i32 = 4;
 pub const RPC_C_VERS_UPTO: i32 = 5;
 pub type RPC_DISPATCH_FUNCTION = Option<unsafe extern "system" fn(message: PRPC_MESSAGE)>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_DISPATCH_TABLE {
@@ -4104,14 +4104,14 @@ pub struct RPC_DISPATCH_TABLE {
 }
 pub const RPC_EEINFO_VERSION: i32 = 1;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct RPC_EE_INFO_PARAM {
     pub ParameterType: ExtendedErrorParamTypes,
     pub u: RPC_EE_INFO_PARAM_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for RPC_EE_INFO_PARAM {
     fn default() -> Self {
@@ -4119,7 +4119,7 @@ impl Default for RPC_EE_INFO_PARAM {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union RPC_EE_INFO_PARAM_0 {
@@ -4130,7 +4130,7 @@ pub union RPC_EE_INFO_PARAM_0 {
     pub PVal: super::ULONGLONG,
     pub BVal: BinaryParam,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for RPC_EE_INFO_PARAM_0 {
     fn default() -> Self {
@@ -4172,7 +4172,7 @@ impl Default for RPC_EE_INFO_PARAM_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_ENDPOINT_TEMPLATEA {
     pub Version: u32,
@@ -4192,7 +4192,7 @@ pub struct RPC_ENDPOINT_TEMPLATEA {
     pub Backlog: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_ENDPOINT_TEMPLATEW {
     pub Version: u32,
@@ -4213,7 +4213,7 @@ pub struct RPC_ENDPOINT_TEMPLATEW {
 }
 pub type RPC_EP_INQ_HANDLE = *mut *mut core::ffi::c_void;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_ERROR_ENUM_HANDLE {
@@ -4231,7 +4231,7 @@ pub struct RPC_ERROR_ENUM_HANDLE {
     pub Head: *mut core::ffi::c_void,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy)]
 pub struct RPC_EXTENDED_ERROR_INFO {
@@ -4246,7 +4246,7 @@ pub struct RPC_EXTENDED_ERROR_INFO {
     pub NumberOfParameters: i32,
     pub Parameters: [RPC_EE_INFO_PARAM; 4],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "minwindef", feature = "shared"))]
 impl Default for RPC_EXTENDED_ERROR_INFO {
     fn default() -> Self {
@@ -4254,14 +4254,14 @@ impl Default for RPC_EXTENDED_ERROR_INFO {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy)]
 pub union RPC_EXTENDED_ERROR_INFO_0 {
     pub SystemTime: super::SYSTEMTIME,
     pub FileTime: super::FILETIME,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwinbase", feature = "minwindef", feature = "shared"))]
 impl Default for RPC_EXTENDED_ERROR_INFO_0 {
     fn default() -> Self {
@@ -4312,7 +4312,7 @@ pub const RPC_FW_IF_FLAG_DCOM: i32 = 1;
 pub type RPC_HTTP_PROXY_FREE_STRING = Option<unsafe extern "system" fn(string: RPC_WSTR)>;
 pub type RPC_HTTP_REDIRECTOR_STAGE = i32;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_A {
     pub TransportCredentials: *mut SEC_WINNT_AUTH_IDENTITY_A,
@@ -4334,7 +4334,7 @@ pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_A {
     pub ServerCertificateSubject: *mut u8,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V2_A {
     pub TransportCredentials: *mut SEC_WINNT_AUTH_IDENTITY_A,
@@ -4362,7 +4362,7 @@ pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V2_A {
     pub ProxyAuthnSchemes: *mut u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V2_W {
     pub TransportCredentials: *mut SEC_WINNT_AUTH_IDENTITY_W,
@@ -4390,7 +4390,7 @@ pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V2_W {
     pub ProxyAuthnSchemes: *mut u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V3_A {
     pub TransportCredentials: RPC_AUTH_IDENTITY_HANDLE,
@@ -4418,7 +4418,7 @@ pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V3_A {
     pub ProxyAuthnSchemes: *mut u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V3_W {
     pub TransportCredentials: RPC_AUTH_IDENTITY_HANDLE,
@@ -4446,7 +4446,7 @@ pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_V3_W {
     pub ProxyAuthnSchemes: *mut u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_HTTP_TRANSPORT_CREDENTIALS_W {
     pub TransportCredentials: *mut SEC_WINNT_AUTH_IDENTITY_W,
@@ -4476,7 +4476,7 @@ pub const RPC_IF_AUTOLISTEN: i32 = 1;
 pub type RPC_IF_CALLBACK_FN = Option<unsafe extern "system" fn(interfaceuuid: RPC_IF_HANDLE, context: *const core::ffi::c_void) -> windows_core::RPC_STATUS>;
 pub type RPC_IF_HANDLE = *mut core::ffi::c_void;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_IF_ID {
     pub Uuid: UUID,
@@ -4492,13 +4492,13 @@ pub struct RPC_IF_ID {
     pub VersMinor: u16,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RPC_IF_ID_VECTOR {
     pub Count: u32,
     pub IfId: [*mut RPC_IF_ID; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_IF_ID_VECTOR {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4531,7 +4531,7 @@ pub type RPC_INTERFACE_GROUP = *mut core::ffi::c_void;
 pub type RPC_INTERFACE_GROUP_IDLE_CALLBACK_FN = Option<unsafe extern "system" fn(ifgroup: RPC_INTERFACE_GROUP, idlecallbackcontext: *const core::ffi::c_void, isgroupidle: u32)>;
 pub const RPC_INTERFACE_HAS_PIPES: i32 = 1;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RPC_INTERFACE_TEMPLATEA {
     pub Version: u32,
@@ -4563,7 +4563,7 @@ pub struct RPC_INTERFACE_TEMPLATEA {
     pub SecurityDescriptor: *mut core::ffi::c_void,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RPC_INTERFACE_TEMPLATEW {
     pub Version: u32,
@@ -4596,7 +4596,7 @@ pub struct RPC_INTERFACE_TEMPLATEW {
 }
 pub type RPC_LENGTH = u32;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_MESSAGE {
     pub Handle: RPC_BINDING_HANDLE,
@@ -4638,7 +4638,7 @@ pub type RPC_NOTIFICATION_TYPES = i32;
 pub type RPC_NS_HANDLE = *mut core::ffi::c_void;
 pub type RPC_OBJECT_INQ_FN = Option<unsafe extern "system" fn(objectuuid: *const UUID, typeuuid: *mut UUID, status: *mut windows_core::RPC_STATUS)>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_POLICY {
     pub Length: u32,
@@ -4654,7 +4654,7 @@ pub struct RPC_POLICY {
     pub NICFlags: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_PROTSEQ_ENDPOINT {
     pub RpcProtocolSequence: *mut u8,
@@ -4672,13 +4672,13 @@ pub const RPC_PROTSEQ_LRPC: i32 = 3;
 pub const RPC_PROTSEQ_NMP: i32 = 2;
 pub const RPC_PROTSEQ_TCP: i32 = 1;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RPC_PROTSEQ_VECTORA {
     pub Count: u32,
     pub Protseq: [*mut u8; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_PROTSEQ_VECTORA {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4698,13 +4698,13 @@ impl Default for RPC_PROTSEQ_VECTORA {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RPC_PROTSEQ_VECTORW {
     pub Count: u32,
     pub Protseq: [*mut u16; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_PROTSEQ_VECTORW {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4736,7 +4736,7 @@ pub const RPC_QUERY_NO_AUTH_REQUIRED: i32 = 64;
 pub const RPC_QUERY_SERVER_PRINCIPAL_NAME: i32 = 2;
 pub type RPC_SECURITY_CALLBACK_FN = Option<unsafe extern "system" fn(context: *const core::ffi::c_void)>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_SECURITY_QOS {
     pub Version: u32,
@@ -4754,7 +4754,7 @@ pub struct RPC_SECURITY_QOS {
     pub ImpersonationType: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V2_A {
     pub Version: u32,
@@ -4764,19 +4764,19 @@ pub struct RPC_SECURITY_QOS_V2_A {
     pub AdditionalSecurityInfoType: u32,
     pub u: RPC_SECURITY_QOS_V2_A_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V2_A {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V2_A_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_A,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V2_A_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4812,7 +4812,7 @@ impl Default for RPC_SECURITY_QOS_V2_A_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V2_W {
     pub Version: u32,
@@ -4822,19 +4822,19 @@ pub struct RPC_SECURITY_QOS_V2_W {
     pub AdditionalSecurityInfoType: u32,
     pub u: RPC_SECURITY_QOS_V2_W_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V2_W {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V2_W_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_W,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V2_W_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4870,7 +4870,7 @@ impl Default for RPC_SECURITY_QOS_V2_W_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V3_A {
     pub Version: u32,
@@ -4881,19 +4881,19 @@ pub struct RPC_SECURITY_QOS_V3_A {
     pub u: RPC_SECURITY_QOS_V3_A_0,
     pub Sid: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V3_A {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V3_A_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_A,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V3_A_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4930,7 +4930,7 @@ impl Default for RPC_SECURITY_QOS_V3_A_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V3_W {
     pub Version: u32,
@@ -4941,19 +4941,19 @@ pub struct RPC_SECURITY_QOS_V3_W {
     pub u: RPC_SECURITY_QOS_V3_W_0,
     pub Sid: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V3_W {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V3_W_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_W,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V3_W_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -4990,7 +4990,7 @@ impl Default for RPC_SECURITY_QOS_V3_W_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V4_A {
     pub Version: u32,
@@ -5002,19 +5002,19 @@ pub struct RPC_SECURITY_QOS_V4_A {
     pub Sid: *mut core::ffi::c_void,
     pub EffectiveOnly: u32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V4_A {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V4_A_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_A,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V4_A_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -5052,7 +5052,7 @@ impl Default for RPC_SECURITY_QOS_V4_A_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V4_W {
     pub Version: u32,
@@ -5064,19 +5064,19 @@ pub struct RPC_SECURITY_QOS_V4_W {
     pub Sid: *mut core::ffi::c_void,
     pub EffectiveOnly: u32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V4_W {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V4_W_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_W,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V4_W_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -5114,7 +5114,7 @@ impl Default for RPC_SECURITY_QOS_V4_W_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V5_A {
     pub Version: u32,
@@ -5127,19 +5127,19 @@ pub struct RPC_SECURITY_QOS_V5_A {
     pub EffectiveOnly: u32,
     pub ServerSecurityDescriptor: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V5_A {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V5_A_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_A,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V5_A_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -5178,7 +5178,7 @@ impl Default for RPC_SECURITY_QOS_V5_A_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct RPC_SECURITY_QOS_V5_W {
     pub Version: u32,
@@ -5191,19 +5191,19 @@ pub struct RPC_SECURITY_QOS_V5_W {
     pub EffectiveOnly: u32,
     pub ServerSecurityDescriptor: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V5_W {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union RPC_SECURITY_QOS_V5_W_0 {
     pub HttpCredentials: *mut RPC_HTTP_TRANSPORT_CREDENTIALS_W,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_SECURITY_QOS_V5_W_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -5242,7 +5242,7 @@ impl Default for RPC_SECURITY_QOS_V5_W_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_SEC_CONTEXT_KEY_INFO {
     pub EncryptAlgorithm: u32,
@@ -5258,7 +5258,7 @@ pub struct RPC_SEC_CONTEXT_KEY_INFO {
     pub SignatureAlgorithm: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct RPC_SERVER_INTERFACE {
@@ -5290,13 +5290,13 @@ pub struct RPC_SERVER_INTERFACE {
 pub type RPC_SETFILTER_FUNC = Option<unsafe extern "C" fn(pfnfilter: RPCLT_PDU_FILTER_FUNC)>;
 pub type RPC_SS_THREAD_HANDLE = *mut core::ffi::c_void;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RPC_STATS_VECTOR {
     pub Count: u32,
     pub Stats: [u32; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for RPC_STATS_VECTOR {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -5316,7 +5316,7 @@ impl Default for RPC_STATS_VECTOR {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct RPC_SYNTAX_IDENTIFIER {
     pub SyntaxGUID: windows_core::GUID,
@@ -5348,7 +5348,7 @@ pub const RPC_S_SERVER_OUT_OF_MEMORY: i32 = 1130;
 pub const RPC_S_TIMEOUT: i32 = 1460;
 pub const RPC_S_UNKNOWN_PRINCIPAL: i32 = 1332;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_TRANSFER_SYNTAX {
     pub Uuid: UUID,
@@ -5366,7 +5366,7 @@ pub struct RPC_TRANSFER_SYNTAX {
 pub const RPC_TYPE_DISCONNECT_EVENT_CONTEXT_HANDLE: u32 = 2147483648;
 pub const RPC_TYPE_STRICT_CONTEXT_HANDLE: u32 = 1073741824;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RPC_VERSION {
     pub MajorVersion: u16,
@@ -5426,7 +5426,7 @@ pub struct SCONTEXT_QUEUE {
     pub ArrayOfObjects: *mut NDR_SCONTEXT,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SEC_WINNT_AUTH_IDENTITY_A {
     pub User: *mut u8,
@@ -5452,7 +5452,7 @@ pub struct SEC_WINNT_AUTH_IDENTITY_A {
 pub const SEC_WINNT_AUTH_IDENTITY_ANSI: i32 = 1;
 pub const SEC_WINNT_AUTH_IDENTITY_UNICODE: i32 = 2;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SEC_WINNT_AUTH_IDENTITY_W {
     pub User: *mut u16,
@@ -5560,13 +5560,13 @@ pub type USER_MARSHAL_SIZING_ROUTINE = Option<unsafe extern "system" fn(param0: 
 pub type USER_MARSHAL_UNMARSHALLING_ROUTINE = Option<unsafe extern "system" fn(param0: *mut u32, param1: *mut u8, param2: *mut core::ffi::c_void) -> *mut u8>;
 pub type UUID = windows_core::GUID;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UUID_VECTOR {
     pub Count: u32,
     pub Uuid: [*mut UUID; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for UUID_VECTOR {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }

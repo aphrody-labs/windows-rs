@@ -49,21 +49,21 @@ impl Default for MPEG1VIDEOINFO {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIZE_EGA_PALETTE: u32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SIZE_EGA_PALETTE: u64 = 64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIZE_MASKS: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SIZE_MASKS: u64 = 12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIZE_PALETTE: u32 = 1024;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SIZE_PALETTE: u64 = 1024;
 #[cfg(feature = "shared")]
 pub const SIZE_PREHEADER: super::LONG = 0x30_u32 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIZE_VIDEOHEADER: u32 = 88;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SIZE_VIDEOHEADER: u64 = 88;

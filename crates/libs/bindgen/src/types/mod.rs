@@ -1491,12 +1491,17 @@ pub fn write_arches<R: HasAttributes<'static>>(row: R) -> TokenStream {
 
 /// Emit a `#[cfg(target_arch = ...)]` attribute from raw architecture bits
 /// (`x86 = 1`, `x64 = 2`, `arm64 = 4`), or nothing when `value` is `0`.
+///
+/// `wasm32` shares the x86 gate: both are ILP32 targets whose `repr(C)` layouts agree (4-byte
+/// pointers, 8-byte aligned 64-bit scalars), so a WebAssembly host sees the 32-bit Windows
+/// definitions.
 pub fn write_arch_bits(value: i32) -> TokenStream {
     let mut tokens = quote! {};
     let mut arches = BTreeSet::new();
 
     if value & 1 == 1 {
         arches.insert("x86");
+        arches.insert("wasm32");
     }
 
     if value & 2 == 2 {

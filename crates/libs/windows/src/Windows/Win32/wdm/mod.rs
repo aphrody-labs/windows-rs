@@ -409,21 +409,21 @@ pub unsafe fn RtlEqualUnicodeString(string1: super::PCUNICODE_STRING, string2: s
     windows_core::link!("ntdll.dll" "system" fn RtlEqualUnicodeString(string1 : super::PCUNICODE_STRING, string2 : super::PCUNICODE_STRING, caseinsensitive : super::BOOLEAN) -> super::BOOLEAN);
     unsafe { RtlEqualUnicodeString(string1, string2, caseinsensitive) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlExtendedIntegerMultiply(multiplicand: super::LARGE_INTEGER, multiplier: super::LONG) -> super::LARGE_INTEGER {
     windows_core::link!("ntdll.dll" "system" fn RtlExtendedIntegerMultiply(multiplicand : super::LARGE_INTEGER, multiplier : super::LONG) -> super::LARGE_INTEGER);
     unsafe { RtlExtendedIntegerMultiply(multiplicand, multiplier) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlExtendedLargeIntegerDivide(dividend: super::LARGE_INTEGER, divisor: super::ULONG, remainder: Option<super::PULONG>) -> super::LARGE_INTEGER {
     windows_core::link!("ntdll.dll" "system" fn RtlExtendedLargeIntegerDivide(dividend : super::LARGE_INTEGER, divisor : super::ULONG, remainder : super::PULONG) -> super::LARGE_INTEGER);
     unsafe { RtlExtendedLargeIntegerDivide(dividend, divisor, remainder.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlExtendedMagicDivide(dividend: super::LARGE_INTEGER, magicdivisor: super::LARGE_INTEGER, shiftcount: super::CCHAR) -> super::LARGE_INTEGER {
@@ -1272,14 +1272,14 @@ pub const ALLOC_DATA_PRAGMA: i32 = 1;
 pub const ALLOC_PRAGMA: i32 = 1;
 pub type ALTERNATIVE_ARCHITECTURE_TYPE = i32;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union AMD_L1_CACHE_INFO {
     pub Ulong: super::ULONG,
     pub Anonymous: AMD_L1_CACHE_INFO_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for AMD_L1_CACHE_INFO {
     fn default() -> Self {
@@ -1287,7 +1287,7 @@ impl Default for AMD_L1_CACHE_INFO {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AMD_L1_CACHE_INFO_0 {
@@ -1297,14 +1297,14 @@ pub struct AMD_L1_CACHE_INFO_0 {
     pub Size: super::UCHAR,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union AMD_L2_CACHE_INFO {
     pub Ulong: super::ULONG,
     pub Anonymous: AMD_L2_CACHE_INFO_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for AMD_L2_CACHE_INFO {
     fn default() -> Self {
@@ -1312,7 +1312,7 @@ impl Default for AMD_L2_CACHE_INFO {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AMD_L2_CACHE_INFO_0 {
@@ -1320,7 +1320,7 @@ pub struct AMD_L2_CACHE_INFO_0 {
     pub _bitfield: u8,
     pub Size: super::USHORT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl AMD_L2_CACHE_INFO_0 {
     pub fn LinesPerTag(&self) -> super::UCHAR {
@@ -1337,14 +1337,14 @@ impl AMD_L2_CACHE_INFO_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union AMD_L3_CACHE_INFO {
     pub Ulong: super::ULONG,
     pub Anonymous: AMD_L3_CACHE_INFO_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for AMD_L3_CACHE_INFO {
     fn default() -> Self {
@@ -1352,7 +1352,7 @@ impl Default for AMD_L3_CACHE_INFO {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AMD_L3_CACHE_INFO_0 {
@@ -1360,7 +1360,7 @@ pub struct AMD_L3_CACHE_INFO_0 {
     pub _bitfield1: u8,
     pub _bitfield2: u16,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl AMD_L3_CACHE_INFO_0 {
     pub fn LinesPerTag(&self) -> super::UCHAR {
@@ -1538,9 +1538,9 @@ impl Default for BOOTDISK_INFORMATION_LITE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub type BOUND_CALLBACK = Option<unsafe extern "system" fn() -> BOUND_CALLBACK_STATUS>;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub type BOUND_CALLBACK_STATUS = i32;
 pub type BUS_QUERY_ID_TYPE = i32;
 #[repr(C)]
@@ -1607,13 +1607,13 @@ impl BUS_SPECIFIC_RESET_FLAGS_0 {
     }
 }
 pub const BackgroundWorkQueue: WORK_QUEUE_TYPE = 4;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const BoundExceptionContinueSearch: BOUND_CALLBACK_STATUS = 0;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const BoundExceptionError: BOUND_CALLBACK_STATUS = 2;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const BoundExceptionHandled: BOUND_CALLBACK_STATUS = 1;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const BoundExceptionMaximum: BOUND_CALLBACK_STATUS = 3;
 pub const BufferEmpty: KBUGCHECK_BUFFER_DUMP_STATE = 0;
 pub const BufferFinished: KBUGCHECK_BUFFER_DUMP_STATE = 3;
@@ -1776,15 +1776,15 @@ impl Default for CLFS_MGMT_POLICY_0_9 {
 }
 pub type CLFS_MGMT_POLICY_TYPE = i32;
 pub const CLFS_MGMT_POLICY_VERSION: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CLOCK1_LEVEL: i32 = 28;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CLOCK2_LEVEL: i32 = 28;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CLOCK_LEVEL: i32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CLOCK_LEVEL: i32 = 13;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const CMCI_LEVEL: i32 = 5;
 #[repr(C)]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
@@ -2883,7 +2883,7 @@ pub struct DEVICE_INTERFACE_CHANGE_NOTIFICATION {
 }
 pub const DEVICE_INTERFACE_INCLUDE_NONACTIVE: i32 = 1;
 #[repr(C, align(8))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct DEVICE_OBJECT {
@@ -2913,7 +2913,7 @@ pub struct DEVICE_OBJECT {
     pub DeviceObjectExtension: *mut DEVOBJ_EXTENSION,
     pub Reserved: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for DEVICE_OBJECT {
     fn default() -> Self {
@@ -2921,14 +2921,14 @@ impl Default for DEVICE_OBJECT {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union DEVICE_OBJECT_0 {
     pub ListEntry: super::LIST_ENTRY,
     pub Wcb: WAIT_CONTEXT_BLOCK,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for DEVICE_OBJECT_0 {
     fn default() -> Self {
@@ -3104,7 +3104,7 @@ pub type DIRECTORY_NOTIFY_INFORMATION_CLASS = i32;
 pub const DIRECTORY_QUERY: i32 = 1;
 pub const DIRECTORY_TRAVERSE: i32 = 2;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct DISPATCHER_HEADER {
@@ -3112,7 +3112,7 @@ pub struct DISPATCHER_HEADER {
     pub SignalState: super::LONG,
     pub WaitListHead: super::LIST_ENTRY,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER {
     fn default() -> Self {
@@ -3120,7 +3120,7 @@ impl Default for DISPATCHER_HEADER {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0 {
@@ -3132,7 +3132,7 @@ pub union DISPATCHER_HEADER_0 {
     pub Anonymous6: DISPATCHER_HEADER_0_5,
     pub Anonymous7: DISPATCHER_HEADER_0_6,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0 {
     fn default() -> Self {
@@ -3140,14 +3140,14 @@ impl Default for DISPATCHER_HEADER_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_0 {
     pub Lock: super::LONG,
     pub LockNV: super::LONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_0 {
     fn default() -> Self {
@@ -3155,7 +3155,7 @@ impl Default for DISPATCHER_HEADER_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_1 {
@@ -3165,7 +3165,7 @@ pub struct DISPATCHER_HEADER_0_1 {
     pub Reserved1: super::UCHAR,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct DISPATCHER_HEADER_0_2 {
@@ -3174,7 +3174,7 @@ pub struct DISPATCHER_HEADER_0_2 {
     pub Hand: super::UCHAR,
     pub Anonymous2: DISPATCHER_HEADER_0_2_1,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_2 {
     fn default() -> Self {
@@ -3182,14 +3182,14 @@ impl Default for DISPATCHER_HEADER_0_2 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_2_0 {
     pub TimerControlFlags: super::UCHAR,
     pub Anonymous: DISPATCHER_HEADER_0_2_0_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_2_0 {
     fn default() -> Self {
@@ -3197,13 +3197,13 @@ impl Default for DISPATCHER_HEADER_0_2_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_2_0_0 {
     pub _bitfield: u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl DISPATCHER_HEADER_0_2_0_0 {
     pub fn Absolute(&self) -> super::UCHAR {
@@ -3226,14 +3226,14 @@ impl DISPATCHER_HEADER_0_2_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_2_1 {
     pub TimerMiscFlags: super::UCHAR,
     pub Anonymous: DISPATCHER_HEADER_0_2_1_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_2_1 {
     fn default() -> Self {
@@ -3241,13 +3241,13 @@ impl Default for DISPATCHER_HEADER_0_2_1 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_2_1_0 {
     pub _bitfield: u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl DISPATCHER_HEADER_0_2_1_0 {
     pub fn Index(&self) -> super::UCHAR {
@@ -3270,7 +3270,7 @@ impl DISPATCHER_HEADER_0_2_1_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct DISPATCHER_HEADER_0_3 {
@@ -3279,7 +3279,7 @@ pub struct DISPATCHER_HEADER_0_3 {
     pub Timer2ComponentId: super::UCHAR,
     pub Timer2RelativeId: super::UCHAR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_3 {
     fn default() -> Self {
@@ -3287,14 +3287,14 @@ impl Default for DISPATCHER_HEADER_0_3 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_3_0 {
     pub Timer2Flags: super::UCHAR,
     pub Anonymous: DISPATCHER_HEADER_0_3_0_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_3_0 {
     fn default() -> Self {
@@ -3302,13 +3302,13 @@ impl Default for DISPATCHER_HEADER_0_3_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_3_0_0 {
     pub _bitfield: u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl DISPATCHER_HEADER_0_3_0_0 {
     pub fn Timer2Inserted(&self) -> super::UCHAR {
@@ -3355,7 +3355,7 @@ impl DISPATCHER_HEADER_0_3_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct DISPATCHER_HEADER_0_4 {
@@ -3364,7 +3364,7 @@ pub struct DISPATCHER_HEADER_0_4 {
     pub QueueSize: super::UCHAR,
     pub QueueReserved: super::UCHAR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_4 {
     fn default() -> Self {
@@ -3372,14 +3372,14 @@ impl Default for DISPATCHER_HEADER_0_4 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_4_0 {
     pub QueueControlFlags: super::UCHAR,
     pub Anonymous: DISPATCHER_HEADER_0_4_0_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_4_0 {
     fn default() -> Self {
@@ -3387,13 +3387,13 @@ impl Default for DISPATCHER_HEADER_0_4_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_4_0_0 {
     pub _bitfield: u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl DISPATCHER_HEADER_0_4_0_0 {
     pub fn Abandoned(&self) -> super::UCHAR {
@@ -3416,7 +3416,7 @@ impl DISPATCHER_HEADER_0_4_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct DISPATCHER_HEADER_0_5 {
@@ -3425,7 +3425,7 @@ pub struct DISPATCHER_HEADER_0_5 {
     pub Anonymous: DISPATCHER_HEADER_0_5_0,
     pub Anonymous2: DISPATCHER_HEADER_0_5_1,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_5 {
     fn default() -> Self {
@@ -3433,14 +3433,14 @@ impl Default for DISPATCHER_HEADER_0_5 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_5_0 {
     pub ThreadControlFlags: super::UCHAR,
     pub Anonymous: DISPATCHER_HEADER_0_5_0_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_5_0 {
     fn default() -> Self {
@@ -3448,13 +3448,13 @@ impl Default for DISPATCHER_HEADER_0_5_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_5_0_0 {
     pub _bitfield: u8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl DISPATCHER_HEADER_0_5_0_0 {
     pub fn CycleProfiling(&self) -> super::UCHAR {
@@ -3507,13 +3507,13 @@ impl DISPATCHER_HEADER_0_5_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union DISPATCHER_HEADER_0_5_1 {
     pub DebugActive: super::UCHAR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for DISPATCHER_HEADER_0_5_1 {
     fn default() -> Self {
@@ -3521,7 +3521,7 @@ impl Default for DISPATCHER_HEADER_0_5_1 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DISPATCHER_HEADER_0_6 {
@@ -4267,15 +4267,15 @@ impl Default for DMA_IOMMU_INTERFACE_EX_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DMA_IOMMU_INTERFACE_EX_V1_SIZE: u32 = 60;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DMA_IOMMU_INTERFACE_EX_V1_SIZE: u64 = 120;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DMA_IOMMU_INTERFACE_EX_V2_SIZE: u32 = 96;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DMA_IOMMU_INTERFACE_EX_V2_SIZE: u64 = 192;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DMA_IOMMU_INTERFACE_EX_V3_SIZE: u32 = 116;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DMA_IOMMU_INTERFACE_EX_V3_SIZE: u64 = 232;
@@ -4366,7 +4366,7 @@ pub const DMA_IOMMU_INTERFACE_VERSION: u32 = 1;
 pub const DMA_IOMMU_INTERFACE_VERSION_1: u32 = 1;
 pub type DMA_SPEED = i32;
 pub const DMA_SYNCHRONOUS_CALLBACK: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DMA_TRANSFER_CONTEXT_SIZE_V1: i32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DMA_TRANSFER_CONTEXT_SIZE_V1: i32 = 128;
@@ -4492,7 +4492,7 @@ pub struct DPC_WATCHDOG_GLOBAL_TRIAGE_BLOCK {
 }
 pub const DPC_WATCHDOG_GLOBAL_TRIAGE_BLOCK_REVISION_1: i32 = 1;
 pub const DPC_WATCHDOG_GLOBAL_TRIAGE_BLOCK_SIGNATURE: u32 = 2931740382;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DPC_WATCHDOG_GLOBAL_TRIAGE_BLOCK_VER_1_SIZE: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DPC_WATCHDOG_GLOBAL_TRIAGE_BLOCK_VER_1_SIZE: u64 = 16;
@@ -4752,11 +4752,11 @@ pub const DriverRegKeyParameters: DRIVER_REGKEY_TYPE = 0;
 pub const DriverRegKeyPersistentState: DRIVER_REGKEY_TYPE = 1;
 pub const DriverRegKeySharedPersistentState: DRIVER_REGKEY_TYPE = 2;
 pub const DrvRtPoolNxOptIn: DRIVER_RUNTIME_INIT_FLAGS = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const EFLAG_SELECT: i32 = 49152;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const EFLAG_SIGN: i32 = 32768;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const EFLAG_ZERO: i32 = 16384;
 #[repr(C, packed(1))]
 #[cfg(feature = "shared")]
@@ -4932,7 +4932,7 @@ pub const EISA_SYSTEM_MEMORY: i32 = 0;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type ENABLE_VIRTUALIZATION = Option<unsafe extern "system" fn(context: super::PVOID, numvfs: super::UINT16, enablevfmigration: super::BOOLEAN, enablemigrationinterrupt: super::BOOLEAN, enablevirtualization: super::BOOLEAN) -> windows_core::NTSTATUS>;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct ERESOURCE {
@@ -4951,7 +4951,7 @@ pub struct ERESOURCE {
     pub Anonymous: ERESOURCE_0,
     pub SpinLock: super::KSPIN_LOCK,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for ERESOURCE {
     fn default() -> Self {
@@ -4959,14 +4959,14 @@ impl Default for ERESOURCE {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union ERESOURCE_0 {
     pub Address: super::PVOID,
     pub CreatorBackTraceIndex: super::ULONG_PTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for ERESOURCE_0 {
     fn default() -> Self {
@@ -5021,11 +5021,11 @@ impl Default for ERESOURCE_0 {
 #[cfg(feature = "shared")]
 pub type ERESOURCE_THREAD = super::ULONG_PTR;
 pub const ERROR_LOG_LIMIT_SIZE: i32 = 240;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ERROR_LOG_MAXIMUM_SIZE: u32 = 152;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ERROR_LOG_MAXIMUM_SIZE: u64 = 240;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ERROR_LOG_MESSAGE_LIMIT_SIZE: u32 = 344;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ERROR_LOG_MESSAGE_LIMIT_SIZE: u64 = 344;
@@ -5687,7 +5687,7 @@ pub const FILE_WRITE_TO_END_OF_FILE: u32 = 4294967295;
 pub const FLAG_OWNER_POINTER_IS_THREAD: i32 = 1;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FLUSH_MULTIPLE_MAXIMUM: i32 = 19;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub const FLUSH_MULTIPLE_MAXIMUM: i32 = 32;
 pub const FM_LOCK_BIT: i32 = 1;
 pub const FM_LOCK_BIT_V: i32 = 0;
@@ -5938,14 +5938,14 @@ pub struct INPUT_MAPPING_ELEMENT {
     pub InputMappingId: super::ULONG,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union INTEL_CACHE_INFO_EAX {
     pub Ulong: super::ULONG,
     pub Anonymous: INTEL_CACHE_INFO_EAX_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for INTEL_CACHE_INFO_EAX {
     fn default() -> Self {
@@ -5953,13 +5953,13 @@ impl Default for INTEL_CACHE_INFO_EAX {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct INTEL_CACHE_INFO_EAX_0 {
     pub _bitfield: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl INTEL_CACHE_INFO_EAX_0 {
     pub fn Type(&self) -> INTEL_CACHE_TYPE {
@@ -6006,14 +6006,14 @@ impl INTEL_CACHE_INFO_EAX_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union INTEL_CACHE_INFO_EBX {
     pub Ulong: super::ULONG,
     pub Anonymous: INTEL_CACHE_INFO_EBX_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for INTEL_CACHE_INFO_EBX {
     fn default() -> Self {
@@ -6021,13 +6021,13 @@ impl Default for INTEL_CACHE_INFO_EBX {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct INTEL_CACHE_INFO_EBX_0 {
     pub _bitfield: u32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl INTEL_CACHE_INFO_EBX_0 {
     pub fn LineSize(&self) -> super::ULONG {
@@ -6049,7 +6049,7 @@ impl INTEL_CACHE_INFO_EBX_0 {
         self._bitfield = (self._bitfield & !(1023 << 22)) | ((value & 1023) << 22);
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type INTEL_CACHE_TYPE = i32;
 #[repr(C)]
 #[cfg(all(feature = "shared", feature = "winnt"))]
@@ -6130,11 +6130,11 @@ pub struct IOMMU_DMA_DEVICE_INFORMATION {
     pub PasidTaggedDmaEnabled: super::BOOLEAN,
     pub PasidFaultsSuppressed: super::BOOLEAN,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IOMMU_DMA_DEVICE_INFORMATION_SIZE: u32 = 3;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IOMMU_DMA_DEVICE_INFORMATION_SIZE: u64 = 3;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IOMMU_DMA_DEVICE_INFORMATION_SIZE_MIN: u32 = 3;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IOMMU_DMA_DEVICE_INFORMATION_SIZE_MIN: u64 = 3;
@@ -6653,11 +6653,11 @@ impl Default for IO_ERROR_LOG_MESSAGE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IO_ERROR_LOG_MESSAGE_HEADER_LENGTH: u32 = 104;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IO_ERROR_LOG_MESSAGE_HEADER_LENGTH: u64 = 104;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IO_ERROR_LOG_MESSAGE_LENGTH: u32 = 256;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IO_ERROR_LOG_MESSAGE_LENGTH: u64 = 344;
@@ -7092,7 +7092,7 @@ pub const IO_SET_IRP_IO_ATTRIBUTION_FROM_PROCESS: i32 = 2;
 pub const IO_SET_IRP_IO_ATTRIBUTION_FROM_THREAD: i32 = 1;
 pub const IO_SHARE_ACCESS_NON_PRIMARY_STREAM: i32 = 128;
 pub const IO_SHARE_ACCESS_NO_WRITE_PERMISSION: u32 = 2147483648;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
@@ -7107,14 +7107,14 @@ pub struct IO_STACK_LOCATION {
     pub CompletionRoutine: PIO_COMPLETION_ROUTINE,
     pub Context: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
@@ -7159,7 +7159,7 @@ pub union IO_STACK_LOCATION_0 {
     pub WMI: IO_STACK_LOCATION_0_37,
     pub Others: IO_STACK_LOCATION_0_38,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0 {
     fn default() -> Self {
@@ -7167,7 +7167,7 @@ impl Default for IO_STACK_LOCATION_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_0 {
@@ -7178,7 +7178,7 @@ pub struct IO_STACK_LOCATION_0_0 {
     pub EaLength: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_1 {
@@ -7189,7 +7189,7 @@ pub struct IO_STACK_LOCATION_0_1 {
     pub Parameters: PNAMED_PIPE_CREATE_PARAMETERS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_10 {
@@ -7199,14 +7199,14 @@ pub struct IO_STACK_LOCATION_0_10 {
     pub EaIndex: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_11 {
     pub Length: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_12 {
@@ -7214,7 +7214,7 @@ pub struct IO_STACK_LOCATION_0_12 {
     pub FsInformationClass: FS_INFORMATION_CLASS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_13 {
@@ -7222,7 +7222,7 @@ pub struct IO_STACK_LOCATION_0_13 {
     pub FsInformationClass: FS_INFORMATION_CLASS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_14 {
@@ -7232,7 +7232,7 @@ pub struct IO_STACK_LOCATION_0_14 {
     pub Type3InputBuffer: super::PVOID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_15 {
@@ -7240,7 +7240,7 @@ pub struct IO_STACK_LOCATION_0_15 {
     pub Key: super::ULONG,
     pub ByteOffset: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_15 {
     fn default() -> Self {
@@ -7248,7 +7248,7 @@ impl Default for IO_STACK_LOCATION_0_15 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_16 {
@@ -7258,7 +7258,7 @@ pub struct IO_STACK_LOCATION_0_16 {
     pub Type3InputBuffer: super::PVOID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_17 {
@@ -7266,7 +7266,7 @@ pub struct IO_STACK_LOCATION_0_17 {
     pub Length: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_18 {
@@ -7274,7 +7274,7 @@ pub struct IO_STACK_LOCATION_0_18 {
     pub SecurityDescriptor: super::PSECURITY_DESCRIPTOR,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_19 {
@@ -7283,7 +7283,7 @@ pub struct IO_STACK_LOCATION_0_19 {
     pub OutputBufferLength: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_2 {
@@ -7294,7 +7294,7 @@ pub struct IO_STACK_LOCATION_0_2 {
     pub Parameters: PMAILSLOT_CREATE_PARAMETERS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_20 {
@@ -7302,14 +7302,14 @@ pub struct IO_STACK_LOCATION_0_20 {
     pub DeviceObject: PDEVICE_OBJECT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_21 {
     pub Srb: *mut _SCSI_REQUEST_BLOCK,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_22 {
@@ -7319,21 +7319,21 @@ pub struct IO_STACK_LOCATION_0_22 {
     pub SidListLength: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_23 {
     pub Length: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_24 {
     pub Type: DEVICE_RELATION_TYPE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_25 {
@@ -7344,21 +7344,21 @@ pub struct IO_STACK_LOCATION_0_25 {
     pub InterfaceSpecificData: super::PVOID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_26 {
     pub Capabilities: PDEVICE_CAPABILITIES,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_27 {
     pub IoResourceRequirementList: PIO_RESOURCE_REQUIREMENTS_LIST,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_28 {
@@ -7368,14 +7368,14 @@ pub struct IO_STACK_LOCATION_0_28 {
     pub Length: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_29 {
     pub Lock: super::BOOLEAN,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_3 {
@@ -7383,7 +7383,7 @@ pub struct IO_STACK_LOCATION_0_3 {
     pub Key: super::ULONG,
     pub ByteOffset: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_3 {
     fn default() -> Self {
@@ -7391,14 +7391,14 @@ impl Default for IO_STACK_LOCATION_0_3 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_30 {
     pub IdType: BUS_QUERY_ID_TYPE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_31 {
@@ -7406,7 +7406,7 @@ pub struct IO_STACK_LOCATION_0_31 {
     pub LocaleId: super::LCID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_32 {
@@ -7414,7 +7414,7 @@ pub struct IO_STACK_LOCATION_0_32 {
     pub Reserved: [super::BOOLEAN; 3],
     pub Type: DEVICE_USAGE_NOTIFICATION_TYPE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_32 {
     fn default() -> Self {
@@ -7422,21 +7422,21 @@ impl Default for IO_STACK_LOCATION_0_32 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_33 {
     pub PowerState: super::SYSTEM_POWER_STATE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_34 {
     pub PowerSequence: PPOWER_SEQUENCE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_35 {
@@ -7445,7 +7445,7 @@ pub struct IO_STACK_LOCATION_0_35 {
     pub State: POWER_STATE,
     pub ShutdownType: super::POWER_ACTION,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_35 {
     fn default() -> Self {
@@ -7453,14 +7453,14 @@ impl Default for IO_STACK_LOCATION_0_35 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IO_STACK_LOCATION_0_35_0 {
     pub SystemContext: super::ULONG,
     pub SystemPowerStateContext: SYSTEM_POWER_STATE_CONTEXT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_35_0 {
     fn default() -> Self {
@@ -7468,7 +7468,7 @@ impl Default for IO_STACK_LOCATION_0_35_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_36 {
@@ -7476,7 +7476,7 @@ pub struct IO_STACK_LOCATION_0_36 {
     pub AllocatedResourcesTranslated: PCM_RESOURCE_LIST,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_37 {
@@ -7486,7 +7486,7 @@ pub struct IO_STACK_LOCATION_0_37 {
     pub Buffer: super::PVOID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_38 {
@@ -7496,7 +7496,7 @@ pub struct IO_STACK_LOCATION_0_38 {
     pub Argument4: super::PVOID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_4 {
@@ -7504,7 +7504,7 @@ pub struct IO_STACK_LOCATION_0_4 {
     pub Key: super::ULONG,
     pub ByteOffset: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_4 {
     fn default() -> Self {
@@ -7512,7 +7512,7 @@ impl Default for IO_STACK_LOCATION_0_4 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_5 {
@@ -7522,7 +7522,7 @@ pub struct IO_STACK_LOCATION_0_5 {
     pub FileIndex: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_6 {
@@ -7530,7 +7530,7 @@ pub struct IO_STACK_LOCATION_0_6 {
     pub CompletionFilter: super::ULONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_7 {
@@ -7539,7 +7539,7 @@ pub struct IO_STACK_LOCATION_0_7 {
     pub DirectoryNotifyInformationClass: DIRECTORY_NOTIFY_INFORMATION_CLASS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_8 {
@@ -7547,7 +7547,7 @@ pub struct IO_STACK_LOCATION_0_8 {
     pub FileInformationClass: FILE_INFORMATION_CLASS,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STACK_LOCATION_0_9 {
@@ -7556,7 +7556,7 @@ pub struct IO_STACK_LOCATION_0_9 {
     pub FileObject: PFILE_OBJECT,
     pub Anonymous: IO_STACK_LOCATION_0_9_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_9 {
     fn default() -> Self {
@@ -7564,7 +7564,7 @@ impl Default for IO_STACK_LOCATION_0_9 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IO_STACK_LOCATION_0_9_0 {
@@ -7572,7 +7572,7 @@ pub union IO_STACK_LOCATION_0_9_0 {
     pub ClusterCount: super::ULONG,
     pub DeleteHandle: super::HANDLE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STACK_LOCATION_0_9_0 {
     fn default() -> Self {
@@ -7580,7 +7580,7 @@ impl Default for IO_STACK_LOCATION_0_9_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Default)]
 pub struct IO_STACK_LOCATION_0_9_0_0 {
@@ -8485,14 +8485,14 @@ pub struct IO_STATUS_BLOCK32 {
     pub Information: super::ULONG,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IO_STATUS_BLOCK64 {
     pub Anonymous: IO_STATUS_BLOCK64_0,
     pub Information: super::ULONG64,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STATUS_BLOCK64 {
     fn default() -> Self {
@@ -8500,14 +8500,14 @@ impl Default for IO_STATUS_BLOCK64 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IO_STATUS_BLOCK64_0 {
     pub Status: windows_core::NTSTATUS,
     pub Pointer: super::PVOID64,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt", feature = "winternl"))]
 impl Default for IO_STATUS_BLOCK64_0 {
     fn default() -> Self {
@@ -8540,12 +8540,12 @@ pub const IO_TYPE_VPB: i32 = 10;
 pub type IO_WORKITEM_ROUTINE = Option<unsafe extern "system" fn(deviceobject: PDEVICE_OBJECT, context: super::PVOID)>;
 #[cfg(feature = "winnt")]
 pub type IO_WORKITEM_ROUTINE_EX = Option<unsafe extern "system" fn(ioobject: super::PVOID, context: super::PVOID, ioworkitem: PIO_WORKITEM)>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IPI_LEVEL: i32 = 29;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IPI_LEVEL: i32 = 14;
 #[repr(C, align(8))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IRP {
@@ -8571,7 +8571,7 @@ pub struct IRP {
     pub UserBuffer: super::PVOID,
     pub Tail: IRP_3,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP {
     fn default() -> Self {
@@ -8579,7 +8579,7 @@ impl Default for IRP {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_0 {
@@ -8587,7 +8587,7 @@ pub union IRP_0 {
     pub IrpCount: super::LONG,
     pub SystemBuffer: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_0 {
     fn default() -> Self {
@@ -8595,14 +8595,14 @@ impl Default for IRP_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_1 {
     pub UserIosb: super::PIO_STATUS_BLOCK,
     pub IoRingContext: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_1 {
     fn default() -> Self {
@@ -8610,14 +8610,14 @@ impl Default for IRP_1 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_2 {
     pub AsynchronousParameters: IRP_2_0,
     pub AllocationSize: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_2 {
     fn default() -> Self {
@@ -8625,14 +8625,14 @@ impl Default for IRP_2 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IRP_2_0 {
     pub Anonymous: IRP_2_0_0,
     pub Anonymous2: IRP_2_0_1,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_2_0 {
     fn default() -> Self {
@@ -8640,14 +8640,14 @@ impl Default for IRP_2_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_2_0_0 {
     pub UserApcRoutine: super::PIO_APC_ROUTINE,
     pub IssuingProcess: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_2_0_0 {
     fn default() -> Self {
@@ -8655,14 +8655,14 @@ impl Default for IRP_2_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_2_0_1 {
     pub UserApcContext: super::PVOID,
     pub IoRing: *mut _IORING_OBJECT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_2_0_1 {
     fn default() -> Self {
@@ -8670,7 +8670,7 @@ impl Default for IRP_2_0_1 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_3 {
@@ -8678,7 +8678,7 @@ pub union IRP_3 {
     pub Apc: KAPC,
     pub CompletionKey: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3 {
     fn default() -> Self {
@@ -8686,7 +8686,7 @@ impl Default for IRP_3 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IRP_3_0 {
@@ -8696,7 +8696,7 @@ pub struct IRP_3_0 {
     pub Anonymous2: IRP_3_0_1,
     pub OriginalFileObject: PFILE_OBJECT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3_0 {
     fn default() -> Self {
@@ -8704,14 +8704,14 @@ impl Default for IRP_3_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_3_0_0 {
     pub DeviceQueueEntry: KDEVICE_QUEUE_ENTRY,
     pub Anonymous: IRP_3_0_0_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3_0_0 {
     fn default() -> Self {
@@ -8719,13 +8719,13 @@ impl Default for IRP_3_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IRP_3_0_0_0 {
     pub DriverContext: [super::PVOID; 4],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3_0_0_0 {
     fn default() -> Self {
@@ -8733,14 +8733,14 @@ impl Default for IRP_3_0_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub struct IRP_3_0_1 {
     pub ListEntry: super::LIST_ENTRY,
     pub Anonymous: IRP_3_0_1_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3_0_1 {
     fn default() -> Self {
@@ -8748,14 +8748,14 @@ impl Default for IRP_3_0_1 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 #[derive(Clone, Copy)]
 pub union IRP_3_0_1_0 {
     pub CurrentStackLocation: *mut IO_STACK_LOCATION,
     pub PacketType: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "winnt", feature = "winternl"))]
 impl Default for IRP_3_0_1_0 {
     fn default() -> Self {
@@ -9082,17 +9082,17 @@ pub const InstallStateFailedInstall: DEVICE_INSTALL_STATE = 2;
 pub const InstallStateFinishInstall: DEVICE_INSTALL_STATE = 3;
 pub const InstallStateInstalled: DEVICE_INSTALL_STATE = 0;
 pub const InstallStateNeedsReinstall: DEVICE_INSTALL_STATE = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheData: INTEL_CACHE_TYPE = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheInstruction: INTEL_CACHE_TYPE = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheNull: INTEL_CACHE_TYPE = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheRam: INTEL_CACHE_TYPE = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheTrace: INTEL_CACHE_TYPE = 5;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IntelCacheUnified: INTEL_CACHE_TYPE = 3;
 pub const InterfaceTypeUndefined: INTERFACE_TYPE = -1;
 pub const Internal: INTERFACE_TYPE = 0;
@@ -9160,7 +9160,7 @@ pub const IrqPriorityLow: IRQ_PRIORITY = 1;
 pub const IrqPriorityNormal: IRQ_PRIORITY = 2;
 pub const IrqPriorityUndefined: IRQ_PRIORITY = 0;
 pub const Isa: INTERFACE_TYPE = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KADDRESS_BASE: i32 = 0;
 #[repr(C)]
 #[cfg(all(feature = "shared", feature = "winnt"))]
@@ -9201,11 +9201,11 @@ impl Default for KAPC {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KAPC_ACTUAL_LENGTH: u32 = 47;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KAPC_ACTUAL_LENGTH: u64 = 83;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const KAPC_OFFSET_TO_APCSTATEINDEX: super::LONG = 0x2C_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -9215,13 +9215,13 @@ pub const KAPC_OFFSET_TO_APCSTATEINDEX: super::LONG = 0x50_u32 as _;
 pub const KAPC_OFFSET_TO_SPARE_BYTE1: super::LONG = 0x3_u32 as _;
 #[cfg(feature = "shared")]
 pub const KAPC_OFFSET_TO_SPARE_LONG: super::LONG = 0x4_u32 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const KAPC_OFFSET_TO_SYSTEMARGUMENT1: super::LONG = 0x24_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub const KAPC_OFFSET_TO_SYSTEMARGUMENT1: super::LONG = 0x40_u32 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const KAPC_OFFSET_TO_SYSTEMARGUMENT2: super::LONG = 0x28_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -9398,7 +9398,7 @@ impl KDEVICE_QUEUE_0_0 {
     }
 }
 #[repr(C)]
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "ntdef", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KDEVICE_QUEUE {
@@ -9733,7 +9733,7 @@ impl Default for KE_SRCU_LOCK {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KFLOATING_SAVE {
@@ -9801,7 +9801,7 @@ impl Default for KSEMAPHORE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KSEMAPHORE_ACTUAL_LENGTH: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KSEMAPHORE_ACTUAL_LENGTH: u64 = 28;
@@ -9817,7 +9817,7 @@ pub struct KSPIN_LOCK_QUEUE {
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type KSPIN_LOCK_QUEUE_NUMBER = super::ULONG64;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub type KSPIN_LOCK_QUEUE_NUMBER = i32;
 #[cfg(feature = "winnt")]
 pub type KSTART_ROUTINE = Option<unsafe extern "system" fn(startcontext: super::PVOID)>;
@@ -9834,7 +9834,7 @@ pub struct KSYSTEM_TIME {
 #[cfg(feature = "shared")]
 pub type KT2_SET_PARAMETERS = EXT_SET_PARAMETERS;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct KTIMER {
@@ -9844,7 +9844,7 @@ pub struct KTIMER {
     pub Dpc: *mut KDPC,
     pub Period: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared", feature = "winnt"))]
 impl Default for KTIMER {
     fn default() -> Self {
@@ -9872,7 +9872,7 @@ impl Default for KTIMER {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KTIMER_ACTUAL_LENGTH: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KTIMER_ACTUAL_LENGTH: u64 = 64;
@@ -9898,7 +9898,7 @@ impl Default for KTRIAGE_DUMP_DATA_ARRAY {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntifs", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct KWAIT_BLOCK {
@@ -9910,7 +9910,7 @@ pub struct KWAIT_BLOCK {
     pub Object: super::PVOID,
     pub SparePtr: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntifs", feature = "shared", feature = "winnt"))]
 impl Default for KWAIT_BLOCK {
     fn default() -> Self {
@@ -9918,7 +9918,7 @@ impl Default for KWAIT_BLOCK {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntifs", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union KWAIT_BLOCK_0 {
@@ -9926,7 +9926,7 @@ pub union KWAIT_BLOCK_0 {
     pub NotificationQueue: *mut super::KQUEUE,
     pub Dpc: *mut KDPC,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "ntifs", feature = "shared", feature = "winnt"))]
 impl Default for KWAIT_BLOCK_0 {
     fn default() -> Self {
@@ -10062,7 +10062,7 @@ pub const LOCK_QUEUE_HALTED: i32 = 4;
 pub const LOCK_QUEUE_HALTED_BIT: i32 = 2;
 pub const LOCK_QUEUE_OWNER: i32 = 2;
 pub const LOCK_QUEUE_OWNER_BIT: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LOCK_QUEUE_VALID_FLAGS: i32 = 3;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LOCK_QUEUE_VALID_FLAGS: i32 = 7;
@@ -10072,27 +10072,27 @@ pub const LOCK_QUEUE_WAIT_BIT: i32 = 0;
 pub type LOG_FILE_OBJECT = FILE_OBJECT;
 pub const LOG_POLICY_OVERWRITE: i32 = 1;
 pub const LOG_POLICY_PERSIST: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LONGLONG_MASK: u32 = 7;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LONGLONG_MASK: u64 = 7;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LONGLONG_SIZE: u32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LONGLONG_SIZE: u64 = 8;
 pub const LONG_2ND_MOST_SIGNIFICANT_BIT: i32 = 2;
 pub const LONG_3RD_MOST_SIGNIFICANT_BIT: i32 = 1;
 pub const LONG_LEAST_SIGNIFICANT_BIT: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LONG_MASK: u32 = 3;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LONG_MASK: u64 = 3;
 pub const LONG_MOST_SIGNIFICANT_BIT: i32 = 3;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LONG_SIZE: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LONG_SIZE: u64 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LOOKASIDE_MINIMUM_BLOCK_SIZE: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LOOKASIDE_MINIMUM_BLOCK_SIZE: u64 = 8;
@@ -10109,92 +10109,92 @@ pub const LevelSensitive: KINTERRUPT_MODE = 0;
 pub const LocateControl: NPEM_CONTROL_STANDARD_CONTROL_BIT = 3;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueAfdWorkQueueLock: i32 = 13;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueAfdWorkQueueLock: KSPIN_LOCK_QUEUE_NUMBER = 13 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueBcbLock: i32 = 14;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueBcbLock: KSPIN_LOCK_QUEUE_NUMBER = 14 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueIoCancelLock: i32 = 7;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueIoCancelLock: KSPIN_LOCK_QUEUE_NUMBER = 7 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueIoCompletionLock: i32 = 11;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueIoCompletionLock: KSPIN_LOCK_QUEUE_NUMBER = 11 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueIoDatabaseLock: i32 = 10;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueIoDatabaseLock: KSPIN_LOCK_QUEUE_NUMBER = 10 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueIoVpbLock: i32 = 9;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueIoVpbLock: KSPIN_LOCK_QUEUE_NUMBER = 9 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueMasterLock: i32 = 5;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueMasterLock: KSPIN_LOCK_QUEUE_NUMBER = 5 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueMaximumLock: i32 = 17;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueMaximumLock: KSPIN_LOCK_QUEUE_NUMBER = 17 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueNonPagedPoolLock: i32 = 6;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueNonPagedPoolLock: KSPIN_LOCK_QUEUE_NUMBER = 6 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueNtfsStructLock: i32 = 12;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueNtfsStructLock: KSPIN_LOCK_QUEUE_NUMBER = 12 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare0: i32 = 0;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare0: KSPIN_LOCK_QUEUE_NUMBER = 0 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare1: i32 = 1;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare1: KSPIN_LOCK_QUEUE_NUMBER = 1 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare15: i32 = 15;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare15: KSPIN_LOCK_QUEUE_NUMBER = 15 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare16: i32 = 16;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare16: KSPIN_LOCK_QUEUE_NUMBER = 16 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare2: i32 = 2;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare2: KSPIN_LOCK_QUEUE_NUMBER = 2 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare3: i32 = 3;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare3: KSPIN_LOCK_QUEUE_NUMBER = 3 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueUnusedSpare8: i32 = 8;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueUnusedSpare8: KSPIN_LOCK_QUEUE_NUMBER = 8 as _;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LockQueueVacbLock: i32 = 4;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const LockQueueVacbLock: KSPIN_LOCK_QUEUE_NUMBER = 4 as _;
 pub const LoggerEventsLoggedClass: TRACE_INFORMATION_CLASS = 10;
@@ -10221,7 +10221,7 @@ impl Default for MAILSLOT_CREATE_PARAMETERS {
 }
 pub const MAXIMUM_FILENAME_LENGTH: i32 = 256;
 pub const MAXIMUM_PRIORITY: i32 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXIMUM_VOLUME_LABEL_LENGTH: u32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAXIMUM_VOLUME_LABEL_LENGTH: u64 = 64;
@@ -10501,7 +10501,7 @@ pub type NPEM_CONTROL_SET_STANDARD_CONTROL = Option<unsafe extern "system" fn(co
 pub type NPEM_CONTROL_STANDARD_CONTROL_BIT = i32;
 #[cfg(feature = "winnt")]
 pub type NTFS_DEREF_EXPORTED_SECURITY_DESCRIPTOR = Option<unsafe extern "system" fn(vcb: super::PVOID, securitydescriptor: super::PSECURITY_DESCRIPTOR)>;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const NonPagedPool: POOL_TYPE = 0;
 #[cfg(target_arch = "aarch64")]
 pub const NonPagedPool: POOL_TYPE = 512;
@@ -10509,7 +10509,7 @@ pub const NonPagedPoolBase: POOL_TYPE = 0;
 pub const NonPagedPoolBaseCacheAligned: POOL_TYPE = 4;
 pub const NonPagedPoolBaseCacheAlignedMustS: POOL_TYPE = 6;
 pub const NonPagedPoolBaseMustSucceed: POOL_TYPE = 2;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub const NonPagedPoolCacheAligned: POOL_TYPE = 4;
 #[cfg(target_arch = "aarch64")]
 pub const NonPagedPoolCacheAligned: POOL_TYPE = 516;
@@ -10693,13 +10693,13 @@ pub const PAGE_SHIFT: i32 = 12;
 pub const PAGE_SIZE: i32 = 4096;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PALLOCATE_FUNCTION = Option<unsafe extern "system" fn(pooltype: POOL_TYPE, numberofbytes: super::SIZE_T, tag: super::ULONG) -> super::PVOID>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PAMD_L1_CACHE_INFO = *mut AMD_L1_CACHE_INFO;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PAMD_L2_CACHE_INFO = *mut AMD_L2_CACHE_INFO;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PAMD_L3_CACHE_INFO = *mut AMD_L3_CACHE_INFO;
 #[cfg(target_arch = "aarch64")]
@@ -10712,9 +10712,9 @@ pub type PBOOTDISK_INFORMATION = *mut BOOTDISK_INFORMATION;
 pub type PBOOTDISK_INFORMATION_EX = *mut BOOTDISK_INFORMATION_EX;
 #[cfg(feature = "shared")]
 pub type PBOOTDISK_INFORMATION_LITE = *mut BOOTDISK_INFORMATION_LITE;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub type PBOUND_CALLBACK = Option<unsafe extern "system" fn() -> BOUND_CALLBACK_STATUS>;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 pub type PBOUND_CALLBACK_STATUS = *mut BOUND_CALLBACK_STATUS;
 pub type PBUS_QUERY_ID_TYPE = *mut BUS_QUERY_ID_TYPE;
 #[cfg(all(feature = "basetsd", feature = "shared", feature = "winnt"))]
@@ -10747,7 +10747,7 @@ pub struct PCI_ATS_INTERFACE {
     pub SetAddressTranslationServices: PPCI_SET_ATS,
     pub InvalidateQueueDepth: super::UCHAR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PCI_ATS_INTERFACE_SIZE: u32 = 24;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PCI_ATS_INTERFACE_SIZE: u64 = 48;
@@ -13511,7 +13511,7 @@ pub struct PCI_MSIX_TABLE_CONFIG_INTERFACE {
     pub GetTableSize: PPCI_MSIX_GET_TABLE_SIZE,
 }
 pub const PCI_MSIX_TABLE_CONFIG_INTERFACE_VERSION: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PCI_MSIX_TABLE_CONFIG_MINIMUM_SIZE: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PCI_MSIX_TABLE_CONFIG_MINIMUM_SIZE: u64 = 56;
@@ -14664,7 +14664,7 @@ pub type PFN_NT_QUERY_INFORMATION_TRANSACTION = Option<unsafe extern "system" fn
 pub type PFN_NT_ROLLBACK_TRANSACTION = Option<unsafe extern "system" fn(transactionhandle: super::HANDLE, wait: super::BOOLEAN) -> windows_core::NTSTATUS>;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PFN_NT_SET_INFORMATION_TRANSACTION = Option<unsafe extern "system" fn(transactionhandle: super::HANDLE, transactioninformationclass: super::TRANSACTION_INFORMATION_CLASS, transactioninformation: super::PVOID, transactioninformationlength: super::ULONG) -> windows_core::NTSTATUS>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PFN_NUMBER = super::ULONG;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -14743,10 +14743,10 @@ pub type PHWPROFILE_CHANGE_NOTIFICATION = *mut HWPROFILE_CHANGE_NOTIFICATION;
 pub type PINITIAL_PRIVILEGE_SET = *mut INITIAL_PRIVILEGE_SET;
 #[cfg(feature = "shared")]
 pub type PINPUT_MAPPING_ELEMENT = *mut INPUT_MAPPING_ELEMENT;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PINTEL_CACHE_INFO_EAX = *mut INTEL_CACHE_INFO_EAX;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PINTEL_CACHE_INFO_EBX = *mut INTEL_CACHE_INFO_EBX;
 #[cfg(all(feature = "shared", feature = "winnt"))]
@@ -15044,7 +15044,7 @@ pub type PKSEMAPHORE = *mut KSEMAPHORE;
 pub type PKSERVICE_ROUTINE = Option<unsafe extern "system" fn(interrupt: *const _KINTERRUPT, servicecontext: super::PVOID) -> super::BOOLEAN>;
 #[cfg(feature = "winnt")]
 pub type PKSPIN_LOCK_QUEUE = *mut KSPIN_LOCK_QUEUE;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PKSPIN_LOCK_QUEUE_NUMBER = *mut KSPIN_LOCK_QUEUE_NUMBER;
 #[cfg(feature = "winnt")]
@@ -15170,7 +15170,7 @@ pub struct PNP_REPLACE_DRIVER_INTERFACE {
     pub GetMemoryDestination: PREPLACE_GET_MEMORY_DESTINATION,
     pub EnableDisableHardwareQuiesce: PREPLACE_ENABLE_DISABLE_HARDWARE_QUIESCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const PNP_REPLACE_DRIVER_INTERFACE_MINIMUM_SIZE: super::ULONG = 36;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -15426,11 +15426,11 @@ pub const POOL_RAISE_IF_ALLOCATION_FAILURE: i32 = 16;
 pub const POOL_TAGGING: i32 = 1;
 pub type POOL_TYPE = i32;
 pub const POOL_ZERO_ALLOCATION: i32 = 1024;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PORT_MAXIMUM_MESSAGE_LENGTH: i32 = 256;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PORT_MAXIMUM_MESSAGE_LENGTH: i32 = 512;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const POWER_LEVEL: i32 = 30;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const POWER_LEVEL: i32 = 14;
@@ -15898,7 +15898,7 @@ pub type PPCW_MASK_INFORMATION = *mut PCW_MASK_INFORMATION;
 pub type PPCW_REGISTRATION = *mut _PCW_REGISTRATION;
 #[cfg(all(feature = "shared", feature = "winnt", feature = "winternl"))]
 pub type PPCW_REGISTRATION_INFORMATION = *mut PCW_REGISTRATION_INFORMATION;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PPFN_NUMBER = *mut super::ULONG;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -16136,7 +16136,7 @@ pub type PROCESSOR_CALLBACK_FUNCTION = Option<unsafe extern "system" fn(callback
 pub const PROCESSOR_FEATURE_MAX: i32 = 64;
 #[cfg(feature = "winnt")]
 pub type PROCESSOR_HALT_ROUTINE = Option<unsafe extern "system" fn(context: super::PVOID) -> windows_core::NTSTATUS>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROFILE_LEVEL: i32 = 27;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROFILE_LEVEL: i32 = 15;
@@ -16179,7 +16179,7 @@ pub type PSE_IMAGE_VERIFICATION_CALLBACK_TOKEN = *mut super::PVOID;
 pub type PSE_IMAGE_VERIFICATION_CALLBACK_TYPE = *mut SE_IMAGE_VERIFICATION_CALLBACK_TYPE;
 #[cfg(feature = "shared")]
 pub type PSHARE_ACCESS = *mut SHARE_ACCESS;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PSPFN_NUMBER = *mut super::LONG;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -16928,12 +16928,12 @@ pub struct SHARE_ACCESS {
     pub SharedDelete: super::ULONG,
 }
 pub const SHORT_LEAST_SIGNIFICANT_BIT: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SHORT_MASK: u32 = 1;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SHORT_MASK: u64 = 1;
 pub const SHORT_MOST_SIGNIFICANT_BIT: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SHORT_SIZE: u32 = 2;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SHORT_SIZE: u64 = 2;
@@ -16973,7 +16973,7 @@ pub const SL_VERIFY_COMPLETION: i32 = 4;
 pub const SL_WATCH_TREE: i32 = 1;
 pub const SL_WRITE_ACCESS_GRANTED: i32 = 4;
 pub const SL_WRITE_THROUGH: i32 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type SPFN_NUMBER = super::LONG;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -17157,7 +17157,7 @@ pub const TypeA: DMA_SPEED = 1;
 pub const TypeB: DMA_SPEED = 2;
 pub const TypeC: DMA_SPEED = 3;
 pub const TypeF: DMA_SPEED = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const UADDRESS_BASE: i32 = 0;
 pub const UnsupportedUpstreamTransaction: FAULT_INFORMATION_ARM64_TYPE = 0;
 pub const UserMode: MODE = 1;
@@ -17699,13 +17699,13 @@ pub const WrVirtualMemory: KWAIT_REASON = 18;
 pub const WrYieldExecution: KWAIT_REASON = 33;
 pub const WriteAccess: IO_ACCESS_TYPE = 1;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct XSTATE_SAVE {
     pub Anonymous: XSTATE_SAVE_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for XSTATE_SAVE {
     fn default() -> Self {
@@ -17713,14 +17713,14 @@ impl Default for XSTATE_SAVE {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union XSTATE_SAVE_0 {
     pub Anonymous: XSTATE_SAVE_0_0,
     pub XStateContext: super::XSTATE_CONTEXT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for XSTATE_SAVE_0 {
     fn default() -> Self {
@@ -17728,7 +17728,7 @@ impl Default for XSTATE_SAVE_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct XSTATE_SAVE_0_0 {

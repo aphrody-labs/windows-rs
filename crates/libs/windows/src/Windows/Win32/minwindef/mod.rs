@@ -1,6 +1,6 @@
 pub type ATOM = u16;
 pub const FALSE: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type FARPROC = Option<unsafe extern "system" fn() -> i32>;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
@@ -97,7 +97,7 @@ pub type LPVOID = *mut core::ffi::c_void;
 pub type LPWORD = *mut u16;
 pub type LRESULT = isize;
 pub const MAX_PATH: i32 = 260;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type NEARPROC = Option<unsafe extern "system" fn() -> i32>;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
@@ -109,7 +109,7 @@ pub type PFILETIME = *mut FILETIME;
 pub type PFLOAT = *mut f32;
 pub type PHKEY = *mut *mut HKEY__;
 pub type PINT = *mut i32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type PROC = Option<unsafe extern "system" fn() -> i32>;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]

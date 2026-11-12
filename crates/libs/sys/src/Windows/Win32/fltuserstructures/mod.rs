@@ -116,7 +116,7 @@ pub struct FILTER_MESSAGE_HEADER {
     pub ReplyLength: super::ULONG,
     pub MessageId: super::ULONGLONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FILTER_NAME_MAX_BYTES: u32 = 510;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FILTER_NAME_MAX_BYTES: u64 = 510;
@@ -288,7 +288,7 @@ pub struct INSTANCE_FULL_INFORMATION {
     pub FilterNameBufferOffset: super::USHORT,
 }
 pub type INSTANCE_INFORMATION_CLASS = i32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const INSTANCE_NAME_MAX_BYTES: u32 = 510;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const INSTANCE_NAME_MAX_BYTES: u64 = 510;
@@ -333,7 +333,7 @@ pub type PINSTANCE_FULL_INFORMATION = *mut INSTANCE_FULL_INFORMATION;
 pub type PINSTANCE_INFORMATION_CLASS = *mut INSTANCE_INFORMATION_CLASS;
 #[cfg(feature = "shared")]
 pub type PINSTANCE_PARTIAL_INFORMATION = *mut INSTANCE_PARTIAL_INFORMATION;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const VOLUME_NAME_MAX_BYTES: u32 = 2048;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const VOLUME_NAME_MAX_BYTES: u64 = 2048;

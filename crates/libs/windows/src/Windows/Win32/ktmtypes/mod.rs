@@ -3,7 +3,7 @@ pub const CRM_PROTOCOL_EXPLICIT_MARSHAL_ONLY: i32 = 1;
 pub type CRM_PROTOCOL_ID = windows_core::GUID;
 pub const CRM_PROTOCOL_MAXIMUM_OPTION: i32 = 3;
 pub const ENLISTMENT_MAXIMUM_OPTION: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ENLISTMENT_OBJECT_NAME_LENGTH_IN_BYTES: u32 = 102;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ENLISTMENT_OBJECT_NAME_LENGTH_IN_BYTES: u64 = 102;
@@ -79,14 +79,14 @@ pub type PTRANSACTION_NOTIFICATION_TM_ONLINE_ARGUMENT = *mut TRANSACTION_NOTIFIC
 pub type PUOW = *mut windows_core::GUID;
 pub const RESOURCE_MANAGER_COMMUNICATION: i32 = 2;
 pub const RESOURCE_MANAGER_MAXIMUM_OPTION: i32 = 3;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RESOURCE_MANAGER_OBJECT_NAME_LENGTH_IN_BYTES: u32 = 112;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RESOURCE_MANAGER_OBJECT_NAME_LENGTH_IN_BYTES: u64 = 112;
 pub const RESOURCE_MANAGER_OBJECT_PATH: windows_core::PCWSTR = windows_core::w!("\\ResourceManager\\");
 pub const RESOURCE_MANAGER_VOLATILE: i32 = 1;
 pub type SAVEPOINT_ID = u32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TRANSACTIONMANAGER_OBJECT_NAME_LENGTH_IN_BYTES: u32 = 118;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TRANSACTIONMANAGER_OBJECT_NAME_LENGTH_IN_BYTES: u64 = 118;
@@ -180,7 +180,7 @@ pub const TRANSACTION_NOTIFY_ROLLBACK: i32 = 8;
 pub const TRANSACTION_NOTIFY_ROLLBACK_COMPLETE: i32 = 128;
 pub const TRANSACTION_NOTIFY_SINGLE_PHASE_COMMIT: i32 = 512;
 pub const TRANSACTION_NOTIFY_TM_ONLINE: i32 = 33554432;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TRANSACTION_OBJECT_NAME_LENGTH_IN_BYTES: u32 = 104;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TRANSACTION_OBJECT_NAME_LENGTH_IN_BYTES: u64 = 104;

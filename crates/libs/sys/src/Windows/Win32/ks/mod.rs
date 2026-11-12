@@ -1032,7 +1032,7 @@ impl Default for KSSTREAMALLOCATOR_STATUS_EX {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct KSSTREAM_HEADER {

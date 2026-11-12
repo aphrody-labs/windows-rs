@@ -474,7 +474,7 @@ pub const LBER_TRANSLATE_STRINGS: i32 = 4;
 pub const LBER_USE_DER: i32 = 1;
 pub const LBER_USE_INDEFINITE_LEN: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct LDAP {
@@ -496,7 +496,7 @@ pub struct LDAP {
     pub ld_options: super::ULONG,
     pub ld_anonymousmaxvalrange: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAP {
     fn default() -> Self {
@@ -504,7 +504,7 @@ impl Default for LDAP {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct LDAP_0 {
@@ -513,7 +513,7 @@ pub struct LDAP_0 {
     pub sb_naddr: super::ULONG_PTR,
     pub Reserved2: [super::UCHAR; 24],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAP_0 {
     fn default() -> Self {
@@ -604,7 +604,7 @@ pub struct LDAPAPIInfoW {
     pub ldapai_vendor_version: i32,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct LDAPControlA {
@@ -622,7 +622,7 @@ pub struct LDAPControlA {
     pub ldctl_iscritical: super::BOOLEAN,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct LDAPControlW {
@@ -640,7 +640,7 @@ pub struct LDAPControlW {
     pub ldctl_iscritical: super::BOOLEAN,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct LDAPMessage {
@@ -678,7 +678,7 @@ pub struct LDAPMessage {
     pub ConnectionReferenced: super::BOOLEAN,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct LDAPModA {
@@ -686,7 +686,7 @@ pub struct LDAPModA {
     pub mod_type: super::PCHAR,
     pub mod_vals: LDAPModA_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAPModA {
     fn default() -> Self {
@@ -694,14 +694,14 @@ impl Default for LDAPModA {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union LDAPModA_0 {
     pub modv_strvals: *mut super::PCHAR,
     pub modv_bvals: *mut *mut berval,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAPModA_0 {
     fn default() -> Self {
@@ -740,7 +740,7 @@ impl Default for LDAPModA_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct LDAPModW {
@@ -748,7 +748,7 @@ pub struct LDAPModW {
     pub mod_type: super::PWCHAR,
     pub mod_vals: LDAPModW_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAPModW {
     fn default() -> Self {
@@ -756,14 +756,14 @@ impl Default for LDAPModW {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union LDAPModW_0 {
     pub modv_strvals: *mut super::PWCHAR,
     pub modv_bvals: *mut *mut berval,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for LDAPModW_0 {
     fn default() -> Self {
@@ -1047,7 +1047,7 @@ pub const LDAP_SUCCESS: LDAP_RETCODE = 0;
 pub const LDAP_TIMELIMIT_EXCEEDED: LDAP_RETCODE = 3;
 pub const LDAP_TIMEOUT: LDAP_RETCODE = 85;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct LDAP_TIMEVAL {
@@ -1130,7 +1130,7 @@ pub type QUERYFORCONNECTION = Option<unsafe extern "C" fn(primaryconnection: PLD
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "wincrypt", feature = "winnt"))]
 pub type VERIFYSERVERCERT = Option<unsafe extern "C" fn(connection: PLDAP, pservercert: *mut super::PCCERT_CONTEXT) -> super::BOOLEAN>;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct berval {

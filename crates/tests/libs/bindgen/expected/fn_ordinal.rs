@@ -8,7 +8,7 @@ pub unsafe fn OrdinalC(value: i32) -> i32 {
     windows_core::link!("ordinal_fixture.dll" "C" ordinal(23) fn OrdinalC(value : i32) -> i32);
     unsafe { OrdinalC(value) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn OrdinalFast(value: i32) -> i32 {
     windows_core::link!("ordinal_fixture.dll" "fastcall" ordinal(47) fn OrdinalFast(value : i32) -> i32);
@@ -19,7 +19,7 @@ pub unsafe fn OrdinalSystem(value: i32) -> i32 {
     windows_core::link!("ordinal_fixture.dll" "system" ordinal(17) fn OrdinalSystem(value : i32) -> i32);
     unsafe { OrdinalSystem(value) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[inline]
 pub unsafe fn PerArch() -> i32 {
     windows_core::link!("ordinal_fixture.dll" "system" ordinal(31) fn PerArch() -> i32);

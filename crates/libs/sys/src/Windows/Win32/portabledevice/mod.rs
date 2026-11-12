@@ -35,7 +35,7 @@ pub const SMS_ENCODING_8_BIT: WPD_SMS_ENCODING_TYPES = 1;
 pub const SMS_ENCODING_UTF_16: WPD_SMS_ENCODING_TYPES = 2;
 pub type SMS_MESSAGE_TYPES = i32;
 pub const SMS_TEXT_MESSAGE: SMS_MESSAGE_TYPES = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const WMDRMDEVICEAPP_USE_WPD_DEVICE_PTR: super::ULONG_PTR = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

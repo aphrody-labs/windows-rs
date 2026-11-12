@@ -72,7 +72,7 @@ pub struct MINIDUMP_CALLBACK_INFORMATION {
     pub CallbackParam: super::PVOID,
 }
 #[cfg(all(feature = "basetsd", feature = "shared", feature = "verrsrc", feature = "winnt"))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub struct MINIDUMP_CALLBACK_INPUT {
@@ -98,7 +98,7 @@ impl Default for MINIDUMP_CALLBACK_INPUT {
     }
 }
 #[cfg(all(feature = "basetsd", feature = "shared", feature = "verrsrc", feature = "winnt"))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub union MINIDUMP_CALLBACK_INPUT_0 {
@@ -1033,9 +1033,9 @@ pub struct MINIDUMP_THREAD {
     pub Stack: MINIDUMP_MEMORY_DESCRIPTOR,
     pub ThreadContext: MINIDUMP_LOCATION_DESCRIPTOR,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub struct MINIDUMP_THREAD_CALLBACK {
@@ -1046,7 +1046,7 @@ pub struct MINIDUMP_THREAD_CALLBACK {
     pub StackBase: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
     pub StackEnd: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[repr(C, align(16))]
@@ -1061,7 +1061,7 @@ pub struct MINIDUMP_THREAD_CALLBACK {
     pub StackBase: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
     pub StackEnd: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for MINIDUMP_THREAD_CALLBACK {
     fn default() -> Self {
@@ -1101,9 +1101,9 @@ pub struct MINIDUMP_THREAD_EX {
     pub ThreadContext: MINIDUMP_LOCATION_DESCRIPTOR,
     pub BackingStore: MINIDUMP_MEMORY_DESCRIPTOR,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub struct MINIDUMP_THREAD_EX_CALLBACK {
@@ -1116,7 +1116,7 @@ pub struct MINIDUMP_THREAD_EX_CALLBACK {
     pub BackingStoreBase: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
     pub BackingStoreEnd: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[repr(C, align(16))]
@@ -1133,7 +1133,7 @@ pub struct MINIDUMP_THREAD_EX_CALLBACK {
     pub BackingStoreBase: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
     pub BackingStoreEnd: super::__windows_bindgen_Unaligned<super::ULONG64, {::core::mem::size_of::<super::ULONG64>() }>,
 }
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for MINIDUMP_THREAD_EX_CALLBACK {
     fn default() -> Self {

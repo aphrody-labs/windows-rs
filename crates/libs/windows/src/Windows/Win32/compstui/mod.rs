@@ -356,13 +356,13 @@ impl Default for EXTPUSH_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 pub const HINSPSUIPAGE_FIRST: super::HANDLE = -2 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "winnt")]
 pub const HINSPSUIPAGE_FIRST: super::HANDLE = 4294967294i64 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 pub const HINSPSUIPAGE_LAST: super::HANDLE = -1 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

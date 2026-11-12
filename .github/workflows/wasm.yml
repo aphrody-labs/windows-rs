@@ -1,0 +1,115 @@
+name: wasm
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'crates/libs/rdl/rdl.md'
+      - 'docs/**'
+  push:
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'crates/libs/rdl/rdl.md'
+      - 'docs/**'
+    branches:
+      - master
+      - 'nt/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  # Crates that build for WebAssembly. See docs/wasm.md for the host contract.
+  WASM_CRATES: >-
+    windows-link windows-sys windows-result windows-strings windows-core windows-numerics
+    windows-collections windows-threading windows-version windows-registry
+
+jobs:
+  check:
+    name: check ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm32-unknown-unknown, wasm32-wasip2]
+    runs-on: ubuntu-24.04
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Update toolchain
+        run: rustup update --no-self-update stable && rustup default stable
+      - name: Add toolchain target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - name: Check crates
+        run: |
+          set -euxo pipefail
+          for crate in $WASM_CRATES; do
+            cargo check --target ${{ matrix.target }} -p "$crate"
+            cargo check --target ${{ matrix.target }} -p "$crate" --no-default-features
+          done
+      - name: Check test and sample
+        run: cargo check --target ${{ matrix.target }} --all-targets -p test_wasm -p wasm-system-info
+
+  sys:
+    # Every windows-sys API, with the x86 layouts that wasm32 shares.
+    name: windows-sys all features
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Update toolchain
+        run: rustup update --no-self-update stable && rustup default stable
+      - name: Add toolchain target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: sys
+      - name: Check
+        run: cargo check --target wasm32-unknown-unknown -p windows-sys --all-features
+
+  host:
+    # Runs the sample against a JavaScript host and test_wasm under Wasmtime.
+    name: host
+    runs-on: ubuntu-24.04
+    env:
+      RUSTFLAGS: -D warnings
+      WASMTIME: v50.0.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Update toolchain
+        run: rustup update --no-self-update stable && rustup default stable
+      - name: Add toolchain targets
+        run: rustup target add wasm32-unknown-unknown wasm32-wasip2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: host
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Install Wasmtime
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL "https://github.com/bytecodealliance/wasmtime/releases/download/$WASMTIME/wasmtime-$WASMTIME-x86_64-linux.tar.xz" | tar -xJ
+          echo "$RUNNER_TEMP/wasmtime-$WASMTIME-x86_64-linux" >> "$GITHUB_PATH"
+      - name: Build sample
+        run: cargo build --release --target wasm32-unknown-unknown -p wasm-system-info
+      - name: Run sample host
+        run: bun crates/samples/wasm/system-info/host.js target/wasm32-unknown-unknown/release/wasm_system_info.wasm
+      - name: Test
+        env:
+          CARGO_TARGET_WASM32_WASIP2_RUNNER: wasmtime
+        run: cargo test --target wasm32-wasip2 -p test_wasm
+      - name: Check diff
+        shell: bash
+        run: |
+          git add -N .
+          git diff --exit-code || (echo 'Build changed code in the repo.'; exit 1)

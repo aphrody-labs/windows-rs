@@ -636,7 +636,7 @@ pub const ACMHELPMSGSTRING: windows_core::PCSTR = windows_core::s!("acmchoose_he
 pub const ACMHELPMSGSTRINGA: windows_core::PCSTR = windows_core::s!("acmchoose_help");
 pub const ACMHELPMSGSTRINGW: windows_core::PCWSTR = windows_core::w!("acmchoose_help");
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct ACMSTREAMHEADER {
@@ -653,7 +653,7 @@ pub struct ACMSTREAMHEADER {
     pub dwDstUser: super::DWORD_PTR,
     pub dwReservedDriver: [super::DWORD; 10],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for ACMSTREAMHEADER {
     fn default() -> Self {
@@ -876,7 +876,7 @@ pub const WAVEOUT_MAPPER_STATUS_FORMAT: i32 = 2;
 pub const WAVEOUT_MAPPER_STATUS_MAPPED: i32 = 1;
 pub const WIDM_MAPPER_STATUS: i32 = 8192;
 pub const WODM_MAPPER_STATUS: i32 = 8192;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const _DRVRESERVED: i32 = 10;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const _DRVRESERVED: i32 = 15;

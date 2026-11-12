@@ -118,7 +118,7 @@ pub type PFNPROPSHEETCALLBACK = Option<unsafe extern "system" fn(param0: super::
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 pub type PROPSHEETHEADERA = PROPSHEETHEADERA_V2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETHEADERA_V1 {
@@ -133,7 +133,7 @@ pub struct PROPSHEETHEADERA_V1 {
     pub Anonymous3: PROPSHEETHEADERA_V1_2,
     pub pfnCallback: PFNPROPSHEETCALLBACK,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V1 {
     fn default() -> Self {
@@ -141,14 +141,14 @@ impl Default for PROPSHEETHEADERA_V1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V1_0 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V1_0 {
     fn default() -> Self {
@@ -156,14 +156,14 @@ impl Default for PROPSHEETHEADERA_V1_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V1_1 {
     pub nStartPage: super::UINT,
     pub pStartPage: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V1_1 {
     fn default() -> Self {
@@ -171,14 +171,14 @@ impl Default for PROPSHEETHEADERA_V1_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V1_2 {
     pub ppsp: LPCPROPSHEETPAGEA,
     pub phpage: *mut HPROPSHEETPAGE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V1_2 {
     fn default() -> Self {
@@ -253,12 +253,12 @@ impl Default for PROPSHEETHEADERA_V1_2 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADERA_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADERA_V1_SIZE: u64 = 72;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETHEADERA_V2 {
@@ -276,7 +276,7 @@ pub struct PROPSHEETHEADERA_V2 {
     pub hplWatermark: super::HPALETTE,
     pub Anonymous5: PROPSHEETHEADERA_V2_4,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2 {
     fn default() -> Self {
@@ -284,14 +284,14 @@ impl Default for PROPSHEETHEADERA_V2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V2_0 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2_0 {
     fn default() -> Self {
@@ -299,14 +299,14 @@ impl Default for PROPSHEETHEADERA_V2_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V2_1 {
     pub nStartPage: super::UINT,
     pub pStartPage: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2_1 {
     fn default() -> Self {
@@ -314,14 +314,14 @@ impl Default for PROPSHEETHEADERA_V2_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V2_2 {
     pub ppsp: LPCPROPSHEETPAGEA,
     pub phpage: *mut HPROPSHEETPAGE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2_2 {
     fn default() -> Self {
@@ -329,14 +329,14 @@ impl Default for PROPSHEETHEADERA_V2_2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V2_3 {
     pub hbmWatermark: super::HBITMAP,
     pub pszbmWatermark: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2_3 {
     fn default() -> Self {
@@ -344,14 +344,14 @@ impl Default for PROPSHEETHEADERA_V2_3 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERA_V2_4 {
     pub hbmHeader: super::HBITMAP,
     pub pszbmHeader: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERA_V2_4 {
     fn default() -> Self {
@@ -459,14 +459,14 @@ impl Default for PROPSHEETHEADERA_V2_4 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADERA_V2_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADERA_V2_SIZE: u64 = 96;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 pub type PROPSHEETHEADERW = PROPSHEETHEADERW_V2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETHEADERW_V1 {
@@ -481,7 +481,7 @@ pub struct PROPSHEETHEADERW_V1 {
     pub Anonymous3: PROPSHEETHEADERW_V1_2,
     pub pfnCallback: PFNPROPSHEETCALLBACK,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V1 {
     fn default() -> Self {
@@ -489,14 +489,14 @@ impl Default for PROPSHEETHEADERW_V1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V1_0 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V1_0 {
     fn default() -> Self {
@@ -504,14 +504,14 @@ impl Default for PROPSHEETHEADERW_V1_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V1_1 {
     pub nStartPage: super::UINT,
     pub pStartPage: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V1_1 {
     fn default() -> Self {
@@ -519,14 +519,14 @@ impl Default for PROPSHEETHEADERW_V1_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V1_2 {
     pub ppsp: LPCPROPSHEETPAGEW,
     pub phpage: *mut HPROPSHEETPAGE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V1_2 {
     fn default() -> Self {
@@ -601,12 +601,12 @@ impl Default for PROPSHEETHEADERW_V1_2 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADERW_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADERW_V1_SIZE: u64 = 72;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETHEADERW_V2 {
@@ -624,7 +624,7 @@ pub struct PROPSHEETHEADERW_V2 {
     pub hplWatermark: super::HPALETTE,
     pub Anonymous5: PROPSHEETHEADERW_V2_4,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2 {
     fn default() -> Self {
@@ -632,14 +632,14 @@ impl Default for PROPSHEETHEADERW_V2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V2_0 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2_0 {
     fn default() -> Self {
@@ -647,14 +647,14 @@ impl Default for PROPSHEETHEADERW_V2_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V2_1 {
     pub nStartPage: super::UINT,
     pub pStartPage: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2_1 {
     fn default() -> Self {
@@ -662,14 +662,14 @@ impl Default for PROPSHEETHEADERW_V2_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V2_2 {
     pub ppsp: LPCPROPSHEETPAGEW,
     pub phpage: *mut HPROPSHEETPAGE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2_2 {
     fn default() -> Self {
@@ -677,14 +677,14 @@ impl Default for PROPSHEETHEADERW_V2_2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V2_3 {
     pub hbmWatermark: super::HBITMAP,
     pub pszbmWatermark: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2_3 {
     fn default() -> Self {
@@ -692,14 +692,14 @@ impl Default for PROPSHEETHEADERW_V2_3 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETHEADERW_V2_4 {
     pub hbmHeader: super::HBITMAP,
     pub pszbmHeader: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETHEADERW_V2_4 {
     fn default() -> Self {
@@ -807,15 +807,15 @@ impl Default for PROPSHEETHEADERW_V2_4 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADERW_V2_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADERW_V2_SIZE: u64 = 96;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADER_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADER_V1_SIZE: u64 = 72;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETHEADER_V2_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETHEADER_V2_SIZE: u64 = 96;
@@ -824,7 +824,7 @@ pub type PROPSHEETPAGEA = PROPSHEETPAGEA_V4;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 pub type PROPSHEETPAGEA_LATEST = PROPSHEETPAGEA_V4;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEA_V1 {
@@ -839,7 +839,7 @@ pub struct PROPSHEETPAGEA_V1 {
     pub pfnCallback: LPFNPSPCALLBACKA,
     pub pcRefParent: *mut super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V1 {
     fn default() -> Self {
@@ -847,14 +847,14 @@ impl Default for PROPSHEETPAGEA_V1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V1_0 {
     pub pszTemplate: windows_core::PCSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V1_0 {
     fn default() -> Self {
@@ -862,14 +862,14 @@ impl Default for PROPSHEETPAGEA_V1_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V1_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V1_1 {
     fn default() -> Self {
@@ -929,12 +929,12 @@ impl Default for PROPSHEETPAGEA_V1_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEA_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEA_V1_SIZE: u64 = 72;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEA_V2 {
@@ -951,7 +951,7 @@ pub struct PROPSHEETPAGEA_V2 {
     pub pszHeaderTitle: windows_core::PCSTR,
     pub pszHeaderSubTitle: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V2 {
     fn default() -> Self {
@@ -959,14 +959,14 @@ impl Default for PROPSHEETPAGEA_V2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V2_0 {
     pub pszTemplate: windows_core::PCSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V2_0 {
     fn default() -> Self {
@@ -974,14 +974,14 @@ impl Default for PROPSHEETPAGEA_V2_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V2_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V2_1 {
     fn default() -> Self {
@@ -1043,12 +1043,12 @@ impl Default for PROPSHEETPAGEA_V2_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEA_V2_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEA_V2_SIZE: u64 = 88;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEA_V3 {
@@ -1066,7 +1066,7 @@ pub struct PROPSHEETPAGEA_V3 {
     pub pszHeaderSubTitle: windows_core::PCSTR,
     pub hActCtx: super::HANDLE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V3 {
     fn default() -> Self {
@@ -1074,14 +1074,14 @@ impl Default for PROPSHEETPAGEA_V3 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V3_0 {
     pub pszTemplate: windows_core::PCSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V3_0 {
     fn default() -> Self {
@@ -1089,14 +1089,14 @@ impl Default for PROPSHEETPAGEA_V3_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V3_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V3_1 {
     fn default() -> Self {
@@ -1159,12 +1159,12 @@ impl Default for PROPSHEETPAGEA_V3_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEA_V3_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEA_V3_SIZE: u64 = 96;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEA_V4 {
@@ -1183,7 +1183,7 @@ pub struct PROPSHEETPAGEA_V4 {
     pub hActCtx: super::HANDLE,
     pub Anonymous3: PROPSHEETPAGEA_V4_2,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V4 {
     fn default() -> Self {
@@ -1191,14 +1191,14 @@ impl Default for PROPSHEETPAGEA_V4 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V4_0 {
     pub pszTemplate: windows_core::PCSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V4_0 {
     fn default() -> Self {
@@ -1206,14 +1206,14 @@ impl Default for PROPSHEETPAGEA_V4_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V4_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V4_1 {
     fn default() -> Self {
@@ -1221,14 +1221,14 @@ impl Default for PROPSHEETPAGEA_V4_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEA_V4_2 {
     pub hbmHeader: super::HBITMAP,
     pub pszbmHeader: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEA_V4_2 {
     fn default() -> Self {
@@ -1307,7 +1307,7 @@ impl Default for PROPSHEETPAGEA_V4_2 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEA_V4_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEA_V4_SIZE: u64 = 104;
@@ -1316,7 +1316,7 @@ pub type PROPSHEETPAGEW = PROPSHEETPAGEW_V4;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 pub type PROPSHEETPAGEW_LATEST = PROPSHEETPAGEW_V4;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEW_V1 {
@@ -1331,7 +1331,7 @@ pub struct PROPSHEETPAGEW_V1 {
     pub pfnCallback: LPFNPSPCALLBACKW,
     pub pcRefParent: *mut super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V1 {
     fn default() -> Self {
@@ -1339,14 +1339,14 @@ impl Default for PROPSHEETPAGEW_V1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V1_0 {
     pub pszTemplate: windows_core::PCWSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V1_0 {
     fn default() -> Self {
@@ -1354,14 +1354,14 @@ impl Default for PROPSHEETPAGEW_V1_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V1_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V1_1 {
     fn default() -> Self {
@@ -1421,12 +1421,12 @@ impl Default for PROPSHEETPAGEW_V1_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEW_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEW_V1_SIZE: u64 = 72;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEW_V2 {
@@ -1443,7 +1443,7 @@ pub struct PROPSHEETPAGEW_V2 {
     pub pszHeaderTitle: windows_core::PCWSTR,
     pub pszHeaderSubTitle: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V2 {
     fn default() -> Self {
@@ -1451,14 +1451,14 @@ impl Default for PROPSHEETPAGEW_V2 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V2_0 {
     pub pszTemplate: windows_core::PCWSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V2_0 {
     fn default() -> Self {
@@ -1466,14 +1466,14 @@ impl Default for PROPSHEETPAGEW_V2_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V2_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V2_1 {
     fn default() -> Self {
@@ -1535,12 +1535,12 @@ impl Default for PROPSHEETPAGEW_V2_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEW_V2_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEW_V2_SIZE: u64 = 88;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEW_V3 {
@@ -1558,7 +1558,7 @@ pub struct PROPSHEETPAGEW_V3 {
     pub pszHeaderSubTitle: windows_core::PCWSTR,
     pub hActCtx: super::HANDLE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V3 {
     fn default() -> Self {
@@ -1566,14 +1566,14 @@ impl Default for PROPSHEETPAGEW_V3 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V3_0 {
     pub pszTemplate: windows_core::PCWSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V3_0 {
     fn default() -> Self {
@@ -1581,14 +1581,14 @@ impl Default for PROPSHEETPAGEW_V3_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V3_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V3_1 {
     fn default() -> Self {
@@ -1651,12 +1651,12 @@ impl Default for PROPSHEETPAGEW_V3_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEW_V3_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEW_V3_SIZE: u64 = 96;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub struct PROPSHEETPAGEW_V4 {
@@ -1675,7 +1675,7 @@ pub struct PROPSHEETPAGEW_V4 {
     pub hActCtx: super::HANDLE,
     pub Anonymous3: PROPSHEETPAGEW_V4_2,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V4 {
     fn default() -> Self {
@@ -1683,14 +1683,14 @@ impl Default for PROPSHEETPAGEW_V4 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V4_0 {
     pub pszTemplate: windows_core::PCWSTR,
     pub pResource: PROPSHEETPAGE_RESOURCE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V4_0 {
     fn default() -> Self {
@@ -1698,14 +1698,14 @@ impl Default for PROPSHEETPAGEW_V4_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V4_1 {
     pub hIcon: super::HICON,
     pub pszIcon: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V4_1 {
     fn default() -> Self {
@@ -1713,14 +1713,14 @@ impl Default for PROPSHEETPAGEW_V4_1 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 #[derive(Clone, Copy)]
 pub union PROPSHEETPAGEW_V4_2 {
     pub hbmHeader: super::HBITMAP,
     pub pszbmHeader: windows_core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winnt", feature = "winuser"))]
 impl Default for PROPSHEETPAGEW_V4_2 {
     fn default() -> Self {
@@ -1799,17 +1799,17 @@ impl Default for PROPSHEETPAGEW_V4_2 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGEW_V4_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGEW_V4_SIZE: u64 = 104;
 #[cfg(all(feature = "shared", feature = "winuser"))]
 pub type PROPSHEETPAGE_RESOURCE = *const super::DLGTEMPLATE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGE_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGE_V1_SIZE: u64 = 72;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PROPSHEETPAGE_V2_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PROPSHEETPAGE_V2_SIZE: u64 = 88;
@@ -1831,7 +1831,7 @@ pub const PSCB_BUTTONPRESSED: i32 = 3;
 pub const PSCB_INITIALIZED: i32 = 1;
 pub const PSCB_PRECREATE: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 #[derive(Clone, Copy, Default)]
 pub struct PSHNOTIFY {

@@ -458,14 +458,14 @@ pub unsafe fn RtlEqualSid(sid1: super::PSID, sid2: super::PSID) -> super::BOOLEA
     windows_core::link!("ntdll.dll" "system" fn RtlEqualSid(sid1 : super::PSID, sid2 : super::PSID) -> super::BOOLEAN);
     unsafe { RtlEqualSid(sid1, sid2) }
 }
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlFillMemoryUlong(destination: super::PVOID, length: super::SIZE_T, pattern: super::ULONG) {
     windows_core::link!("ntdll.dll" "system" fn RtlFillMemoryUlong(destination : super::PVOID, length : super::SIZE_T, pattern : super::ULONG));
     unsafe { RtlFillMemoryUlong(destination as _, length, pattern) }
 }
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlFillMemoryUlonglong(destination: super::PVOID, length: super::SIZE_T, pattern: super::ULONGLONG) {
@@ -4620,13 +4620,13 @@ impl Default for QUERY_ON_CREATE_ECP_CONTEXT {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_COMMON_BUFFER_END: super::ULONG = 136;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_COMMON_BUFFER_END: super::ULONG = 152;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_EA_INFO_END: super::ULONG = 124;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4634,7 +4634,7 @@ pub const QUERY_ON_CREATE_ECP_CONTEXT_EA_INFO_END: super::ULONG = 124;
 pub const QUERY_ON_CREATE_ECP_CONTEXT_EA_INFO_END: super::ULONG = 136;
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_LX_INFO_END: super::ULONG = 116;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_SECURITY_INFO_END: super::ULONG = 176;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -4642,7 +4642,7 @@ pub const QUERY_ON_CREATE_ECP_CONTEXT_SECURITY_INFO_END: super::ULONG = 176;
 pub const QUERY_ON_CREATE_ECP_CONTEXT_SECURITY_INFO_END: super::ULONG = 200;
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_STAT_INFO_END: super::ULONG = 88;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const QUERY_ON_CREATE_ECP_CONTEXT_USN_INFO_END: super::ULONG = 160;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

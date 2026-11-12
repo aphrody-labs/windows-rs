@@ -302,35 +302,35 @@ pub const CRED_PROTECT_TO_SYSTEM: i32 = 2;
 pub const CRED_PROTECT_VALID_FLAGS: i32 = 3;
 pub const CRED_SESSION_WILDCARD_NAME: windows_sys::core::PCSTR = windows_sys::core::s!("*Session");
 pub const CRED_SESSION_WILDCARD_NAME_A: windows_sys::core::PCSTR = windows_sys::core::s!("*Session");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_SESSION_WILDCARD_NAME_LENGTH: u32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_SESSION_WILDCARD_NAME_LENGTH: u64 = 8;
 pub const CRED_SESSION_WILDCARD_NAME_W: windows_sys::core::PCWSTR = windows_sys::core::w!("*Session");
 pub const CRED_TARGETNAME_ATTRIBUTE_BATCH: windows_sys::core::PCSTR = windows_sys::core::s!("batch");
 pub const CRED_TARGETNAME_ATTRIBUTE_BATCH_A: windows_sys::core::PCSTR = windows_sys::core::s!("batch");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_BATCH_LENGTH: u32 = 5;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_BATCH_LENGTH: u64 = 5;
 pub const CRED_TARGETNAME_ATTRIBUTE_BATCH_W: windows_sys::core::PCWSTR = windows_sys::core::w!("batch");
 pub const CRED_TARGETNAME_ATTRIBUTE_CACHEDINTERACTIVE: windows_sys::core::PCSTR = windows_sys::core::s!("cachedinteractive");
 pub const CRED_TARGETNAME_ATTRIBUTE_CACHEDINTERACTIVE_A: windows_sys::core::PCSTR = windows_sys::core::s!("cachedinteractive");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_CACHEDINTERACTIVE_LENGTH: u32 = 17;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_CACHEDINTERACTIVE_LENGTH: u64 = 17;
 pub const CRED_TARGETNAME_ATTRIBUTE_CACHEDINTERACTIVE_W: windows_sys::core::PCWSTR = windows_sys::core::w!("cachedinteractive");
 pub const CRED_TARGETNAME_ATTRIBUTE_INTERACTIVE: windows_sys::core::PCSTR = windows_sys::core::s!("interactive");
 pub const CRED_TARGETNAME_ATTRIBUTE_INTERACTIVE_A: windows_sys::core::PCSTR = windows_sys::core::s!("interactive");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_INTERACTIVE_LENGTH: u32 = 11;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_INTERACTIVE_LENGTH: u64 = 11;
 pub const CRED_TARGETNAME_ATTRIBUTE_INTERACTIVE_W: windows_sys::core::PCWSTR = windows_sys::core::w!("interactive");
 pub const CRED_TARGETNAME_ATTRIBUTE_NAME: windows_sys::core::PCSTR = windows_sys::core::s!("name");
 pub const CRED_TARGETNAME_ATTRIBUTE_NAME_A: windows_sys::core::PCSTR = windows_sys::core::s!("name");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NAME_LENGTH: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NAME_LENGTH: u64 = 4;
@@ -338,20 +338,20 @@ pub const CRED_TARGETNAME_ATTRIBUTE_NAME_W: windows_sys::core::PCWSTR = windows_
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORK: windows_sys::core::PCSTR = windows_sys::core::s!("network");
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORKCLEARTEXT: windows_sys::core::PCSTR = windows_sys::core::s!("networkcleartext");
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORKCLEARTEXT_A: windows_sys::core::PCSTR = windows_sys::core::s!("networkcleartext");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORKCLEARTEXT_LENGTH: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORKCLEARTEXT_LENGTH: u64 = 16;
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORKCLEARTEXT_W: windows_sys::core::PCWSTR = windows_sys::core::w!("networkcleartext");
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORK_A: windows_sys::core::PCSTR = windows_sys::core::s!("network");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORK_LENGTH: u32 = 7;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORK_LENGTH: u64 = 7;
 pub const CRED_TARGETNAME_ATTRIBUTE_NETWORK_W: windows_sys::core::PCWSTR = windows_sys::core::w!("network");
 pub const CRED_TARGETNAME_ATTRIBUTE_REMOTEINTERACTIVE: windows_sys::core::PCSTR = windows_sys::core::s!("remoteinteractive");
 pub const CRED_TARGETNAME_ATTRIBUTE_REMOTEINTERACTIVE_A: windows_sys::core::PCSTR = windows_sys::core::s!("remoteinteractive");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_REMOTEINTERACTIVE_LENGTH: u32 = 17;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_REMOTEINTERACTIVE_LENGTH: u64 = 17;
@@ -360,14 +360,14 @@ pub const CRED_TARGETNAME_ATTRIBUTE_SEPERATOR_A: i8 = 61;
 pub const CRED_TARGETNAME_ATTRIBUTE_SEPERATOR_W: u16 = 61;
 pub const CRED_TARGETNAME_ATTRIBUTE_SERVICE: windows_sys::core::PCSTR = windows_sys::core::s!("service");
 pub const CRED_TARGETNAME_ATTRIBUTE_SERVICE_A: windows_sys::core::PCSTR = windows_sys::core::s!("service");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_SERVICE_LENGTH: u32 = 7;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_SERVICE_LENGTH: u64 = 7;
 pub const CRED_TARGETNAME_ATTRIBUTE_SERVICE_W: windows_sys::core::PCWSTR = windows_sys::core::w!("service");
 pub const CRED_TARGETNAME_ATTRIBUTE_TARGET: windows_sys::core::PCSTR = windows_sys::core::s!("target");
 pub const CRED_TARGETNAME_ATTRIBUTE_TARGET_A: windows_sys::core::PCSTR = windows_sys::core::s!("target");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_TARGET_LENGTH: u32 = 6;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_ATTRIBUTE_TARGET_LENGTH: u64 = 6;
@@ -376,13 +376,13 @@ pub const CRED_TARGETNAME_DOMAIN_EXTENDED_USERNAME_SEPARATOR_A: i8 = 124;
 pub const CRED_TARGETNAME_DOMAIN_EXTENDED_USERNAME_SEPARATOR_W: u16 = 124;
 pub const CRED_TARGETNAME_DOMAIN_NAMESPACE: windows_sys::core::PCSTR = windows_sys::core::s!("Domain");
 pub const CRED_TARGETNAME_DOMAIN_NAMESPACE_A: windows_sys::core::PCSTR = windows_sys::core::s!("Domain");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_DOMAIN_NAMESPACE_LENGTH: u32 = 6;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_DOMAIN_NAMESPACE_LENGTH: u64 = 6;
 pub const CRED_TARGETNAME_DOMAIN_NAMESPACE_W: windows_sys::core::PCWSTR = windows_sys::core::w!("Domain");
 pub const CRED_TARGETNAME_LEGACYGENERIC_NAMESPACE_A: windows_sys::core::PCSTR = windows_sys::core::s!("LegacyGeneric");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CRED_TARGETNAME_LEGACYGENERIC_NAMESPACE_LENGTH: u32 = 13;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CRED_TARGETNAME_LEGACYGENERIC_NAMESPACE_LENGTH: u64 = 13;

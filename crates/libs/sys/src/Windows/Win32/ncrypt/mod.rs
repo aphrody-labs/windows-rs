@@ -555,7 +555,7 @@ pub struct NCRYPT_TPM_LOADABLE_KEY_BLOB_HEADER {
     pub cbName: super::DWORD,
 }
 pub const NCRYPT_TPM_LOADABLE_KEY_BLOB_MAGIC: i32 = 1297371211;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NCRYPT_TPM_LOADABLE_KEY_BLOB_MIN_SIZE: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NCRYPT_TPM_LOADABLE_KEY_BLOB_MIN_SIZE: u64 = 20;
@@ -570,7 +570,7 @@ pub struct NCRYPT_TPM_PERSISTENT_KEY_BLOB_HEADER {
     pub tpmHandle: super::DWORD,
 }
 pub const NCRYPT_TPM_PERSISTENT_KEY_BLOB_MAGIC: i32 = 1297371211;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NCRYPT_TPM_PERSISTENT_KEY_BLOB_MIN_SIZE: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NCRYPT_TPM_PERSISTENT_KEY_BLOB_MIN_SIZE: u64 = 12;

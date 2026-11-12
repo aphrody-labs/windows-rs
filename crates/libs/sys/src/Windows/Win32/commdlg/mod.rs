@@ -103,7 +103,7 @@ pub const CF_WYSIWYG: i32 = 32768;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type CHOOSECOLOR = CHOOSECOLORA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct CHOOSECOLORA {
@@ -133,7 +133,7 @@ pub struct CHOOSECOLORA {
     pub lpTemplateName: windows_sys::core::PCSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct CHOOSECOLORW {
@@ -165,7 +165,7 @@ pub struct CHOOSECOLORW {
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "wingdi"))]
 pub type CHOOSEFONT = CHOOSEFONTA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "wingdi"))]
 #[derive(Clone, Copy, Default)]
 pub struct CHOOSEFONTA {
@@ -209,7 +209,7 @@ pub struct CHOOSEFONTA {
     pub nSizeMax: super::INT,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "wingdi", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct CHOOSEFONTW {
@@ -256,7 +256,7 @@ pub const COLOROKSTRING: windows_sys::core::PCSTR = windows_sys::core::s!("commd
 pub const COLOROKSTRINGA: windows_sys::core::PCSTR = windows_sys::core::s!("commdlg_ColorOK");
 pub const COLOROKSTRINGW: windows_sys::core::PCWSTR = windows_sys::core::w!("commdlg_ColorOK");
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct DEVNAMES {
@@ -285,7 +285,7 @@ pub const FINDMSGSTRINGW: windows_sys::core::PCWSTR = windows_sys::core::w!("com
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type FINDREPLACE = FINDREPLACEA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct FINDREPLACEA {
@@ -319,7 +319,7 @@ pub struct FINDREPLACEA {
     pub lpTemplateName: windows_sys::core::PCSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct FINDREPLACEW {
@@ -467,7 +467,7 @@ pub type LPSETUPHOOKPROC = Option<unsafe extern "system" fn(param0: super::HWND,
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 pub type OFNOTIFY = OFNOTIFYA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 #[derive(Clone, Copy, Default)]
 pub struct OFNOTIFYA {
@@ -487,7 +487,7 @@ pub struct OFNOTIFYA {
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 pub type OFNOTIFYEX = OFNOTIFYEXA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 #[derive(Clone, Copy, Default)]
 pub struct OFNOTIFYEXA {
@@ -507,7 +507,7 @@ pub struct OFNOTIFYEXA {
     pub pidl: super::LPVOID,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 #[derive(Clone, Copy, Default)]
 pub struct OFNOTIFYEXW {
@@ -527,7 +527,7 @@ pub struct OFNOTIFYEXW {
     pub pidl: super::LPVOID,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef", feature = "winuser"))]
 #[derive(Clone, Copy, Default)]
 pub struct OFNOTIFYW {
@@ -577,7 +577,7 @@ pub const OFN_SHOWHELP: i32 = 16;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type OPENFILENAME = OPENFILENAMEA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct OPENFILENAMEA {
@@ -635,7 +635,7 @@ pub struct OPENFILENAMEA {
     pub FlagsEx: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct OPENFILENAMEW {
@@ -695,7 +695,7 @@ pub struct OPENFILENAMEW {
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type OPENFILENAME_NT4 = OPENFILENAME_NT4A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct OPENFILENAME_NT4A {
@@ -747,7 +747,7 @@ pub struct OPENFILENAME_NT4A {
     pub lpTemplateName: windows_sys::core::PCSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct OPENFILENAME_NT4W {
@@ -798,22 +798,22 @@ pub struct OPENFILENAME_NT4W {
     pub lpfnHook: LPOFNHOOKPROC,
     pub lpTemplateName: windows_sys::core::PCWSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const OPENFILENAME_SIZE_VERSION_400: u32 = 76;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const OPENFILENAME_SIZE_VERSION_400: u64 = 136;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const OPENFILENAME_SIZE_VERSION_400A: u32 = 76;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const OPENFILENAME_SIZE_VERSION_400A: u64 = 136;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const OPENFILENAME_SIZE_VERSION_400W: u32 = 76;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const OPENFILENAME_SIZE_VERSION_400W: u64 = 136;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type PAGESETUPDLG = PAGESETUPDLGA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PAGESETUPDLGA {
@@ -853,7 +853,7 @@ pub struct PAGESETUPDLGA {
     pub hPageSetupTemplate: super::HGLOBAL,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PAGESETUPDLGW {
@@ -937,7 +937,7 @@ pub const PD_USELARGETEMPLATE: i32 = 268435456;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 pub type PRINTDLG = PRINTDLGA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PRINTDLGA {
@@ -989,7 +989,7 @@ pub struct PRINTDLGA {
 #[cfg(all(feature = "minwindef", feature = "prsht", feature = "shared", feature = "unknwnbase", feature = "windef"))]
 pub type PRINTDLGEX = PRINTDLGEXA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "prsht", feature = "shared", feature = "unknwnbase", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PRINTDLGEXA {
@@ -1043,7 +1043,7 @@ pub struct PRINTDLGEXA {
     pub dwResultAction: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "prsht", feature = "shared", feature = "unknwnbase", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PRINTDLGEXW {
@@ -1097,7 +1097,7 @@ pub struct PRINTDLGEXW {
     pub dwResultAction: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct PRINTDLGW {
@@ -1148,7 +1148,7 @@ pub struct PRINTDLGW {
 }
 pub const PRINTER_FONTTYPE: i32 = 16384;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct PRINTPAGERANGE {

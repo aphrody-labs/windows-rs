@@ -6,13 +6,13 @@ windows_link::link!("odbc32.dll" "system" fn SQLAllocEnv(environmenthandle : *mu
 windows_link::link!("odbc32.dll" "system" fn SQLAllocHandle(handletype : super::SQLSMALLINT, inputhandle : super::SQLHANDLE, outputhandle : *mut super::SQLHANDLE) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLAllocStmt(connectionhandle : super::SQLHDBC, statementhandle : *mut super::SQLHSTMT) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLBindCol(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, targettype : super::SQLSMALLINT, targetvalue : super::SQLPOINTER, bufferlength : super::SQLINTEGER, strlen_or_ind : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLBindCol(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, targettype : super::SQLSMALLINT, targetvalue : super::SQLPOINTER, bufferlength : super::SQLLEN, strlen_or_ind : *mut super::SQLLEN) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLBindParam(statementhandle : super::SQLHSTMT, parameternumber : super::SQLUSMALLINT, valuetype : super::SQLSMALLINT, parametertype : super::SQLSMALLINT, lengthprecision : super::SQLUINTEGER, parameterscale : super::SQLSMALLINT, parametervalue : super::SQLPOINTER, strlen_or_ind : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -24,7 +24,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLCancel(statementhandle : super::
 windows_link::link!("odbc32.dll" "system" fn SQLCancelHandle(handletype : super::SQLSMALLINT, inputhandle : super::SQLHANDLE) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLCloseCursor(statementhandle : super::SQLHSTMT) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLColAttribute(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, fieldidentifier : super::SQLUSMALLINT, characterattribute : super::SQLPOINTER, bufferlength : super::SQLSMALLINT, stringlength : *mut super::SQLSMALLINT, numericattribute : super::SQLPOINTER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -40,7 +40,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLConnect(connectionhandle : super
 windows_link::link!("odbc32.dll" "system" fn SQLCopyDesc(sourcedeschandle : super::SQLHDESC, targetdeschandle : super::SQLHDESC) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLDataSources(environmenthandle : super::SQLHENV, direction : super::SQLUSMALLINT, servername : *mut super::SQLCHAR, bufferlength1 : super::SQLSMALLINT, namelength1ptr : *mut super::SQLSMALLINT, description : *mut super::SQLCHAR, bufferlength2 : super::SQLSMALLINT, namelength2ptr : *mut super::SQLSMALLINT) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLDescribeCol(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, columnname : *mut super::SQLCHAR, bufferlength : super::SQLSMALLINT, namelength : *mut super::SQLSMALLINT, datatype : *mut super::SQLSMALLINT, columnsize : *mut super::SQLUINTEGER, decimaldigits : *mut super::SQLSMALLINT, nullable : *mut super::SQLSMALLINT) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -58,7 +58,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLExecDirect(statementhandle : sup
 windows_link::link!("odbc32.dll" "system" fn SQLExecute(statementhandle : super::SQLHSTMT) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLFetch(statementhandle : super::SQLHSTMT) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLFetchScroll(statementhandle : super::SQLHSTMT, fetchorientation : super::SQLSMALLINT, fetchoffset : super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -78,7 +78,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLGetConnectAttr(connectionhandle 
 windows_link::link!("odbc32.dll" "system" fn SQLGetConnectOption(connectionhandle : super::SQLHDBC, option : super::SQLUSMALLINT, value : super::SQLPOINTER) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLGetCursorName(statementhandle : super::SQLHSTMT, cursorname : *mut super::SQLCHAR, bufferlength : super::SQLSMALLINT, namelengthptr : *mut super::SQLSMALLINT) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLGetData(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, targettype : super::SQLSMALLINT, targetvalue : super::SQLPOINTER, bufferlength : super::SQLINTEGER, strlen_or_indptr : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -86,7 +86,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLGetData(statementhandle : super:
 windows_link::link!("odbc32.dll" "system" fn SQLGetData(statementhandle : super::SQLHSTMT, columnnumber : super::SQLUSMALLINT, targettype : super::SQLSMALLINT, targetvalue : super::SQLPOINTER, bufferlength : super::SQLLEN, strlen_or_indptr : *mut super::SQLLEN) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLGetDescField(descriptorhandle : super::SQLHDESC, recnumber : super::SQLSMALLINT, fieldidentifier : super::SQLSMALLINT, value : super::SQLPOINTER, bufferlength : super::SQLINTEGER, stringlength : *mut super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLGetDescRec(descriptorhandle : super::SQLHDESC, recnumber : super::SQLSMALLINT, name : *mut super::SQLCHAR, bufferlength : super::SQLSMALLINT, stringlengthptr : *mut super::SQLSMALLINT, typeptr : *mut super::SQLSMALLINT, subtypeptr : *mut super::SQLSMALLINT, lengthptr : *mut super::SQLINTEGER, precisionptr : *mut super::SQLSMALLINT, scaleptr : *mut super::SQLSMALLINT, nullableptr : *mut super::SQLSMALLINT) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -114,13 +114,13 @@ windows_link::link!("odbc32.dll" "system" fn SQLNumResultCols(statementhandle : 
 windows_link::link!("odbc32.dll" "system" fn SQLParamData(statementhandle : super::SQLHSTMT, value : *mut super::SQLPOINTER) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLPrepare(statementhandle : super::SQLHSTMT, statementtext : *const super::SQLCHAR, textlength : super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLPutData(statementhandle : super::SQLHSTMT, data : super::SQLPOINTER, strlen_or_ind : super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLPutData(statementhandle : super::SQLHSTMT, data : super::SQLPOINTER, strlen_or_ind : super::SQLLEN) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLRowCount(statementhandle : super::SQLHSTMT, rowcount : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -128,7 +128,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLRowCount(statementhandle : super
 windows_link::link!("odbc32.dll" "system" fn SQLRowCount(statementhandle : super::SQLHSTMT, rowcount : *mut super::SQLLEN) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetConnectAttr(connectionhandle : super::SQLHDBC, attribute : super::SQLINTEGER, value : super::SQLPOINTER, stringlength : super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetConnectOption(connectionhandle : super::SQLHDBC, option : super::SQLUSMALLINT, value : super::SQLUINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -138,7 +138,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLSetConnectOption(connectionhandl
 windows_link::link!("odbc32.dll" "system" fn SQLSetCursorName(statementhandle : super::SQLHSTMT, cursorname : *const super::SQLCHAR, namelength : super::SQLSMALLINT) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetDescField(descriptorhandle : super::SQLHDESC, recnumber : super::SQLSMALLINT, fieldidentifier : super::SQLSMALLINT, value : super::SQLPOINTER, bufferlength : super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetDescRec(descriptorhandle : super::SQLHDESC, recnumber : super::SQLSMALLINT, r#type : super::SQLSMALLINT, subtype : super::SQLSMALLINT, length : super::SQLINTEGER, precision : super::SQLSMALLINT, scale : super::SQLSMALLINT, data : super::SQLPOINTER, stringlength : *mut super::SQLINTEGER, indicator : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -146,7 +146,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLSetDescRec(descriptorhandle : su
 windows_link::link!("odbc32.dll" "system" fn SQLSetDescRec(descriptorhandle : super::SQLHDESC, recnumber : super::SQLSMALLINT, r#type : super::SQLSMALLINT, subtype : super::SQLSMALLINT, length : super::SQLLEN, precision : super::SQLSMALLINT, scale : super::SQLSMALLINT, data : super::SQLPOINTER, stringlength : *mut super::SQLLEN, indicator : *mut super::SQLLEN) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetEnvAttr(environmenthandle : super::SQLHENV, attribute : super::SQLINTEGER, value : super::SQLPOINTER, stringlength : super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetParam(statementhandle : super::SQLHSTMT, parameternumber : super::SQLUSMALLINT, valuetype : super::SQLSMALLINT, parametertype : super::SQLSMALLINT, lengthprecision : super::SQLUINTEGER, parameterscale : super::SQLSMALLINT, parametervalue : super::SQLPOINTER, strlen_or_ind : *mut super::SQLINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -154,7 +154,7 @@ windows_link::link!("odbc32.dll" "system" fn SQLSetParam(statementhandle : super
 windows_link::link!("odbc32.dll" "system" fn SQLSetParam(statementhandle : super::SQLHSTMT, parameternumber : super::SQLUSMALLINT, valuetype : super::SQLSMALLINT, parametertype : super::SQLSMALLINT, lengthprecision : super::SQLULEN, parameterscale : super::SQLSMALLINT, parametervalue : super::SQLPOINTER, strlen_or_ind : *mut super::SQLLEN) -> super::SQLRETURN);
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetStmtAttr(statementhandle : super::SQLHSTMT, attribute : super::SQLINTEGER, value : super::SQLPOINTER, stringlength : super::SQLINTEGER) -> super::SQLRETURN);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 windows_link::link!("odbc32.dll" "system" fn SQLSetStmtOption(statementhandle : super::SQLHSTMT, option : super::SQLUSMALLINT, value : super::SQLUINTEGER) -> super::SQLRETURN);
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

@@ -50,7 +50,7 @@ pub const PATHCCH_MAX_CCH: i32 = 32768;
 pub const PATHCCH_NONE: PATHCCH_OPTIONS = 0;
 pub type PATHCCH_OPTIONS = i32;
 pub const VOLUME_PREFIX: windows_sys::core::PCWSTR = windows_sys::core::w!("\\\\?\\Volume");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const VOLUME_PREFIX_LEN: u32 = 10;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const VOLUME_PREFIX_LEN: u64 = 10;

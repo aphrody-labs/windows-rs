@@ -674,7 +674,7 @@ windows_link::link!("setupapi.dll" "system" fn SetupWriteTextLogInfLine(logtoken
 #[cfg(feature = "shared")]
 pub type CABINET_INFO = CABINET_INFO_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct CABINET_INFO_A {
@@ -696,7 +696,7 @@ pub struct CABINET_INFO_A {
     pub CabinetNumber: super::USHORT,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct CABINET_INFO_W {
@@ -718,7 +718,7 @@ pub struct CABINET_INFO_W {
     pub CabinetNumber: super::USHORT,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct COINSTALLER_CONTEXT_DATA {
@@ -1086,7 +1086,7 @@ pub const FILEOP_SKIP: i32 = 2;
 #[cfg(feature = "shared")]
 pub type FILEPATHS = FILEPATHS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct FILEPATHS_A {
@@ -1108,7 +1108,7 @@ pub struct FILEPATHS_A {
 #[cfg(feature = "shared")]
 pub type FILEPATHS_SIGNERINFO = FILEPATHS_SIGNERINFO_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct FILEPATHS_SIGNERINFO_A {
@@ -1134,7 +1134,7 @@ pub struct FILEPATHS_SIGNERINFO_A {
     pub CatalogFile: windows_sys::core::PCSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct FILEPATHS_SIGNERINFO_W {
@@ -1160,7 +1160,7 @@ pub struct FILEPATHS_SIGNERINFO_W {
     pub CatalogFile: windows_sys::core::PCWSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct FILEPATHS_W {
@@ -1186,7 +1186,7 @@ pub const FILE_COMPRESSION_WINLZA: i32 = 1;
 #[cfg(feature = "shared")]
 pub type FILE_IN_CABINET_INFO = FILE_IN_CABINET_INFO_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct FILE_IN_CABINET_INFO_A {
@@ -1198,7 +1198,7 @@ pub struct FILE_IN_CABINET_INFO_A {
     pub DosAttribs: super::WORD,
     pub FullTargetName: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for FILE_IN_CABINET_INFO_A {
     fn default() -> Self {
@@ -1226,7 +1226,7 @@ impl Default for FILE_IN_CABINET_INFO_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct FILE_IN_CABINET_INFO_W {
@@ -1238,7 +1238,7 @@ pub struct FILE_IN_CABINET_INFO_W {
     pub DosAttribs: super::WORD,
     pub FullTargetName: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for FILE_IN_CABINET_INFO_W {
     fn default() -> Self {
@@ -1355,7 +1355,7 @@ pub const IDI_RESOURCELAST: i32 = 161;
 pub const IDI_RESOURCEOVERLAYFIRST: i32 = 161;
 pub const IDI_RESOURCEOVERLAYLAST: i32 = 161;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct INFCONTEXT {
@@ -1634,7 +1634,7 @@ pub const SIGNERSCORE_WHQL: i32 = 218103813;
 #[cfg(feature = "shared")]
 pub type SOURCE_MEDIA = SOURCE_MEDIA_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SOURCE_MEDIA_A {
@@ -1658,7 +1658,7 @@ pub struct SOURCE_MEDIA_A {
     pub Flags: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SOURCE_MEDIA_W {
@@ -1853,7 +1853,7 @@ pub const SP_ALTPLATFORM_FLAGS_VERSION_RANGE: i32 = 1;
 #[cfg(feature = "shared")]
 pub type SP_ALTPLATFORM_INFO = SP_ALTPLATFORM_INFO_V2;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_ALTPLATFORM_INFO_V1 {
@@ -1877,7 +1877,7 @@ pub struct SP_ALTPLATFORM_INFO_V1 {
     pub Reserved: super::WORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_ALTPLATFORM_INFO_V2 {
@@ -1890,7 +1890,7 @@ pub struct SP_ALTPLATFORM_INFO_V2 {
     pub FirstValidatedMajorVersion: super::DWORD,
     pub FirstValidatedMinorVersion: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_ALTPLATFORM_INFO_V2 {
     fn default() -> Self {
@@ -1898,14 +1898,14 @@ impl Default for SP_ALTPLATFORM_INFO_V2 {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union SP_ALTPLATFORM_INFO_V2_0 {
     pub Reserved: super::WORD,
     pub Flags: super::WORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_ALTPLATFORM_INFO_V2_0 {
     fn default() -> Self {
@@ -1949,7 +1949,7 @@ impl Default for SP_ALTPLATFORM_INFO_V2_0 {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_ALTPLATFORM_INFO_V3 {
@@ -1965,7 +1965,7 @@ pub struct SP_ALTPLATFORM_INFO_V3 {
     pub SuiteMask: super::WORD,
     pub BuildNumber: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_ALTPLATFORM_INFO_V3 {
     fn default() -> Self {
@@ -1973,14 +1973,14 @@ impl Default for SP_ALTPLATFORM_INFO_V3 {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union SP_ALTPLATFORM_INFO_V3_0 {
     pub Reserved: super::WORD,
     pub Flags: super::WORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_ALTPLATFORM_INFO_V3_0 {
     fn default() -> Self {
@@ -2036,7 +2036,7 @@ pub type SP_BACKUP_QUEUE_PARAMS_A = SP_BACKUP_QUEUE_PARAMS_V2_A;
 #[cfg(feature = "shared")]
 pub type SP_BACKUP_QUEUE_PARAMS_V1 = SP_BACKUP_QUEUE_PARAMS_V1_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_BACKUP_QUEUE_PARAMS_V1_A {
@@ -2044,7 +2044,7 @@ pub struct SP_BACKUP_QUEUE_PARAMS_V1_A {
     pub FullInfPath: [super::CHAR; 260],
     pub FilenameOffset: super::INT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_BACKUP_QUEUE_PARAMS_V1_A {
     fn default() -> Self {
@@ -2068,7 +2068,7 @@ impl Default for SP_BACKUP_QUEUE_PARAMS_V1_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_BACKUP_QUEUE_PARAMS_V1_W {
@@ -2076,7 +2076,7 @@ pub struct SP_BACKUP_QUEUE_PARAMS_V1_W {
     pub FullInfPath: [super::WCHAR; 260],
     pub FilenameOffset: super::INT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_BACKUP_QUEUE_PARAMS_V1_W {
     fn default() -> Self {
@@ -2102,7 +2102,7 @@ impl Default for SP_BACKUP_QUEUE_PARAMS_V1_W {
 #[cfg(feature = "shared")]
 pub type SP_BACKUP_QUEUE_PARAMS_V2 = SP_BACKUP_QUEUE_PARAMS_V2_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_BACKUP_QUEUE_PARAMS_V2_A {
@@ -2111,7 +2111,7 @@ pub struct SP_BACKUP_QUEUE_PARAMS_V2_A {
     pub FilenameOffset: super::INT,
     pub ReinstallInstance: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_BACKUP_QUEUE_PARAMS_V2_A {
     fn default() -> Self {
@@ -2136,7 +2136,7 @@ impl Default for SP_BACKUP_QUEUE_PARAMS_V2_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_BACKUP_QUEUE_PARAMS_V2_W {
@@ -2145,7 +2145,7 @@ pub struct SP_BACKUP_QUEUE_PARAMS_V2_W {
     pub FilenameOffset: super::INT,
     pub ReinstallInstance: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_BACKUP_QUEUE_PARAMS_V2_W {
     fn default() -> Self {
@@ -2173,7 +2173,7 @@ impl Default for SP_BACKUP_QUEUE_PARAMS_V2_W {
 pub type SP_BACKUP_QUEUE_PARAMS_W = SP_BACKUP_QUEUE_PARAMS_V2_W;
 pub const SP_BACKUP_SPECIAL: i32 = 4;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "commctrl", feature = "shared"))]
 #[derive(Clone, Copy, Default)]
 pub struct SP_CLASSIMAGELIST_DATA {
@@ -2191,7 +2191,7 @@ pub struct SP_CLASSIMAGELIST_DATA {
     pub Reserved: super::ULONG_PTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_CLASSINSTALL_HEADER {
@@ -2235,7 +2235,7 @@ pub const SP_COPY_SOURCE_ABSOLUTE: i32 = 64;
 pub const SP_COPY_WARNIFSKIP: i32 = 16384;
 pub const SP_COPY_WINDOWS_SIGNED: i32 = 16777216;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct SP_DETECTDEVICE_PARAMS {
@@ -2253,7 +2253,7 @@ pub struct SP_DETECTDEVICE_PARAMS {
     pub ProgressNotifyParam: super::PVOID,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_DEVICE_INTERFACE_DATA {
@@ -2275,14 +2275,14 @@ pub struct SP_DEVICE_INTERFACE_DATA {
 #[cfg(feature = "shared")]
 pub type SP_DEVICE_INTERFACE_DETAIL_DATA = SP_DEVICE_INTERFACE_DETAIL_DATA_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_DEVICE_INTERFACE_DETAIL_DATA_A {
     pub cbSize: super::DWORD,
     pub DevicePath: [super::CHAR; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_DEVICE_INTERFACE_DETAIL_DATA_A {
     fn default() -> Self {
@@ -2305,14 +2305,14 @@ impl Default for SP_DEVICE_INTERFACE_DETAIL_DATA_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DEVICE_INTERFACE_DETAIL_DATA_W {
     pub cbSize: super::DWORD,
     pub DevicePath: [super::WCHAR; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_DEVICE_INTERFACE_DETAIL_DATA_W {
     fn default() -> Self {
@@ -2335,7 +2335,7 @@ impl Default for SP_DEVICE_INTERFACE_DETAIL_DATA_W {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_DEVINFO_DATA {
@@ -2357,7 +2357,7 @@ pub struct SP_DEVINFO_DATA {
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type SP_DEVINFO_LIST_DETAIL_DATA = SP_DEVINFO_LIST_DETAIL_DATA_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DEVINFO_LIST_DETAIL_DATA_A {
@@ -2366,7 +2366,7 @@ pub struct SP_DEVINFO_LIST_DETAIL_DATA_A {
     pub RemoteMachineHandle: super::HANDLE,
     pub RemoteMachineName: [super::CHAR; 263],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_DEVINFO_LIST_DETAIL_DATA_A {
     fn default() -> Self {
@@ -2391,7 +2391,7 @@ impl Default for SP_DEVINFO_LIST_DETAIL_DATA_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DEVINFO_LIST_DETAIL_DATA_W {
@@ -2400,7 +2400,7 @@ pub struct SP_DEVINFO_LIST_DETAIL_DATA_W {
     pub RemoteMachineHandle: super::HANDLE,
     pub RemoteMachineName: [super::WCHAR; 263],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_DEVINFO_LIST_DETAIL_DATA_W {
     fn default() -> Self {
@@ -2427,7 +2427,7 @@ impl Default for SP_DEVINFO_LIST_DETAIL_DATA_W {
 #[cfg(all(feature = "shared", feature = "windef", feature = "winnt"))]
 pub type SP_DEVINSTALL_PARAMS = SP_DEVINSTALL_PARAMS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DEVINSTALL_PARAMS_A {
@@ -2442,7 +2442,7 @@ pub struct SP_DEVINSTALL_PARAMS_A {
     pub Reserved: super::DWORD,
     pub DriverPath: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef", feature = "winnt"))]
 impl Default for SP_DEVINSTALL_PARAMS_A {
     fn default() -> Self {
@@ -2473,7 +2473,7 @@ impl Default for SP_DEVINSTALL_PARAMS_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DEVINSTALL_PARAMS_W {
@@ -2488,7 +2488,7 @@ pub struct SP_DEVINSTALL_PARAMS_W {
     pub Reserved: super::DWORD,
     pub DriverPath: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef", feature = "winnt"))]
 impl Default for SP_DEVINSTALL_PARAMS_W {
     fn default() -> Self {
@@ -2525,7 +2525,7 @@ pub type SP_DRVINFO_DATA_A = SP_DRVINFO_DATA_V2_A;
 #[cfg(feature = "shared")]
 pub type SP_DRVINFO_DATA_V1 = SP_DRVINFO_DATA_V1_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DATA_V1_A {
@@ -2536,7 +2536,7 @@ pub struct SP_DRVINFO_DATA_V1_A {
     pub MfgName: [super::CHAR; 256],
     pub ProviderName: [super::CHAR; 256],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_DRVINFO_DATA_V1_A {
     fn default() -> Self {
@@ -2563,7 +2563,7 @@ impl Default for SP_DRVINFO_DATA_V1_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DATA_V1_W {
@@ -2574,7 +2574,7 @@ pub struct SP_DRVINFO_DATA_V1_W {
     pub MfgName: [super::WCHAR; 256],
     pub ProviderName: [super::WCHAR; 256],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_DRVINFO_DATA_V1_W {
     fn default() -> Self {
@@ -2603,7 +2603,7 @@ impl Default for SP_DRVINFO_DATA_V1_W {
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 pub type SP_DRVINFO_DATA_V2 = SP_DRVINFO_DATA_V2_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DATA_V2_A {
@@ -2616,7 +2616,7 @@ pub struct SP_DRVINFO_DATA_V2_A {
     pub DriverDate: super::FILETIME,
     pub DriverVersion: super::DWORDLONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 impl Default for SP_DRVINFO_DATA_V2_A {
     fn default() -> Self {
@@ -2645,7 +2645,7 @@ impl Default for SP_DRVINFO_DATA_V2_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DATA_V2_W {
@@ -2658,7 +2658,7 @@ pub struct SP_DRVINFO_DATA_V2_W {
     pub DriverDate: super::FILETIME,
     pub DriverVersion: super::DWORDLONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 impl Default for SP_DRVINFO_DATA_V2_W {
     fn default() -> Self {
@@ -2691,7 +2691,7 @@ pub type SP_DRVINFO_DATA_W = SP_DRVINFO_DATA_V2_W;
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 pub type SP_DRVINFO_DETAIL_DATA = SP_DRVINFO_DETAIL_DATA_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DETAIL_DATA_A {
@@ -2705,7 +2705,7 @@ pub struct SP_DRVINFO_DETAIL_DATA_A {
     pub DrvDescription: [super::CHAR; 256],
     pub HardwareID: [super::CHAR; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 impl Default for SP_DRVINFO_DETAIL_DATA_A {
     fn default() -> Self {
@@ -2735,7 +2735,7 @@ impl Default for SP_DRVINFO_DETAIL_DATA_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_DRVINFO_DETAIL_DATA_W {
@@ -2749,7 +2749,7 @@ pub struct SP_DRVINFO_DETAIL_DATA_W {
     pub DrvDescription: [super::WCHAR; 256],
     pub HardwareID: [super::WCHAR; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 impl Default for SP_DRVINFO_DETAIL_DATA_W {
     fn default() -> Self {
@@ -2779,7 +2779,7 @@ impl Default for SP_DRVINFO_DETAIL_DATA_W {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_DRVINSTALL_PARAMS {
@@ -2801,7 +2801,7 @@ pub struct SP_DRVINSTALL_PARAMS {
     pub Reserved: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_ENABLECLASS_PARAMS {
@@ -2821,7 +2821,7 @@ pub struct SP_ENABLECLASS_PARAMS {
 #[cfg(feature = "shared")]
 pub type SP_FILE_COPY_PARAMS = SP_FILE_COPY_PARAMS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_FILE_COPY_PARAMS_A {
@@ -2857,7 +2857,7 @@ pub struct SP_FILE_COPY_PARAMS_A {
     pub SecurityDescriptor: windows_sys::core::PCSTR,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_FILE_COPY_PARAMS_W {
@@ -2894,7 +2894,7 @@ pub struct SP_FILE_COPY_PARAMS_W {
 }
 pub const SP_FLAG_CABINETCONTINUATION: i32 = 2048;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_INF_INFORMATION {
@@ -2902,7 +2902,7 @@ pub struct SP_INF_INFORMATION {
     pub InfCount: super::DWORD,
     pub VersionData: [super::BYTE; 1],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_INF_INFORMATION {
     fn default() -> Self {
@@ -2932,7 +2932,7 @@ pub type SP_INF_SIGNER_INFO_A = SP_INF_SIGNER_INFO_V2_A;
 #[cfg(feature = "shared")]
 pub type SP_INF_SIGNER_INFO_V1 = SP_INF_SIGNER_INFO_V1_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_INF_SIGNER_INFO_V1_A {
@@ -2941,7 +2941,7 @@ pub struct SP_INF_SIGNER_INFO_V1_A {
     pub DigitalSigner: [super::CHAR; 260],
     pub DigitalSignerVersion: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_INF_SIGNER_INFO_V1_A {
     fn default() -> Self {
@@ -2966,7 +2966,7 @@ impl Default for SP_INF_SIGNER_INFO_V1_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_INF_SIGNER_INFO_V1_W {
@@ -2975,7 +2975,7 @@ pub struct SP_INF_SIGNER_INFO_V1_W {
     pub DigitalSigner: [super::WCHAR; 260],
     pub DigitalSignerVersion: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_INF_SIGNER_INFO_V1_W {
     fn default() -> Self {
@@ -3002,7 +3002,7 @@ impl Default for SP_INF_SIGNER_INFO_V1_W {
 #[cfg(feature = "shared")]
 pub type SP_INF_SIGNER_INFO_V2 = SP_INF_SIGNER_INFO_V2_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_INF_SIGNER_INFO_V2_A {
@@ -3012,7 +3012,7 @@ pub struct SP_INF_SIGNER_INFO_V2_A {
     pub DigitalSignerVersion: [super::CHAR; 260],
     pub SignerScore: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_INF_SIGNER_INFO_V2_A {
     fn default() -> Self {
@@ -3038,7 +3038,7 @@ impl Default for SP_INF_SIGNER_INFO_V2_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_INF_SIGNER_INFO_V2_W {
@@ -3048,7 +3048,7 @@ pub struct SP_INF_SIGNER_INFO_V2_W {
     pub DigitalSignerVersion: [super::WCHAR; 260],
     pub SignerScore: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_INF_SIGNER_INFO_V2_W {
     fn default() -> Self {
@@ -3076,7 +3076,7 @@ impl Default for SP_INF_SIGNER_INFO_V2_W {
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type SP_INF_SIGNER_INFO_W = SP_INF_SIGNER_INFO_V2_W;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "prsht", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy)]
 pub struct SP_INSTALLWIZARD_DATA {
@@ -3089,7 +3089,7 @@ pub struct SP_INSTALLWIZARD_DATA {
     pub PrivateData: super::LPARAM,
     pub hwndWizardDlg: super::HWND,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "prsht", feature = "shared", feature = "windef"))]
 impl Default for SP_INSTALLWIZARD_DATA {
     fn default() -> Self {
@@ -3127,7 +3127,7 @@ pub type SP_INTERFACE_DEVICE_DETAIL_DATA_A = SP_DEVICE_INTERFACE_DETAIL_DATA_A;
 pub type SP_INTERFACE_DEVICE_DETAIL_DATA_W = SP_DEVICE_INTERFACE_DETAIL_DATA_W;
 pub const SP_MAX_MACHINENAME_LENGTH: i32 = 263;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "prsht", feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy)]
 pub struct SP_NEWDEVICEWIZARD_DATA {
@@ -3137,7 +3137,7 @@ pub struct SP_NEWDEVICEWIZARD_DATA {
     pub NumDynamicPages: super::DWORD,
     pub hwndWizardDlg: super::HWND,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "prsht", feature = "shared", feature = "windef"))]
 impl Default for SP_NEWDEVICEWIZARD_DATA {
     fn default() -> Self {
@@ -3165,7 +3165,7 @@ impl Default for SP_NEWDEVICEWIZARD_DATA {
 #[cfg(feature = "shared")]
 pub type SP_ORIGINAL_FILE_INFO = SP_ORIGINAL_FILE_INFO_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_ORIGINAL_FILE_INFO_A {
@@ -3173,7 +3173,7 @@ pub struct SP_ORIGINAL_FILE_INFO_A {
     pub OriginalInfName: [super::CHAR; 260],
     pub OriginalCatalogName: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_ORIGINAL_FILE_INFO_A {
     fn default() -> Self {
@@ -3197,7 +3197,7 @@ impl Default for SP_ORIGINAL_FILE_INFO_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_ORIGINAL_FILE_INFO_W {
@@ -3205,7 +3205,7 @@ pub struct SP_ORIGINAL_FILE_INFO_W {
     pub OriginalInfName: [super::WCHAR; 260],
     pub OriginalCatalogName: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_ORIGINAL_FILE_INFO_W {
     fn default() -> Self {
@@ -3231,14 +3231,14 @@ impl Default for SP_ORIGINAL_FILE_INFO_W {
 #[cfg(feature = "shared")]
 pub type SP_POWERMESSAGEWAKE_PARAMS = SP_POWERMESSAGEWAKE_PARAMS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_POWERMESSAGEWAKE_PARAMS_A {
     pub ClassInstallHeader: SP_CLASSINSTALL_HEADER,
     pub PowerMessageWake: [super::CHAR; 512],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_POWERMESSAGEWAKE_PARAMS_A {
     fn default() -> Self {
@@ -3261,14 +3261,14 @@ impl Default for SP_POWERMESSAGEWAKE_PARAMS_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_POWERMESSAGEWAKE_PARAMS_W {
     pub ClassInstallHeader: SP_CLASSINSTALL_HEADER,
     pub PowerMessageWake: [super::WCHAR; 512],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_POWERMESSAGEWAKE_PARAMS_W {
     fn default() -> Self {
@@ -3291,7 +3291,7 @@ impl Default for SP_POWERMESSAGEWAKE_PARAMS_W {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_PROPCHANGE_PARAMS {
@@ -3311,7 +3311,7 @@ pub struct SP_PROPCHANGE_PARAMS {
     pub HwProfile: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_PROPSHEETPAGE_REQUEST {
@@ -3333,7 +3333,7 @@ pub struct SP_PROPSHEETPAGE_REQUEST {
 #[cfg(feature = "shared")]
 pub type SP_REGISTER_CONTROL_STATUS = SP_REGISTER_CONTROL_STATUSA;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_REGISTER_CONTROL_STATUSA {
@@ -3353,7 +3353,7 @@ pub struct SP_REGISTER_CONTROL_STATUSA {
     pub FailureCode: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_REGISTER_CONTROL_STATUSW {
@@ -3373,7 +3373,7 @@ pub struct SP_REGISTER_CONTROL_STATUSW {
     pub FailureCode: super::DWORD,
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_REMOVEDEVICE_PARAMS {
@@ -3393,7 +3393,7 @@ pub struct SP_REMOVEDEVICE_PARAMS {
 #[cfg(feature = "shared")]
 pub type SP_SELECTDEVICE_PARAMS = SP_SELECTDEVICE_PARAMS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_SELECTDEVICE_PARAMS_A {
@@ -3404,7 +3404,7 @@ pub struct SP_SELECTDEVICE_PARAMS_A {
     pub SubTitle: [super::CHAR; 256],
     pub Reserved: [super::BYTE; 2],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_SELECTDEVICE_PARAMS_A {
     fn default() -> Self {
@@ -3431,7 +3431,7 @@ impl Default for SP_SELECTDEVICE_PARAMS_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_SELECTDEVICE_PARAMS_W {
@@ -3441,7 +3441,7 @@ pub struct SP_SELECTDEVICE_PARAMS_W {
     pub ListLabel: [super::WCHAR; 30],
     pub SubTitle: [super::WCHAR; 256],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_SELECTDEVICE_PARAMS_W {
     fn default() -> Self {
@@ -3469,7 +3469,7 @@ impl Default for SP_SELECTDEVICE_PARAMS_W {
 #[cfg(feature = "shared")]
 pub type SP_TROUBLESHOOTER_PARAMS = SP_TROUBLESHOOTER_PARAMS_A;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct SP_TROUBLESHOOTER_PARAMS_A {
@@ -3477,7 +3477,7 @@ pub struct SP_TROUBLESHOOTER_PARAMS_A {
     pub ChmFile: [super::CHAR; 260],
     pub HtmlTroubleShooter: [super::CHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for SP_TROUBLESHOOTER_PARAMS_A {
     fn default() -> Self {
@@ -3501,7 +3501,7 @@ impl Default for SP_TROUBLESHOOTER_PARAMS_A {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct SP_TROUBLESHOOTER_PARAMS_W {
@@ -3509,7 +3509,7 @@ pub struct SP_TROUBLESHOOTER_PARAMS_W {
     pub ChmFile: [super::WCHAR; 260],
     pub HtmlTroubleShooter: [super::WCHAR; 260],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for SP_TROUBLESHOOTER_PARAMS_W {
     fn default() -> Self {
@@ -3533,7 +3533,7 @@ impl Default for SP_TROUBLESHOOTER_PARAMS_W {
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct SP_UNREMOVEDEVICE_PARAMS {
