@@ -1,0 +1,109 @@
+name: Local Development Makefile
+
+on:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
+  pull_request:
+  merge_group:
+  schedule: # Trigger a job on default branch at 4AM PST everyday
+    - cron: 0 11 * * *
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.compare || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    name: Test WDR's local cargo-make Makefile
+    strategy:
+      fail-fast: false # Allow all matrix variants to complete even if some fail
+      matrix:
+        runner:
+          - name: windows-2025
+            arch: amd64
+          - name: windows-11-arm
+            arch: arm64
+
+        wdk:
+          - version: 10.0.22621 # NI WDK
+            source: winget
+          - version: 10.0.26100 # GE WDK
+            source: nuget
+          - version: 10.0.28000 # BR WDK
+            source: nuget
+
+        llvm:
+          - 17.0.6
+
+    runs-on: ${{ matrix.runner.name }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect release-plz Branch
+        id: release-plz-branch
+        uses: ./.github/actions/detect-release-plz-branch
+
+      - name: Install Winget
+        uses: ./.github/actions/install-winget
+        with:
+          # windows-11-arm runner image does not include winget-cli (see https://github.com/actions/partner-runner-images/issues/95).
+          force-cli-install: ${{ matrix.runner.name == 'windows-11-arm' && 'true' || 'false' }}
+
+      - name: Install LLVM ${{ matrix.llvm }}
+        uses: ./.github/actions/install-llvm
+        with:
+          version: ${{ matrix.llvm }}
+
+      - name: Install WDK (${{ matrix.wdk.version }})
+        uses: ./.github/actions/install-wdk
+        with:
+          version: ${{ matrix.wdk.version }}
+          source: ${{ matrix.wdk.source }}
+          host: ${{ matrix.wdk.source == 'nuget' && matrix.runner.arch || '' }}
+          target: ${{ matrix.wdk.source == 'nuget' && matrix.runner.arch || '' }}
+
+      - name: Install Nightly Rust Toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: nightly
+          components: clippy, rustfmt
+          targets: |
+            x86_64-pc-windows-msvc
+            aarch64-pc-windows-msvc
+
+      - name: Install Beta Rust Toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: beta
+          components: clippy
+          targets: |
+            x86_64-pc-windows-msvc
+            aarch64-pc-windows-msvc
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          components: clippy
+          targets: |
+            x86_64-pc-windows-msvc
+            aarch64-pc-windows-msvc
+
+      - name: Install Cargo Make
+        uses: ./.github/actions/install-cargo-tool
+        with:
+          tool: cargo-make
+
+      - name: Test wdk-pre-commit-flow cargo-make task
+        env:
+          # cargo-wdk new tests build generated driver projects against
+          # crates.io, which fails for release-plz changes until they are
+          # published, so skip those builds on release-plz branches.
+          SKIP_BUILD_IN_CARGO_WDK_NEW_TESTS: ${{ steps.release-plz-branch.outputs.is-release-plz-branch == 'true' && '1' || '' }}
+        run: cargo make wdk-pre-commit-flow
