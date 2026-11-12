@@ -1,0 +1,82 @@
+name: monorepo
+
+# nt/monorepo: resolution of the root workspace and of the excluded subtrees, then a
+# compile check of each merged project from its own directory (its .cargo/config.toml
+# and rust-toolchain.toml apply there). See MERGED.toml.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - nt/monorepo
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Update toolchain
+        run: rustup update --no-self-update stable && rustup default stable
+      - name: Root workspace
+        run: |
+          cargo metadata --format-version 1 > root.json
+          jq '{members: (.workspace_members | length), packages: (.packages | length)}' root.json
+      - name: Excluded workspaces
+        run: |
+          set -euxo pipefail
+          for m in nvx/nvx-rs nvx/tests/runtime-adapter openvmm windows-rust-driver-samples; do
+            cargo metadata --format-version 1 --locked --manifest-path "$m/Cargo.toml" > /dev/null
+          done
+
+  check:
+    name: ${{ matrix.name }} (${{ matrix.os }})
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: edit, os: ubuntu-24.04, dir: edit, args: -p edit -p lsh }
+          - { name: edit, os: windows-2025-vs2026, dir: edit, args: -p edit -p lsh }
+          - { name: sudo, os: windows-2025-vs2026, dir: sudo, args: -p sudo -p sudo_events -p win32resources }
+          - { name: litebox, os: ubuntu-24.04, dir: litebox, args: -p litebox -p litebox_platform_linux_userland -p litebox_shim_linux -p litebox_runner_linux_userland }
+          - { name: litebox, os: windows-2025-vs2026, dir: litebox, args: -p litebox_platform_windows_userland -p litebox_runner_linux_on_windows_userland }
+          - { name: windows-drivers-rs, os: windows-2025-vs2026, dir: windows-drivers-rs, args: -p wdk-build -p wdk-macros -p cargo-wdk }
+          - { name: mxc, os: ubuntu-24.04, dir: mxc/src, args: -p mxc-sdk -p lxc }
+          - { name: mxc, os: windows-2025-vs2026, dir: mxc/src, args: -p mxc-sdk -p mxc_ffi -p wxc }
+          - { name: webui, os: ubuntu-24.04, dir: webui, args: -p webui -p webui-cli }
+          - { name: diskann, os: ubuntu-24.04, dir: diskann, args: -p diskann -p diskann-providers -p diskann-disk }
+          - { name: nvx, os: ubuntu-24.04, dir: nvx/nvx-rs, args: --locked }
+          - { name: nvx, os: windows-2025-vs2026, dir: nvx/nvx-rs, args: --locked }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (project rust-toolchain.toml, else stable)
+        run: |
+          set -euo pipefail
+          file=""
+          for d in . .. ../..; do
+            if [ -f "$d/rust-toolchain.toml" ]; then file="$d/rust-toolchain.toml"; break; fi
+          done
+          if [ -n "$file" ]; then
+            channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$file")
+            rustup toolchain install --no-self-update --profile minimal "$channel"
+          else
+            rustup update --no-self-update stable && rustup default stable
+          fi
+          rustc -V
+          cargo -V
+      - name: Check
+        run: cargo check ${{ matrix.args }}

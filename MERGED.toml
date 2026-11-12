@@ -1,0 +1,146 @@
+# Subtrees merged into aphrody-labs/windows-rs, branch nt/monorepo (core of nt).
+# Each project: `git fetch --depth=1 <local fork clone> HEAD`, then
+# `git subtree add --squash --prefix=<dir> <commit>`; `squash` is the resulting squash commit.
+# Layout: one top-level directory per project, named after the repository in lowercase.
+# Update: `git subtree pull --squash --prefix=<dir> <fork> <ref>`, then re-inline the
+# workspace inheritance of joined projects from <dir>/Cargo.upstream.toml (see [workspace]).
+
+[base]
+repo = "https://github.com/aphrody-labs/windows-rs"
+upstream = "https://github.com/microsoft/windows-rs"
+commit = "8ca69fdaa9d69c78b9bcfbee96c6916f2282e7f0"
+commit-date = "2026-11-11T08:54:26-06:00"
+imported = "2026-11-12"
+
+[workspace]
+# `cargo metadata --format-version 1` at the root, 2026-11-12: 324 members, 1040 packages,
+# with cargo 1.102.0-nightly (2026-11-06) and cargo 1.99.1 stable. No compilation.
+joined = ["diskann", "edit", "litebox", "mxc", "sudo", "webui", "windows-drivers-rs"]
+excluded = ["nvx", "openvmm", "windows-rust-driver-samples"]
+joined-changes = [
+  "<dir>/Cargo.toml (the upstream workspace root) renamed <dir>/Cargo.upstream.toml",
+  "member manifests: `*.workspace = true` and `[lints] workspace = true` inlined with cargo's effective inherited values (paths rebased)",
+  "root Cargo.toml: members and upstream excludes prefixed with <dir>/; default-members = windows-rs globs",
+]
+joined-caveats = [
+  "built-in profiles of joined projects ([profile.dev/release/test/bench]) are ignored: the windows-rs root owns them (release: lto thin, strip debuginfo)",
+  "per-project Cargo.lock files are no longer used; the root lock is untracked (windows-rs .gitignore: *.lock)",
+  "<dir>/.cargo/config.toml and <dir>/rust-toolchain.toml only apply when cargo runs from inside <dir>",
+  "windows-rs CI `cargo test --all` (test.yml), `cargo clippy --workspace` (clippy.yml), `cargo fmt --all` (fmt.yml) now span joined crates; these workflows run on master pushes and PRs only",
+]
+# Not carried from nt (the nt crates dwm/* were dropped from scope by the owner on 2026-11-12):
+# no root rust-toolchain.toml (nightly-2026-11-11 would override the stable/1.95/nightly
+# toolchains that windows-rs CI selects with `rustup default`); no nt profiles (release lto fat,
+# wasm) or .cargo/release*.toml: they would replace windows-rs [profile.release].
+
+[project.windows-drivers-rs]
+upstream = "https://github.com/microsoft/windows-drivers-rs"
+fork = "https://github.com/aphrody-labs/windows-drivers-rs"
+branch = "main"
+commit = "9e1d8a368811d8119a2773c473c93839a96ade23"
+commit-date = "2026-11-05T00:32:44Z"
+squash = "28c25eb57a3d8fe5dbceecfbfb3a9e0fce5ccc76"
+workspace = "joined: crates/* (7 members)"
+notes = ["examples/ and tests/ stay excluded as upstream: one WDK driver config per build graph", "the root has no [workspace.metadata.wdk], like the upstream root"]
+
+[project.windows-rust-driver-samples]
+upstream = "https://github.com/microsoft/Windows-rust-driver-samples"
+fork = "https://github.com/aphrody-labs/Windows-rust-driver-samples"
+branch = "main"
+commit = "0badf9127c172ad00bb674bef9786942b3eddf0f"
+commit-date = "2026-11-04T15:37:00+05:30"
+squash = "02eb35944ce4d140c519de10863bef7617b9fef8"
+workspace = "excluded (resolves on its own: 3 members, 110 packages, --locked)"
+blockers = [
+  "links conflict, observed on a trial join: crates.io wdk 0.5.0 and the in-repo windows-drivers-rs wdk 0.5.0 both declare links = \"wdk-sys\"",
+  "WDK single config: its root [workspace.metadata.wdk] (KMDF) would become the config of the whole monorepo graph",
+  "drivers need its [profile.dev]/[profile.release] (panic = abort); the windows-rs root owns those profiles",
+]
+
+[project.litebox]
+upstream = "https://github.com/microsoft/litebox"
+fork = "https://github.com/aphrody-labs/litebox"
+branch = "main"
+commit = "0463bca69a3272e81e7f5da2930c2d7e0b926cab"
+commit-date = "2026-11-10T00:37:15Z"
+squash = "1e5c87f17c603720ef7d9065e1a8ee51256d837b"
+workspace = "joined: 22 members"
+notes = ["litebox_runner_lvbs and litebox_runner_snp pin nightly-2026-08-15 and custom targets (their own rust-toolchain.toml); they resolve but are outside upstream default-members", "no upstream .gitattributes: test binaries kept byte-exact via the root .gitattributes `!text !eol` rule"]
+
+[project.openvmm]
+upstream = "https://github.com/microsoft/openvmm"
+fork = "https://github.com/aphrody-labs/openvmm"
+branch = "main"
+commit = "aa4765fd6f7c80a29fa97a9b8a16f80cbb355674"
+commit-date = "2026-11-11T16:10:54-08:00"
+squash = "50242e5e8fda4d174abdac962a13a9b44d60202f"
+upstream-head-at-import = "cb7f6f134d29349809548b25c899d1b7fa9ec949"
+workspace = "excluded (resolves on its own: 435 members, 988 packages, --locked)"
+blockers = [
+  "own xtask/flowey pipelines and per-folder dependency rules (vm/README.md)",
+  "root-only settings: [patch.crates-io] bitvec and pbjson-build (git forks), 8 profiles (underhill-ship, light, flowey-ci, boot-dev, ...), .cargo/config.toml",
+  "435 members with workspace inheritance (~6500 entries): inlining would rewrite most manifests",
+]
+
+[project.nvx]
+upstream = "https://github.com/microsoft/nvx"
+fork = "https://github.com/aphrody-labs/nvx"
+branch = "dev"
+commit = "83764f5ab0f366bb1fef734a6bd110afca1153ae"
+commit-date = "2026-11-12T06:22:06Z"
+squash = "da74043eb9f94a38d51c1ca1263ecd48b893768f"
+workspace = "excluded (nvx-rs and tests/runtime-adapter resolve on their own, --locked)"
+blockers = ["links conflict: mxc-sdk -> aci_edge_sandboxes =0.1.1 -> nvx =0.1.0-alpha.6 (crates.io) vs in-repo nvx 0.1.0-alpha.3, both links = \"nvx\""]
+notes = ["nvx/openvmm is a gitlink (submodule microsoft/openvmm, branch feature/microvm/dev, c2c21ddb25822e13bd1cf1b33ed693545cc7bbb5) kept as-is without a root .gitmodules entry"]
+
+[project.mxc]
+upstream = "https://github.com/microsoft/mxc"
+fork = "https://github.com/aphrody-labs/mxc"
+branch = "main"
+commit = "91d7013d3ea1865ff0fe6b8eae075000d2c1b45b"
+commit-date = "2026-11-11T16:18:05-08:00"
+squash = "95223f7c2721630c8f1812c57dcb58d3ec639957"
+workspace = "joined: src (11 members) + samples (10 members)"
+notes = ["samples: mxc-sdk path fixed (src/core/mxc-sdk no longer exists upstream)", "src/testing/fuzz stays excluded as upstream"]
+
+[project.edit]
+upstream = "https://github.com/microsoft/edit"
+fork = "https://github.com/aphrody-labs/edit"
+branch = "main"
+commit = "b7f83220868373945945e2218e852c24cbb4dcf0"
+commit-date = "2026-11-02T22:19:22+01:00"
+squash = "dc031429fc68c274ec2f1388a1404d461f7527f5"
+workspace = "joined: crates/* (3 members); fuzz/ keeps its own workspace"
+
+[project.sudo]
+upstream = "https://github.com/microsoft/sudo"
+fork = "https://github.com/aphrody-labs/sudo"
+branch = "main"
+commit = "feadab8d32f06d7f6e87e5370b071103b175a595"
+commit-date = "2026-08-26T12:17:58-05:00"
+squash = "cd5802180a09e62104d0592890c64df33f18851e"
+workspace = "joined: 3 members"
+
+[project.webui]
+upstream = "https://github.com/microsoft/webui"
+fork = "https://github.com/aphrody-labs/webui"
+branch = "main"
+commit = "30ca60aa4bdc1beab040dae32e1c10e195ec9113"
+commit-date = "2026-11-10T11:26:04-08:00"
+squash = "058f56e20aa2995b34b13e27594666d11a37d60d"
+# Rust crates only: synthetic parentless commit (git mktree of the top-level entries below of
+# `commit`, author and dates of `commit`); git-subtree-split points to it.
+split = "1d774f5302748c6d75ebced4d412680f3efaa1b6"
+include = [".cargo", ".gitattributes", ".gitignore", "Cargo.lock", "Cargo.toml", "LICENSE", "README.md", "SECURITY.md", "clippy.toml", "crates", "deny.toml", "rust-toolchain.toml", "xtask"]
+workspace = "joined: crates/* + xtask (19 members); examples/ not imported"
+notes = ["some crate tests read ../../examples/app/hello-world and packages/ (not imported)", "xtask version tooling expects workspace inheritance in manifests"]
+
+[project.diskann]
+upstream = "https://github.com/microsoft/DiskANN"
+fork = "" # aphrody-labs/DiskANN does not exist (gh repo view, 2026-11-12); imported from upstream
+branch = "main"
+commit = "dd896a3e08650a1b8c50d39230c14ebf79777648"
+commit-date = "2026-11-12T09:38:40-08:00"
+squash = "152f7400afa223b9c6415d62642cab34dd0fbae7"
+workspace = "joined: 18 members; rfcs/ and vectorset/ excluded"
+notes = ["test_data/: 68 Git LFS files (61 objects, 41 MiB) stored in the aphrody-labs/windows-rs LFS store"]
