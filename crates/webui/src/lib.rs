@@ -1,0 +1,5213 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Programmatic API for the WebUI build-time rendering framework.
+//!
+//! This crate provides the core build, render, and inspection APIs
+//! that power the `webui` CLI, Node.js bindings, and WASM module.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use webui::{build, BuildOptions};
+//! use std::path::PathBuf;
+//!
+//! let result = build(BuildOptions {
+//!     app_dir: PathBuf::from("./src"),
+//!     ..BuildOptions::default()
+//! }).unwrap();
+//!
+//! println!("Built {} fragments in {:?}", result.stats.fragment_count, result.stats.duration);
+//! ```
+
+mod chunking;
+pub mod component_asset_output;
+mod component_assets;
+mod error;
+mod lazy_report;
+mod lazy_scripts;
+mod module_preload;
+mod prepared_build;
+mod projection;
+pub mod server;
+pub mod streaming;
+mod style_bundle;
+
+pub use component_assets::{render_component_assets, ComponentAssetFile, ComponentAssetGraph};
+pub use error::WebUIError;
+pub use lazy_scripts::{GeneratedDeclaration, GeneratedModule};
+pub use prepared_build::{prepare_build, PreparedBuild};
+pub use webui_handler::lazy_packs::{
+    LazyPackFile, LazyScript, LazyTrigger, LAZY_SCRIPTS_DECLARATION, LAZY_SCRIPTS_MODULE,
+    PACK_OUTPUT_DIR,
+};
+pub use webui_parser::component_modules::validate_component_module;
+pub use webui_protocol::{validate_asset_base, AssetBaseError, AssetBaseProblem};
+
+// Re-export core types from downstream crates
+pub use webui_handler::route_handler::{encode_inventory, get_needed_components, parse_inventory};
+pub use webui_handler::Result as HandlerResult;
+pub use webui_handler::{
+    plugin::HandlerPlugin, BoundaryDescriptor, BoundaryInstanceId, BoundaryKey, BoundaryMode,
+    FlushWriter, HandlerError, Protocol, RenderOptions, ResponseWriter, SessionOptions,
+    SpanInstanceId, StreamStatus, StreamStep, StreamingResponse, StreamingSession, StreamingState,
+    WebUIHandler,
+};
+pub use webui_parser::plugin::{ComponentTemplateArtifact, StateSurface};
+pub use webui_parser::CssStrategy;
+pub use webui_parser::DomStrategy;
+pub use webui_parser::LegalComments;
+pub use webui_parser::ParserError;
+pub use webui_parser::ParserOptions;
+pub use webui_parser::Plugin;
+pub use webui_parser::DEFAULT_CSS_FILE_NAME_TEMPLATE;
+pub use webui_parser::{
+    AssetFileNameTemplate, AssetFileNameTemplateError, DEFAULT_ASSET_FILE_NAME_TEMPLATE,
+};
+pub use webui_parser::{CssFallbackChain, CssTokenAnalysis};
+pub use webui_parser::{Diagnostic, Severity};
+pub use webui_protocol::WebUIProtocol;
+pub use webui_tokens::{load_token_file, resolve_theme_path, TokenFile};
+
+use std::collections::{BTreeMap, HashSet};
+use std::ffi::{OsStr, OsString};
+use std::fs;
+use std::path::{Path, PathBuf};
+use webui_discovery::{DiscoveryPlugin, FastDiscoveryPlugin, WebUIDiscoveryPlugin};
+use webui_parser::plugin::fast_v2::FastV2ParserPlugin;
+use webui_parser::plugin::fast_v3::FastV3ParserPlugin;
+use webui_parser::plugin::webui::WebUIParserPlugin;
+use webui_parser::plugin::ParserPluginArtifacts;
+use webui_parser::HtmlParser;
+
+/// Projection metadata validated once for reuse across many protocol builds.
+#[derive(Debug, Clone)]
+pub struct PreparedProjectionManifests {
+    snapshot: std::sync::Arc<projection::ProjectionSnapshot>,
+}
+
+#[derive(Debug)]
+enum ProjectionBarrierState {
+    Waiting,
+    Ready(PreparedProjectionManifests),
+    Failed(String),
+}
+
+/// A reusable projection source that waits for an orchestrated client build.
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct PendingProjectionManifests {
+    state: std::sync::Arc<(std::sync::Mutex<ProjectionBarrierState>, std::sync::Condvar)>,
+}
+
+/// Completes a pending projection source exactly once.
+#[doc(hidden)]
+pub struct ProjectionManifestCompleter {
+    state: std::sync::Arc<(std::sync::Mutex<ProjectionBarrierState>, std::sync::Condvar)>,
+    completed: bool,
+}
+
+/// One projection manifest supplied to a build.
+#[derive(Debug, Clone)]
+pub enum ProjectionManifestSource {
+    /// Read and validate a manifest from disk.
+    Path(std::path::PathBuf),
+    /// Validate an already parsed/transported manifest JSON object.
+    ///
+    /// `manifest_path` is its logical disk location and anchors the manifest's
+    /// relative `root` plus stale input/output checks.
+    Inline {
+        /// Logical path the manifest would occupy on disk.
+        manifest_path: std::path::PathBuf,
+        /// Canonical manifest JSON.
+        json: String,
+    },
+    /// Reuse metadata that has already passed schema, hash, merge, and stale
+    /// validation.
+    Prepared(PreparedProjectionManifests),
+    /// Wait for an orchestrator to validate the completed client bundle.
+    #[doc(hidden)]
+    Pending(PendingProjectionManifests),
+}
+
+impl From<std::path::PathBuf> for ProjectionManifestSource {
+    fn from(path: std::path::PathBuf) -> Self {
+        Self::Path(path)
+    }
+}
+
+/// Validate and merge projection sources once for repeated builds.
+///
+/// This is intended for orchestrators such as `webui-press` that build many
+/// page protocols against one completed client bundle.
+pub fn prepare_projection_manifests(
+    sources: &[ProjectionManifestSource],
+) -> Result<PreparedProjectionManifests, WebUIError> {
+    let snapshot = projection::load_and_merge(sources)?
+        .unwrap_or_else(|| std::sync::Arc::new(projection::ProjectionSnapshot::default()));
+    Ok(PreparedProjectionManifests { snapshot })
+}
+
+/// Resolve preload hints for compiler-generated entries using exact output
+/// identities and host-provided served URLs.
+///
+/// This is an internal orchestration hook for hosts such as `webui-press`.
+/// Resolution consumes the manifest's pre-sorted closures and performs no
+/// graph traversal or sorting.
+#[doc(hidden)]
+#[must_use]
+pub fn resolve_generated_module_preloads(
+    projection: &PreparedProjectionManifests,
+    existing_hrefs: &[String],
+    entry_outputs: &[&Path],
+    output_urls: &std::collections::BTreeMap<std::path::PathBuf, String>,
+) -> (Vec<String>, Vec<Diagnostic>) {
+    let mut resolved = module_preload::resolve_exact(
+        &projection.snapshot.entry_closures,
+        existing_hrefs,
+        entry_outputs,
+        output_urls,
+    );
+    (
+        std::mem::take(&mut resolved.hrefs),
+        std::mem::take(&mut resolved.warnings),
+    )
+}
+
+/// Return the exact physical outputs needed to map generated preload URLs.
+#[doc(hidden)]
+#[must_use]
+pub fn generated_module_preload_outputs(
+    projection: &PreparedProjectionManifests,
+    entry_outputs: &[&Path],
+) -> Vec<std::path::PathBuf> {
+    module_preload::exact_output_identities(&projection.snapshot.entry_closures, entry_outputs)
+}
+
+/// Create a pending projection source and its one-shot completer.
+#[doc(hidden)]
+#[must_use]
+pub fn projection_manifest_barrier() -> (ProjectionManifestSource, ProjectionManifestCompleter) {
+    let state = std::sync::Arc::new((
+        std::sync::Mutex::new(ProjectionBarrierState::Waiting),
+        std::sync::Condvar::new(),
+    ));
+    (
+        ProjectionManifestSource::Pending(PendingProjectionManifests {
+            state: std::sync::Arc::clone(&state),
+        }),
+        ProjectionManifestCompleter {
+            state,
+            completed: false,
+        },
+    )
+}
+
+impl PendingProjectionManifests {
+    fn wait(&self) -> Result<PreparedProjectionManifests, WebUIError> {
+        let (lock, ready) = self.state.as_ref();
+        let mut state = lock.lock().map_err(|_| {
+            WebUIError::InvalidBuildOptions("projection synchronization lock poisoned".to_string())
+        })?;
+        loop {
+            match &*state {
+                ProjectionBarrierState::Waiting => {
+                    state = ready.wait(state).map_err(|_| {
+                        WebUIError::InvalidBuildOptions(
+                            "projection synchronization lock poisoned".to_string(),
+                        )
+                    })?;
+                }
+                ProjectionBarrierState::Ready(projection) => {
+                    return Ok(projection.clone());
+                }
+                ProjectionBarrierState::Failed(message) => {
+                    return Err(WebUIError::InvalidBuildOptions(message.clone()));
+                }
+            }
+        }
+    }
+}
+
+impl ProjectionManifestCompleter {
+    /// Wake waiting builds with validated metadata or a producer failure.
+    pub fn complete(mut self, result: std::result::Result<PreparedProjectionManifests, String>) {
+        let (lock, ready) = self.state.as_ref();
+        if let Ok(mut state) = lock.lock() {
+            *state = match result {
+                Ok(projection) => ProjectionBarrierState::Ready(projection),
+                Err(message) => ProjectionBarrierState::Failed(message),
+            };
+            self.completed = true;
+            ready.notify_all();
+        }
+    }
+}
+
+impl Drop for ProjectionManifestCompleter {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let (lock, ready) = self.state.as_ref();
+        if let Ok(mut state) = lock.lock() {
+            *state = ProjectionBarrierState::Failed(
+                "projection producer terminated before completing metadata".to_string(),
+            );
+            ready.notify_all();
+        }
+    }
+}
+
+/// Options for building a WebUI application.
+#[derive(Debug, Clone)]
+pub struct BuildOptions {
+    /// Path to the application folder containing templates.
+    pub app_dir: std::path::PathBuf,
+    /// Entry HTML file name (e.g., `"index.html"`).
+    pub entry: String,
+    /// CSS delivery strategy for component stylesheets.
+    pub css: CssStrategy,
+    /// Fallback DOM strategy for components without an authored Shadow root.
+    pub dom: DomStrategy,
+    /// Whether to merge component stylesheets into bundled chunks.
+    ///
+    /// Composes with [`BuildOptions::css`] instead of replacing it: bundling
+    /// decides how stylesheets are grouped, the strategy decides how they reach
+    /// the page. Stylesheets reached from more than one CSS tree are split into
+    /// their own chunk so they are downloaded and cached once.
+    pub css_bundle: bool,
+    /// Framework plugin to load.
+    pub plugin: Option<Plugin>,
+    /// Additional component sources (npm packages or local paths).
+    pub components: Vec<String>,
+    /// Additional root components to compile for static component asset emission.
+    ///
+    /// These roots are parsed into the protocol so their templates, styles, and
+    /// dependency closures can be emitted later, but they are not connected to
+    /// the entry fragment and therefore are not rendered during initial SSR.
+    pub component_asset_roots: Vec<String>,
+    /// Whether to produce [`BuildResult::metafile`].
+    ///
+    /// The metafile describes the component asset graph in esbuild's
+    /// `inputs`/`outputs` format and lists every lazy-region pack with its
+    /// region, owner, trigger, raw and brotli sizes, hash, scripts, and
+    /// [`LazyPackFile::stylesheets`]. It is produced only when the build emits
+    /// component assets or lazy packs. Brotli sizes are measured, at quality
+    /// 11, only when this is set.
+    pub metafile: bool,
+    /// Emitted Link-mode CSS filename template using `[name]`, `[hash]`, and `[ext]`.
+    pub css_file_name_template: String,
+    /// Default public URL or path for the output directory, ending in `/`.
+    ///
+    /// Build output stays base-relative either way: stylesheet hrefs are
+    /// emitted file names and lazy pack paths are under [`PACK_OUTPUT_DIR`].
+    /// The base is stored in the protocol; the handler prefixes compiler-emitted
+    /// stylesheet links with it and passes it to the browser, in a
+    /// `<meta name="webui-asset-base">` tag and the bootstrap data. Module
+    /// preload hints keep their paths, because they name the application's own
+    /// scripts. A request can override the base with the reserved
+    /// `$webui.assetBase` state member. Validated by [`validate_asset_base`].
+    pub asset_base: Option<String>,
+    /// Module specifiers for custom elements, keyed by tag.
+    ///
+    /// The generated [`LAZY_SCRIPTS_MODULE`] imports a scripted component that
+    /// a lazy region introduces from its discovered `.ts` or `.js` sibling. A
+    /// mapping overrides that module, or supplies one for packages without a
+    /// usable sibling; it is written verbatim, so use a package specifier or a
+    /// path relative to [`BuildOptions::modules_out`]. Tags must be custom
+    /// element names and specifiers must not contain whitespace, quotes, or
+    /// backslashes. A mapping for a tag no component uses is a warning.
+    pub component_modules: BTreeMap<String, String>,
+    /// Directory that receives generated modules for the application bundler:
+    /// component asset inputs, [`LAZY_SCRIPTS_MODULE`], and its
+    /// [`LAZY_SCRIPTS_DECLARATION`].
+    ///
+    /// Relative module specifiers in the generated module start here.
+    /// [`build`] writes nothing, so when this is `None` they are relative to
+    /// [`BuildOptions::app_dir`]. [`build_to_disk`] defaults it to its output
+    /// directory. Relative paths resolve against the current directory.
+    pub modules_out: Option<PathBuf>,
+    /// Legal comment preservation strategy.
+    pub legal_comments: LegalComments,
+    /// Optional loaded design-token theme used to validate discovered CSS tokens.
+    ///
+    /// When present, every discovered CSS token that remains unresolved after
+    /// local and ancestor CSS definitions are removed must exist in every theme,
+    /// unless the `var()` usage supplies a literal CSS fallback (e.g.
+    /// `var(--x, 16px)`), which provides its own value. Missing required tokens
+    /// fail the build as parser diagnostics.
+    pub theme: Option<TokenFile>,
+    /// Bundler-neutral state projection manifest fragments supplied as disk
+    /// paths or inline JSON with a logical manifest path.
+    ///
+    /// Empty (the default) means projection is disabled: the build emits
+    /// [`webui_protocol::InitialStateStrategy::Full`] and every scripted
+    /// component keeps a full-state (`All`) partial-navigation surface. No
+    /// JavaScript/TypeScript analysis ever runs in Rust.
+    ///
+    /// When non-empty, every manifest is loaded, hash-validated against the
+    /// files it declares, merged by component tag, and used to narrow each
+    /// scripted component that is actually compiled into the protocol down to
+    /// an exact hydration/navigation key surface. Every such scripted
+    /// component must have exactly one manifest entry, or the build fails
+    /// with [`WebUIError::Projection`] (`PROJ-B001`). Supplying manifests with
+    /// a `plugin` other than [`Plugin::WebUI`] fails the build immediately
+    /// (`PROJ-B002`): only the WebUI plugin produces protocol fields
+    /// compatible with per-component key encoding.
+    ///
+    /// Manifests are read only at build time. The runtime handler never
+    /// opens a manifest file; the compiled protocol is fully self-contained.
+    pub projection_manifests: Vec<ProjectionManifestSource>,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            app_dir: std::path::PathBuf::from("."),
+            entry: "index.html".to_string(),
+            css: CssStrategy::Link,
+            dom: DomStrategy::Shadow,
+            css_bundle: false,
+            plugin: None,
+            components: Vec::new(),
+            component_asset_roots: Vec::new(),
+            metafile: false,
+            css_file_name_template: DEFAULT_CSS_FILE_NAME_TEMPLATE.to_string(),
+            asset_base: None,
+            component_modules: BTreeMap::new(),
+            modules_out: None,
+            legal_comments: LegalComments::default(),
+            theme: None,
+            projection_manifests: Vec::new(),
+        }
+    }
+}
+
+/// Statistics about a completed build.
+#[derive(Debug, Clone)]
+pub struct BuildStats {
+    /// Total wall-clock build time.
+    pub duration: std::time::Duration,
+    /// Total number of protocol fragments.
+    pub fragment_count: usize,
+    /// Number of registered components.
+    pub component_count: usize,
+    /// Number of CSS files produced.
+    pub css_file_count: usize,
+    /// Size of the serialized protocol in bytes.
+    pub protocol_size_bytes: usize,
+    /// Number of unique CSS tokens discovered.
+    pub token_count: usize,
+}
+
+/// Result of a successful build.
+#[derive(Debug)]
+pub struct BuildResult {
+    /// The compiled WebUI protocol.
+    pub protocol: WebUIProtocol,
+    /// Serialized protocol bytes (protobuf binary).
+    pub protocol_bytes: Vec<u8>,
+    /// Component CSS files: `(filename, content)` — only components referenced in the protocol.
+    pub css_files: Vec<(String, String)>,
+    /// Static component asset files: `(filename, ESM module content)`.
+    ///
+    /// Populated when [`BuildOptions::component_asset_roots`] is non-empty.
+    pub component_asset_files: Vec<ComponentAssetFile>,
+    /// Build metafile JSON, when [`BuildOptions::metafile`] is set and the
+    /// build emits component assets or lazy packs.
+    ///
+    /// Top-level `inputs` and `outputs` describe the component asset graph in
+    /// esbuild's format; `lazyPacks` lists every lazy-region pack, sorted by
+    /// path.
+    pub metafile: Option<String>,
+    /// Immutable lazy-region template packs, written under [`PACK_OUTPUT_DIR`].
+    pub lazy_pack_files: Vec<LazyPackFile>,
+    /// Generated [`LAZY_SCRIPTS_MODULE`], present when the build has lazy
+    /// regions, with its [`LAZY_SCRIPTS_DECLARATION`] in
+    /// [`GeneratedModule::declaration`].
+    ///
+    /// It registers a dynamic import for each scripted component a region
+    /// introduces. Write both files to [`BuildOptions::modules_out`] and import
+    /// the module from the application entry through the bundler.
+    pub lazy_scripts_module: Option<GeneratedModule>,
+    /// Component client template payloads.
+    /// Includes templates for all components encountered during parsing,
+    /// including route-referenced components.
+    pub component_templates: Vec<ComponentTemplateArtifact>,
+    /// Non-fatal build advisories as warning-severity [`Diagnostic`]s.
+    ///
+    /// Includes parser advisories and CSS token warnings. Carries the same
+    /// structured location/snippet/`help:` data as errors; the entry point
+    /// decides how to present (and color) them.
+    pub warnings: Vec<Diagnostic>,
+    /// Build statistics.
+    pub stats: BuildStats,
+}
+
+/// Reject an invalid build-default asset base before any build work.
+#[cold]
+#[inline(never)]
+fn invalid_asset_base_option(error: AssetBaseError) -> WebUIError {
+    WebUIError::InvalidBuildOptions(error.to_string())
+}
+
+/// Advisory for a streaming entry compiled without a state-projection
+/// manifest.
+///
+/// Cold: constructed at most once per build, and only for streaming entries.
+#[cold]
+#[inline(never)]
+fn streaming_without_projection_warning(entry: &str, boundary_count: usize) -> Diagnostic {
+    let plural = if boundary_count == 1 { "" } else { "s" };
+    Diagnostic::warning(format!(
+        "{entry} declares {boundary_count} streaming boundary checkpoint{plural} \
+         but this build has no state-projection manifest"
+    ))
+    .code(webui_parser::codes::STREAMING_WITHOUT_PROJECTION)
+    .help(
+        "every checkpoint will serialize the whole state object instead of its own \
+         components' keys; pass the client build's `webui-projection.json` through \
+         `BuildOptions::projection_manifests` to send boundary-local state only",
+    )
+}
+
+/// Build a WebUI application from an app directory.
+///
+/// Parses templates, discovers components, and produces a compiled protocol
+/// with build statistics. Nothing is written to disk; module specifiers in
+/// [`BuildResult::lazy_scripts_module`] are relative to
+/// [`BuildOptions::modules_out`], or to [`BuildOptions::app_dir`] without one.
+///
+/// # Errors
+///
+/// Returns [`WebUIError`] if the app directory is invalid, templates fail
+/// to parse, theme tokens are incomplete, a component module mapping is
+/// invalid, or the protocol cannot be serialized.
+#[must_use = "BuildResult contains the compiled protocol and statistics"]
+pub fn build(options: BuildOptions) -> Result<BuildResult, WebUIError> {
+    prepare_build(options)?.finish(Vec::new())
+}
+
+/// Build a WebUI application and write output files to disk.
+///
+/// Writes `protocol.bin`, any external CSS files, and lazy-region packs to
+/// `out_dir`, and static component assets, [`LAZY_SCRIPTS_MODULE`], and
+/// [`LAZY_SCRIPTS_DECLARATION`] to [`BuildOptions::modules_out`], which
+/// defaults to `out_dir`.
+/// Creates the directories if they do not exist. Component dependencies
+/// publish before roots, unchanged generated modules keep their modification
+/// times, and existing files outside the current build are left alone.
+///
+/// # Errors
+///
+/// Returns [`WebUIError`] on build failure or if output files cannot be written.
+pub fn build_to_disk(mut options: BuildOptions, out_dir: &Path) -> Result<BuildStats, WebUIError> {
+    let modules_dir = options
+        .modules_out
+        .get_or_insert_with(|| out_dir.to_path_buf())
+        .clone();
+    let result = build(options)?;
+    validate_output_file_names(OsStr::new("protocol.bin"), &result)?;
+
+    fs::create_dir_all(out_dir).map_err(|source| WebUIError::Io {
+        context: format!("Failed to create {}", out_dir.display()),
+        source,
+    })?;
+
+    fs::write(out_dir.join("protocol.bin"), &result.protocol_bytes).map_err(|source| {
+        WebUIError::Io {
+            context: format!("Failed to write protocol.bin to {}", out_dir.display()),
+            source,
+        }
+    })?;
+
+    for (name, content) in &result.css_files {
+        fs::write(out_dir.join(name), content).map_err(|source| WebUIError::Io {
+            context: format!("Failed to write {name} to {}", out_dir.display()),
+            source,
+        })?;
+    }
+    if !result.component_asset_files.is_empty() || result.lazy_scripts_module.is_some() {
+        component_asset_output::publish_modules_with(
+            &modules_dir,
+            &result.component_asset_files,
+            result.lazy_scripts_module.as_slice(),
+            || Ok(()),
+        )?;
+    }
+    write_lazy_packs(out_dir, &result.lazy_pack_files)?;
+
+    Ok(result.stats)
+}
+
+/// Write content-addressed lazy-region packs under [`PACK_OUTPUT_DIR`].
+///
+/// Existing packs are left in place so documents from an earlier deployment
+/// can still load the packs they reference.
+///
+/// # Errors
+///
+/// Returns [`WebUIError::Io`] when the pack directory or a file cannot be written.
+pub fn write_lazy_packs(out_dir: &Path, packs: &[LazyPackFile]) -> Result<(), WebUIError> {
+    if packs.is_empty() {
+        return Ok(());
+    }
+    let directory = out_dir.join(PACK_OUTPUT_DIR);
+    fs::create_dir_all(&directory).map_err(|source| WebUIError::Io {
+        context: format!("Failed to create {}", directory.display()),
+        source,
+    })?;
+    for pack in packs {
+        let path = directory.join(&pack.file_name);
+        if fs::read(&path).is_ok_and(|existing| existing == pack.content.as_bytes()) {
+            continue;
+        }
+        fs::write(&path, &pack.content).map_err(|source| WebUIError::Io {
+            context: format!("Failed to write lazy pack {}", path.display()),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+/// Inspect a compiled WebUI protocol file and return its JSON representation.
+pub fn inspect(protocol_path: &Path) -> Result<String, WebUIError> {
+    let bytes = fs::read(protocol_path).map_err(|source| WebUIError::Io {
+        context: format!("Failed to read {}", protocol_path.display()),
+        source,
+    })?;
+    inspect_bytes(&bytes)
+}
+
+/// Inspect raw protocol bytes and return their JSON representation.
+pub fn inspect_bytes(protocol_bytes: &[u8]) -> Result<String, WebUIError> {
+    let protocol = WebUIProtocol::from_protobuf(protocol_bytes)?;
+    protocol
+        .to_json_pretty()
+        .map_err(|e| WebUIError::Serialization(e.to_string()))
+}
+
+/// Internal intermediate build output before stats are computed.
+struct RawBuildOutput {
+    protocol: WebUIProtocol,
+    css_files: Vec<(String, String)>,
+    component_asset_files: Vec<ComponentAssetFile>,
+    /// Component asset half of the metafile, when requested and assets exist.
+    asset_metafile: Option<component_assets::AssetGraphMetafile>,
+    /// Modules of client-owned components, captured when lazy regions exist.
+    component_scripts: lazy_scripts::ComponentScripts,
+    component_templates: Vec<ComponentTemplateArtifact>,
+    warnings: Vec<Diagnostic>,
+    fragment_count: usize,
+    component_count: usize,
+    token_count: usize,
+    module_entry_srcs: Vec<String>,
+    boundary_count: usize,
+}
+
+/// Internal build logic shared by `build()` and `build_to_disk()`.
+fn build_protocol_inner(options: &BuildOptions) -> Result<RawBuildOutput, WebUIError> {
+    let projection_enabled = !options.projection_manifests.is_empty();
+    if projection_enabled && options.plugin != Some(Plugin::WebUI) {
+        return Err(projection::incompatible_plugin_error());
+    }
+    if !options.component_asset_roots.is_empty() && options.plugin != Some(Plugin::WebUI) {
+        return Err(WebUIError::InvalidBuildOptions(
+            "component assets require --plugin webui because generated entries use the WebUI Framework registration runtime"
+                .to_string(),
+        ));
+    }
+    if options.css_bundle && options.css == CssStrategy::Module {
+        return Err(css_bundle_module_error());
+    }
+    let parser_options = ParserOptions::try_new(
+        options.css,
+        options.dom,
+        &options.css_file_name_template,
+        options.legal_comments,
+    )
+    .map_err(|e| WebUIError::InvalidBuildOptions(e.to_string()))?;
+    let css_link_options = parser_options.css_link_options.clone();
+
+    let mut parser = match options.plugin {
+        Some(Plugin::Fast | Plugin::FastV2) => {
+            HtmlParser::with_plugin_options(Box::new(FastV2ParserPlugin::new()), parser_options)
+        }
+        Some(Plugin::FastV3) => {
+            HtmlParser::with_plugin_options(Box::new(FastV3ParserPlugin::new()), parser_options)
+        }
+        Some(Plugin::WebUI) => {
+            HtmlParser::with_plugin_options(Box::new(WebUIParserPlugin::new()), parser_options)
+        }
+        None => HtmlParser::with_options(parser_options),
+    };
+    let discovery_plugin: Box<dyn DiscoveryPlugin> = match options.plugin {
+        Some(Plugin::Fast | Plugin::FastV2 | Plugin::FastV3) => {
+            Box::new(FastDiscoveryPlugin::new())
+        }
+        Some(Plugin::WebUI) | None => Box::new(WebUIDiscoveryPlugin::new()),
+    };
+
+    let app_components = discovery_plugin
+        .discover_local(&options.app_dir)
+        .map_err(|error| {
+            WebUIError::ComponentDiscovery(format!(
+                "Failed to discover components from {}: {error}",
+                options.app_dir.display()
+            ))
+        })?;
+    for component in &app_components {
+        parser
+            .component_registry_mut()
+            .register_component(webui_parser::ComponentRegistration {
+                tag_name: &component.tag_name,
+                html_content: &component.html_content,
+                css_content: component.css_content.as_deref(),
+                is_client_owned: component.is_client_owned,
+                script_path: component.script_path.as_deref(),
+            })
+            .map_err(|source| WebUIError::ComponentRegistration {
+                context: format!(
+                    "Failed to register component '{}' from {}",
+                    component.tag_name, component.source
+                ),
+                source,
+            })?;
+    }
+
+    // Discover and register external component sources
+    for source in &options.components {
+        let result = webui_discovery::discover_source_with_plugin(
+            source,
+            &options.app_dir,
+            discovery_plugin.as_ref(),
+        )
+        .map_err(|e| {
+            WebUIError::ComponentDiscovery(format!(
+                "Failed to discover components from {source}: {e}"
+            ))
+        })?;
+        for comp in &result.components {
+            // Script presence marks client ownership. Rust never analyzes the
+            // source; exact state surfaces come from projection manifests.
+            parser
+                .component_registry_mut()
+                .register_component(webui_parser::ComponentRegistration {
+                    tag_name: &comp.tag_name,
+                    html_content: &comp.html_content,
+                    css_content: comp.css_content.as_deref(),
+                    is_client_owned: comp.is_client_owned,
+                    script_path: comp.script_path.as_deref(),
+                })
+                .map_err(|source| WebUIError::ComponentRegistration {
+                    context: format!(
+                        "Failed to register component '{}' from {}",
+                        comp.tag_name, comp.source
+                    ),
+                    source,
+                })?;
+        }
+    }
+
+    let component_count = parser.component_registry().len();
+
+    // Parse entry HTML
+    let entry_path = options.app_dir.join(&options.entry);
+    let html_content = fs::read_to_string(&entry_path).map_err(|source| WebUIError::Io {
+        context: format!("Failed to read {}", entry_path.display()),
+        source,
+    })?;
+    parser
+        .parse(&options.entry, &html_content)
+        .map_err(|source| WebUIError::Parse {
+            context: format!("Failed to parse {}", options.entry),
+            source,
+        })?;
+
+    // Read before synthetic asset roots parse because module entry sources are
+    // entry-local. Boundary declarations live in the fragment graph itself.
+    let module_entry_srcs = parser.module_entry_srcs().to_vec();
+
+    let synthetic_asset_fragments =
+        parse_component_asset_roots(&mut parser, &options.component_asset_roots)?;
+
+    let component_render_css = parser.component_registry().render_policy_css(
+        parser
+            .component_registry()
+            .get_all()
+            .filter(|component| parser.has_fragment(&component.tag_name))
+            .map(|component| component.tag_name.as_str()),
+    );
+    let css_snapshot: Vec<(String, String)> = parser
+        .component_registry()
+        .get_all()
+        .filter(|component| parser.has_fragment(&component.tag_name))
+        .filter_map(|component| {
+            component
+                .css_content
+                .as_ref()
+                .map(|css| (component.tag_name.clone(), css.clone()))
+        })
+        .collect();
+    let component_shadow_dom_usage: Vec<(String, bool)> = parser
+        .component_shadow_dom_usage()
+        .map(|(tag_name, uses_shadow_dom)| (tag_name.to_string(), uses_shadow_dom))
+        .collect();
+    let component_work_policies: Vec<(String, u8)> = parser
+        .component_work_policies()
+        .map(|(tag_name, policy)| (tag_name.to_string(), policy))
+        .collect();
+
+    // Collect CSS token analysis before consuming the parser.
+    let token_analysis = parser.token_analysis();
+    let mut warnings: Vec<Diagnostic> = parser.take_warnings();
+    if let Some(theme) = options.theme.as_ref() {
+        token_analysis
+            .validate_theme_tokens(theme)
+            .map_err(|source| WebUIError::Parse {
+                context: "Failed to validate theme tokens".to_string(),
+                source,
+            })?;
+        // Advisory: a token used only as `var(--x, <literal>)` and absent from
+        // every theme is often a misspelling. The literal keeps the build green,
+        // so this is a warning (with a "did you mean …?" suggestion), not an
+        // error.
+        warnings.extend(token_analysis.theme_token_warnings(theme));
+    }
+    let token_count = token_analysis.protocol_tokens.len();
+
+    let component_templates =
+        match parser
+            .take_plugin_artifacts()
+            .map_err(|source| WebUIError::Parse {
+                context: format!(
+                    "Failed to compile component templates for {}",
+                    options.entry
+                ),
+                source,
+            })? {
+            ParserPluginArtifacts::None => Vec::new(),
+            ParserPluginArtifacts::ComponentTemplates(templates) => templates,
+        };
+    lazy_scripts::unknown_mapping_warnings(
+        parser.component_registry(),
+        &options.component_modules,
+        &mut warnings,
+    );
+    // Only lazy regions load component modules through the generated module.
+    let component_scripts = if component_templates
+        .iter()
+        .any(|artifact| !artifact.lazy_templates.is_empty())
+    {
+        lazy_scripts::capture(parser.component_registry())
+    } else {
+        lazy_scripts::ComponentScripts::new()
+    };
+    // Build protocol (consumes parser)
+    let mut fragment_records = parser.into_fragment_records();
+    for fragment_id in synthetic_asset_fragments {
+        fragment_records.remove(&fragment_id);
+    }
+    let boundary_count = fragment_records
+        .values()
+        .flat_map(|list| list.fragments.iter())
+        .filter(|fragment| {
+            matches!(
+                fragment.fragment.as_ref(),
+                Some(webui_protocol::web_ui_fragment::Fragment::Boundary(boundary))
+                    if boundary.phase() == webui_protocol::BoundaryPhase::Start
+            )
+        })
+        .count();
+    let mut protocol = WebUIProtocol::with_tokens(fragment_records, token_analysis.protocol_tokens);
+    protocol.initial_state_strategy = webui_protocol::InitialStateStrategy::Full as i32;
+
+    // Record CSS delivery and per-component Shadow DOM ownership.
+    protocol.set_css_strategy(match options.css {
+        CssStrategy::Link => webui_protocol::CssStrategy::Link,
+        CssStrategy::Style => webui_protocol::CssStrategy::Style,
+        CssStrategy::Module => webui_protocol::CssStrategy::Module,
+    });
+    for (tag_name, uses_shadow_dom) in component_shadow_dom_usage {
+        if !protocol.fragments.contains_key(&tag_name) {
+            continue;
+        }
+        protocol
+            .components
+            .entry(tag_name)
+            .or_default()
+            .uses_shadow_dom = uses_shadow_dom;
+    }
+    for (tag_name, work_policy) in component_work_policies {
+        if protocol.fragments.contains_key(&tag_name) {
+            protocol.components.entry(tag_name).or_default().work_policy = i32::from(work_policy);
+        }
+    }
+    protocol.component_render_css = component_render_css;
+
+    // Process component CSS in a single pass: retain compiled Style/Module CSS,
+    // set Link-strategy css_href, and collect external CSS files.
+    let stores_css = options.css != CssStrategy::Link;
+    let mut css_files: Vec<(String, String)> = Vec::new();
+    let mut emitted_names: HashSet<String> = HashSet::new();
+    let mut bundle_inputs: Vec<(String, String)> = Vec::new();
+    for (tag, css) in css_snapshot {
+        if !protocol.fragments.contains_key(&tag) {
+            continue;
+        }
+        if options.css_bundle {
+            bundle_inputs.push((tag.clone(), css.clone()));
+        }
+        if stores_css {
+            protocol.components.entry(tag).or_default().css = css;
+        } else {
+            let resolved = css_link_options.resolve(&tag, &css);
+            if !emitted_names.insert(resolved.filename.clone()) {
+                return Err(WebUIError::InvalidBuildOptions(format!(
+                    "CSS filename collision for Link strategy: '{}'. Adjust the asset filename template to include [name] or another unique component-specific segment.",
+                    resolved.filename
+                )));
+            }
+            // The file name is also the href: a path relative to the asset base.
+            protocol.components.entry(tag).or_default().css_href = resolved.filename.clone();
+            css_files.push((resolved.filename, css));
+        }
+    }
+
+    // CSS order is load-bearing, so compute this independently from the sorted
+    // component-asset reachability sets.
+    protocol.populate_style_closures(&[options.entry.as_str()]);
+
+    if options.css_bundle {
+        // Chunks are planned from the closures above, so this has to run after
+        // them and after per-component resources exist to plan over.
+        let by_tag = bundle_inputs
+            .iter()
+            .map(|(tag, css)| (tag.as_str(), css.as_str()))
+            .collect();
+        let chunk_files = style_bundle::bundle_style_chunks(
+            &mut protocol,
+            options.entry.as_str(),
+            &by_tag,
+            &css_link_options,
+        )?;
+        if !stores_css {
+            // Keep component files as compatibility and independently-loaded
+            // component fallbacks. Current handlers render chunk links, so these
+            // files add no requests to the normal bundled path.
+            for (filename, css) in chunk_files {
+                if emitted_names.insert(filename.clone()) {
+                    css_files.push((filename, css));
+                    continue;
+                }
+                // A single-component chunk resolves to that component's own
+                // filename and bytes, so the file is already written.
+                let identical = css_files
+                    .iter()
+                    .any(|(name, existing)| *name == filename && *existing == css);
+                if !identical {
+                    return Err(WebUIError::InvalidBuildOptions(format!(
+                        "CSS filename collision between bundled chunk '{filename}' and a component stylesheet of the same name. Adjust the asset filename template to include [hash] or another unique segment."
+                    )));
+                }
+            }
+        }
+    }
+
+    // Store compiled client templates in the protocol so any host server can
+    // query them. Scriptless templates retain navigation metadata but contribute
+    // no initial hydration state.
+    for artifact in &component_templates {
+        let component = protocol
+            .components
+            .entry(artifact.tag_name.clone())
+            .or_default();
+        component.template = artifact.template.clone();
+        component.template_json = artifact.template_json.clone();
+        component.template_functions = artifact.template_functions.clone();
+        let (hydration_mode, hydration_keys) = encode_state_surface(&artifact.hydration);
+        component.hydration_mode = hydration_mode;
+        component.hydration_keys = hydration_keys;
+        let (navigation_mode, navigation_keys) = encode_state_surface(&artifact.navigation);
+        component.navigation_mode = Some(navigation_mode);
+        component.navigation_keys = navigation_keys;
+        for fragment in &artifact.lazy_templates {
+            protocol
+                .client_fragments
+                .insert(fragment.id.clone(), fragment.data.clone());
+        }
+    }
+
+    let (mut component_asset_graph, asset_metafile) = component_assets::render_graph(
+        &protocol,
+        &options.entry,
+        &options.component_asset_roots,
+        options.metafile,
+    )?;
+    component_asset_graph.retain_entry_protocol(&mut protocol)?;
+    let fragment_count = protocol
+        .fragments
+        .values()
+        .map(|fragments| fragments.fragments.len())
+        .sum();
+    let component_asset_files = component_asset_graph.files;
+    validate_generated_file_names(&css_files, &component_asset_files)?;
+
+    Ok(RawBuildOutput {
+        protocol,
+        css_files,
+        component_asset_files,
+        asset_metafile,
+        component_scripts,
+        component_templates,
+        warnings,
+        fragment_count,
+        component_count,
+        token_count,
+        module_entry_srcs,
+        boundary_count,
+    })
+}
+
+fn encode_state_surface(surface: &StateSurface) -> (i32, Vec<String>) {
+    match surface {
+        StateSurface::None => (webui_protocol::StateProjectionMode::None as i32, Vec::new()),
+        StateSurface::Keys(keys) => (
+            webui_protocol::StateProjectionMode::Keys as i32,
+            keys.clone(),
+        ),
+        StateSurface::All => (webui_protocol::StateProjectionMode::All as i32, Vec::new()),
+    }
+}
+
+fn parse_component_asset_roots(
+    parser: &mut HtmlParser,
+    roots: &[String],
+) -> Result<Vec<String>, WebUIError> {
+    let mut synthetic_fragments = Vec::with_capacity(roots.len());
+    for (index, root) in roots.iter().enumerate() {
+        let root = root.trim();
+        if parser.has_fragment(root) {
+            continue;
+        }
+        // Compile the requested lazy root without connecting it to the entry
+        // graph, so it can be emitted as a static asset but stays out of SSR.
+        let mut synthetic = String::with_capacity(root.len() * 2 + 5);
+        synthetic.push('<');
+        synthetic.push_str(root);
+        synthetic.push_str("></");
+        synthetic.push_str(root);
+        synthetic.push('>');
+
+        let fragment_id = format!("__webui_asset_root_{index}");
+        parser
+            .parse(&fragment_id, &synthetic)
+            .map_err(|source| WebUIError::Parse {
+                context: format!("Failed to parse component asset root <{root}>"),
+                source,
+            })?;
+        synthetic_fragments.push(fragment_id);
+    }
+    Ok(synthetic_fragments)
+}
+
+fn validate_generated_file_names(
+    css_files: &[(String, String)],
+    component_asset_files: &[ComponentAssetFile],
+) -> Result<(), WebUIError> {
+    let mut names = HashSet::with_capacity(css_files.len() + component_asset_files.len());
+    for (name, _) in css_files {
+        names.insert(name.as_str());
+    }
+    for file in component_asset_files {
+        if !names.insert(file.name.as_str()) {
+            return Err(WebUIError::InvalidBuildOptions(format!(
+                "output filename collision for '{}'. Adjust the asset filename template to include [ext] or another unique asset-type segment.",
+                file.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_output_file_names(
+    protocol_name: &OsStr,
+    result: &BuildResult,
+) -> Result<(), WebUIError> {
+    let mut names =
+        HashSet::with_capacity(2 + result.css_files.len() + result.component_asset_files.len());
+    names.insert(protocol_name.to_os_string());
+    for (name, _) in &result.css_files {
+        let file_name = OsString::from(name);
+        if !names.insert(file_name.clone()) {
+            return Err(output_file_collision_error(&file_name));
+        }
+    }
+    let modules = result
+        .component_asset_files
+        .iter()
+        .map(|file| file.name.as_str())
+        .chain(
+            result
+                .lazy_scripts_module
+                .iter()
+                .flat_map(|module| module.files().map(|(name, _)| name)),
+        );
+    for name in modules {
+        let file_name = OsString::from(name);
+        if !names.insert(file_name.clone()) {
+            return Err(output_file_collision_error(&file_name));
+        }
+    }
+    Ok(())
+}
+
+fn output_file_collision_error(name: &OsStr) -> WebUIError {
+    WebUIError::InvalidBuildOptions(format!(
+        "output filename collision for '{}'. Adjust the asset filename template to include [ext] or another unique asset-type segment.",
+        name.to_string_lossy()
+    ))
+}
+
+#[cold]
+#[inline(never)]
+fn css_bundle_module_error() -> WebUIError {
+    WebUIError::InvalidBuildOptions(
+        "CSS bundling is not supported with the Module strategy. Module builds already inline every stylesheet as a data URI, so there are no requests to merge, and their import-map specifiers are resolved per component before chunks exist. Use --css link (or --css style) with --css-bundle, or drop --css-bundle.".to_string(),
+    )
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+    use webui_handler::plugin::webui::WebUIHydrationPlugin;
+    use webui_protocol::web_ui_fragment::Fragment;
+
+    struct StringWriter {
+        buf: String,
+    }
+
+    impl ResponseWriter for StringWriter {
+        fn write(&mut self, content: &str) -> webui_handler::Result<()> {
+            self.buf.push_str(content);
+            Ok(())
+        }
+
+        fn end(&mut self) -> webui_handler::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl webui_handler::FlushWriter for StringWriter {
+        fn flush(&mut self) -> webui_handler::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn create_app_dir(files: &[(&str, &str)]) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        for (name, content) in files {
+            let path = dir.path().join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&path, content).unwrap();
+        }
+        dir
+    }
+
+    fn default_options(app_dir: &Path) -> BuildOptions {
+        BuildOptions {
+            app_dir: app_dir.to_path_buf(),
+            ..BuildOptions::default()
+        }
+    }
+
+    fn component_payload<'a>(files: &'a [ComponentAssetFile], tag: &str) -> &'a ComponentAssetFile {
+        let mut prefix = String::with_capacity(tag.len() + 12);
+        prefix.push_str("components/");
+        prefix.push_str(tag);
+        prefix.push('.');
+        files
+            .iter()
+            .find(|file| file.name.starts_with(&prefix))
+            .unwrap()
+    }
+
+    fn light_options(app_dir: &Path) -> BuildOptions {
+        BuildOptions {
+            dom: DomStrategy::Light,
+            ..default_options(app_dir)
+        }
+    }
+
+    mod fast;
+    mod lazy_modules;
+    mod lazy_stylesheets;
+
+    #[test]
+    fn lazy_ui_is_compiled_but_omitted_until_its_initial_condition_is_true() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><head></head><body><app-shell></app-shell></body></html>",
+            ),
+            (
+                "app-shell.html",
+                r#"<dialog><if condition="showSettings" lazy><settings-panel></settings-panel></if></dialog>"#,
+            ),
+            (
+                "settings-panel.html",
+                "<h2>Lazy settings content</h2><settings-child></settings-child>",
+            ),
+            ("settings-panel.css", "h2 { color: red; }"),
+            ("settings-child.html", "<p>Nested settings content</p>"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let built = build(options).expect("compiled lazy UI");
+        assert!(built.protocol.fragments.contains_key("settings-panel"));
+        assert!(built.protocol.components.contains_key("settings-child"));
+        let protocol = Protocol::new(built.protocol);
+        let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+        for shown in [false, true] {
+            let mut writer = StringWriter { buf: String::new() };
+            handler
+                .render(
+                    &protocol,
+                    &serde_json::json!({ "showSettings": shown }),
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )
+                .expect("render lazy condition");
+            assert_eq!(
+                writer.buf.contains("Lazy settings content"),
+                shown,
+                "inactive metadata must not embed the lazy body: {}",
+                writer.buf
+            );
+            assert_eq!(writer.buf.contains("Nested settings content"), shown);
+            // A closed region's stylesheet is only listed beside its pack path
+            // for preloading; nothing links or registers it.
+            assert!(
+                writer
+                    .buf
+                    .contains(r#""lc":{"app-shell::lazy:@0":["settings-panel.css"]}"#),
+                "{}",
+                writer.buf
+            );
+            assert_eq!(writer.buf.contains(r#"href="settings-panel.css""#), shown);
+            assert_eq!(writer.buf.contains(r#""href":"settings-panel.css""#), shown);
+            assert_eq!(writer.buf.contains(r#""settings-panel":{"h":"#), shown);
+            assert_eq!(writer.buf.contains(r#""settings-child":{"h":"#), shown);
+            let head = writer.buf.split("</head>").next().expect("document head");
+            assert_eq!(head.contains("settings-panel.css"), shown);
+        }
+    }
+
+    #[test]
+    fn lazy_if_keeps_inline_bodies_hostless_and_preserves_dom_mode() {
+        for dom in [DomStrategy::Shadow, DomStrategy::Light] {
+            let app = create_app_dir(&[
+                (
+                    "index.html",
+                    "<html><head></head><body><app-shell></app-shell></body></html>",
+                ),
+                (
+                    "app-shell.html",
+                    concat!(
+                        "<h1>Shell</h1><dialog>",
+                        r#"<if condition="show" lazy>"#,
+                        "<h2>Inline lazy settings</h2><p>{{subtitle}}</p>",
+                        r#"<if condition="loaded"><strong>{{detail}}</strong></if>"#,
+                        r#"<for each="item in items"><button @click="{pick(item.id)}">{{item.label}}</button></for>"#,
+                        r#"<if condition="advanced" lazy="idle"><em>Advanced lazy settings</em></if>"#,
+                        "</if></dialog>",
+                    ),
+                ),
+                ("app-shell.ts", "export {};"),
+            ]);
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            options.dom = dom;
+            let built = build(options).expect("arbitrary lazy body");
+            assert_eq!(
+                built.protocol.components.len(),
+                1,
+                "a lazy body must not become a component"
+            );
+            let root = "app-shell::lazy:@0";
+            let nested = "app-shell::lazy:@1";
+            assert!(built.protocol.fragments.contains_key(root));
+            assert!(built.protocol.client_fragments[root].entry);
+            assert_eq!(built.protocol.client_fragments[root].owner, "app-shell");
+            assert!(!built.protocol.client_fragments[root]
+                .dependencies
+                .iter()
+                .any(|id| id == nested));
+            let owner: serde_json::Value =
+                serde_json::from_str(&built.protocol.components["app-shell"].template_json)
+                    .unwrap();
+            let region: serde_json::Value =
+                serde_json::from_str(&built.protocol.client_fragments[root].template_json).unwrap();
+            assert_eq!(owner["c"][0][3], 4, "bare lazy loads only on activation");
+            let nested_entry = region["c"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry[1] == nested)
+                .unwrap();
+            assert_eq!(nested_entry[3], 2, "nested regions keep their own trigger");
+            assert!(owner["lp"].get(nested).is_none());
+            assert_eq!(built.lazy_pack_files.len(), 2);
+            // Nested packs are referenced by their parent region, not the owner.
+            for path in [&owner["lp"][root], &region["lp"][nested]] {
+                let name = path
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("_webui/packs/")
+                    .unwrap();
+                assert!(built
+                    .lazy_pack_files
+                    .iter()
+                    .any(|pack| pack.file_name == name));
+            }
+            assert!(!built.protocol.components["app-shell"]
+                .template_json
+                .contains("Inline lazy settings"));
+            assert!(!built.protocol.components["app-shell"]
+                .template_json
+                .contains("pick"));
+            assert!(built.protocol.fragments["app-shell"].fragments.iter().any(|fragment| {
+                matches!(fragment.fragment.as_ref(), Some(Fragment::IfCond(condition)) if condition.lazy && condition.fragment_id == root)
+            }));
+            let protocol = Protocol::new(built.protocol);
+            let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+            for (shown, advanced) in [(false, false), (true, false), (true, true)] {
+                let state = serde_json::json!({
+                    "show": shown, "advanced": advanced, "loaded": true,
+                    "subtitle": "Current", "detail": "Detail", "items": [{"id":1,"label":"First"}],
+                });
+                let mut writer = StringWriter { buf: String::new() };
+                handler
+                    .render(
+                        &protocol,
+                        &state,
+                        &RenderOptions::new("index.html", "/"),
+                        &mut writer,
+                    )
+                    .unwrap();
+                assert_eq!(writer.buf.contains("Inline lazy settings"), shown);
+                assert_eq!(writer.buf.contains("Advanced lazy settings"), advanced);
+                assert!(
+                    !writer.buf.contains("<app-shell::"),
+                    "fragment resources have no element host"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_named_repeat_reuses_the_owners_eager_block_table() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><head></head><body><app-shell></app-shell></body></html>",
+            ),
+            (
+                "app-shell.html",
+                concat!(
+                    r#"<for id="shared" each="item in outsideItems" />"#,
+                    r#"<if condition="show" lazy>"#,
+                    r#"<for id="shared" each="item in items"><span>{{item.label}}</span></for>"#,
+                    "</if>",
+                ),
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let built = build(options).unwrap();
+        let owner: serde_json::Value =
+            serde_json::from_str(&built.protocol.components["app-shell"].template_json).unwrap();
+        let region: serde_json::Value = serde_json::from_str(
+            &built.protocol.client_fragments["app-shell::lazy:@0"].template_json,
+        )
+        .unwrap();
+        assert_eq!(owner["b"].as_array().unwrap().len(), 1);
+        assert_eq!(region["r"][0][2], 0);
+        assert_eq!(region["o"], "app-shell");
+    }
+
+    #[test]
+    fn lazy_resource_selection_preserves_props_and_loop_shadowing() {
+        let app = create_app_dir(&[
+            ("index.html", "<html><head></head><body><scope-owner :item=\"{{fallback}}\"></scope-owner></body></html>"),
+            ("scope-owner.html", concat!(
+                r#"<for each="item in items"><if condition="item.expanded" lazy><p>Visible row payload</p></if></for>"#,
+                r#"<if condition="item.expanded" lazy="demand"><p>Outside payload</p></if>"#,
+            )),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let protocol = Protocol::new(build(options).unwrap().protocol);
+        let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+        for (rows, fallback, expected_row, expected_outside) in [
+            (vec![false, false], true, false, true),
+            (vec![false, true], false, true, false),
+        ] {
+            let state = serde_json::json!({
+                "items": rows.into_iter().map(|expanded| serde_json::json!({ "expanded": expanded })).collect::<Vec<_>>(),
+                "fallback": { "expanded": fallback },
+            });
+            let mut writer = StringWriter { buf: String::new() };
+            handler
+                .render(
+                    &protocol,
+                    &state,
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )
+                .unwrap();
+            assert_eq!(writer.buf.contains("Visible row payload"), expected_row);
+            assert_eq!(writer.buf.contains("Outside payload"), expected_outside);
+        }
+    }
+
+    #[test]
+    fn lazy_authoring_errors_have_stable_codes_and_actionable_help() {
+        for (template, code, help) in [
+            (
+                r#"<if condition="show" lazy="yes"><p>Body</p></if>"#,
+                webui_parser::codes::INVALID_LAZY_ATTRIBUTE,
+                "activation only",
+            ),
+            (
+                r#"<if condition="show" lazy="idel"><p>Body</p></if>"#,
+                webui_parser::codes::INVALID_LAZY_ATTRIBUTE,
+                "did you mean lazy=\"idle\"",
+            ),
+            (
+                r#"<if condition="show" lazy id="settings"><p>Body</p></if>"#,
+                webui_parser::codes::INVALID_IF_ATTRIBUTE,
+                "remove id",
+            ),
+        ] {
+            let app = create_app_dir(&[
+                ("index.html", "<app-owner></app-owner>"),
+                ("app-owner.html", template),
+            ]);
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            let error = build(options).err().expect("invalid lazy authoring");
+            let message = error.chain_message();
+            assert!(message.contains(code), "{message}");
+            assert!(message.contains(help), "{message}");
+        }
+    }
+
+    #[test]
+    fn lazy_packs_are_content_addressed_and_referenced_by_final_metadata() {
+        let files = [
+            (
+                "index.html",
+                "<html><head></head><body><app-shell></app-shell></body></html>",
+            ),
+            (
+                "app-shell.html",
+                concat!(
+                    "<shared-badge></shared-badge><dialog>",
+                    r#"<if condition="open" lazy><settings-form></settings-form>"#,
+                    r#"<if condition="advanced" lazy="demand"><p>Deep settings</p></if></if>"#,
+                    "</dialog>",
+                ),
+            ),
+            (
+                "settings-form.html",
+                "<form><shared-badge></shared-badge><input></form>",
+            ),
+            ("settings-form.css", "form { display: grid; }"),
+            ("shared-badge.html", "<span>Badge</span>"),
+        ];
+        let build_packs = || {
+            let app = create_app_dir(&files);
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            options.css = CssStrategy::Style;
+            build(options).unwrap()
+        };
+        let built = build_packs();
+        let root = "app-shell::lazy:@0";
+        let nested = "app-shell::lazy:@1";
+        assert_eq!(built.lazy_pack_files.len(), 2);
+        for pack in &built.lazy_pack_files {
+            let digest = Sha256::digest(pack.content.as_bytes());
+            let mut hex = String::new();
+            for byte in &digest[..8] {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+            assert_eq!(pack.file_name, format!("app-shell.{hex}.json"));
+        }
+        let owner: serde_json::Value =
+            serde_json::from_str(&built.protocol.components["app-shell"].template_json).unwrap();
+        let url = owner["lp"][root].as_str().unwrap();
+        let outer = built
+            .lazy_pack_files
+            .iter()
+            .find(|pack| url.ends_with(&pack.file_name))
+            .unwrap();
+        let pack: serde_json::Value = serde_json::from_str(&outer.content).unwrap();
+        assert_eq!(pack["type"], "webui-pack");
+        assert_eq!(pack["fragment"], root);
+        assert!(pack["templates"].get("settings-form").is_some());
+        assert!(
+            pack["templates"].get("shared-badge").is_none(),
+            "owned by app-shell"
+        );
+        assert!(pack["templates"].get(nested).is_none());
+        assert!(pack["componentStyles"]["resources"]
+            .get("settings-form")
+            .is_some());
+        let region = &pack["templates"][root];
+        let nested_entry = region["c"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry[1] == nested)
+            .unwrap();
+        assert_eq!(nested_entry[3], 4, "demand");
+        assert!(built.lazy_pack_files.iter().any(|pack| {
+            region["lp"][nested]
+                .as_str()
+                .unwrap()
+                .ends_with(&pack.file_name)
+        }));
+        assert!(!built.protocol.build_id.is_empty());
+
+        let rebuilt = build_packs();
+        assert_eq!(rebuilt.lazy_pack_files, built.lazy_pack_files);
+        assert_eq!(rebuilt.protocol.build_id, built.protocol.build_id);
+    }
+
+    #[test]
+    fn asset_base_is_validated_and_kept_out_of_build_output() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-owner></app-owner>"),
+            (
+                "app-owner.html",
+                r#"<if condition="show" lazy><p>Body</p></if>"#,
+            ),
+            ("app-owner.css", "p { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let without = build(options.clone()).unwrap();
+        options.asset_base = Some("https://cdn.example.com/app/".into());
+        let built = build(options.clone()).unwrap();
+
+        assert_eq!(built.protocol.asset_base, "https://cdn.example.com/app/");
+        assert!(without.protocol.asset_base.is_empty());
+        // Every emitted path is relative to the base, so the output only
+        // differs by the stored default and the identity that covers it.
+        assert_eq!(built.lazy_pack_files, without.lazy_pack_files);
+        assert_eq!(built.css_files, without.css_files);
+        assert_ne!(built.protocol.build_id, without.protocol.build_id);
+        let owner: serde_json::Value =
+            serde_json::from_str(&built.protocol.components["app-owner"].template_json).unwrap();
+        assert_eq!(
+            owner["lp"]["app-owner::lazy:@0"],
+            format!("_webui/packs/{}", built.lazy_pack_files[0].file_name)
+        );
+        assert_eq!(
+            built.protocol.components["app-owner"].css_href,
+            "app-owner.css"
+        );
+        for pack in &built.lazy_pack_files {
+            assert!(
+                !pack.content.contains("cdn.example.com"),
+                "{}",
+                pack.content
+            );
+        }
+        let decoded = WebUIProtocol::from_protobuf(&built.protocol_bytes).unwrap();
+        assert_eq!(decoded.asset_base, "https://cdn.example.com/app/");
+
+        for invalid in [
+            "packs",
+            "https://cdn.example.com/app",
+            "//cdn.example.com/",
+            "a b/",
+        ] {
+            options.asset_base = Some(invalid.into());
+            let error = build(options.clone()).expect_err("invalid asset base");
+            assert!(
+                matches!(error, WebUIError::InvalidBuildOptions(_)),
+                "{error}"
+            );
+            assert!(
+                error.chain_message().contains("invalid asset base"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_to_disk_publishes_lazy_packs() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-owner></app-owner>"),
+            (
+                "app-owner.html",
+                r#"<if condition="show" lazy="idle"><p>Body</p></if>"#,
+            ),
+        ]);
+        let out = TempDir::new().unwrap();
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        build_to_disk(options.clone(), out.path()).unwrap();
+        let packs = build(options).unwrap().lazy_pack_files;
+        assert_eq!(packs.len(), 1);
+        let written =
+            fs::read_to_string(out.path().join(PACK_OUTPUT_DIR).join(&packs[0].file_name)).unwrap();
+        assert_eq!(written, packs[0].content);
+    }
+
+    #[test]
+    fn if_attributes_are_validated_against_the_current_contract() {
+        for plugin in [None, Some(Plugin::WebUI)] {
+            for attributes in [
+                "defer",
+                "async",
+                "lazy unknown",
+                "id=\"body\"",
+                "class=\"panel\"",
+                "data-condition=\"ignored\"",
+            ] {
+                let template =
+                    format!("<h1>Owner</h1>\n<if condition=\"show\" {attributes}><p>Body</p></if>");
+                let app = create_app_dir(&[
+                    ("index.html", "<app-owner></app-owner>"),
+                    ("app-owner.html", &template),
+                ]);
+                let mut options = default_options(app.path());
+                options.plugin = plugin;
+                let error = build(options).err().expect("invalid attribute must fail");
+                let message = error.chain_message();
+                assert!(
+                    message.contains(webui_parser::codes::INVALID_IF_ATTRIBUTE),
+                    "{message}"
+                );
+                let help = if attributes.starts_with("id=") {
+                    "remove id"
+                } else {
+                    "use condition and an optional lazy"
+                };
+                assert!(message.contains(help), "{message}");
+                assert!(message.contains("app-owner"), "{message}");
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_and_lazy_components_use_one_compiled_ref_format() {
+        for lazy in ["", " lazy"] {
+            let template = format!(
+                "<input w-ref=\"{{rootInput}}\"><if condition=\"show\"{lazy}><button w-ref=\"{{action}}\">Action</button></if>"
+            );
+            let app = create_app_dir(&[
+                ("index.html", "<app-owner></app-owner>"),
+                ("app-owner.html", &template),
+                ("app-owner.ts", "export {};"),
+            ]);
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            let built = build(options).unwrap();
+            let metadata: serde_json::Value =
+                serde_json::from_str(&built.protocol.components["app-owner"].template_json)
+                    .unwrap();
+            assert_eq!(metadata["v"], 3);
+            assert_eq!(metadata["rf"], serde_json::json!([["rootInput", 1]]));
+            assert_eq!(metadata["l"], serde_json::json!([3, 1]));
+            let block = if lazy.is_empty() {
+                metadata["b"][0].clone()
+            } else {
+                serde_json::from_str(
+                    &built.protocol.client_fragments["app-owner::lazy:@0"].template_json,
+                )
+                .unwrap()
+            };
+            assert_eq!(block["rf"], serde_json::json!([["action", 1]]));
+            assert_eq!(block["l"], serde_json::json!([3, 1]));
+        }
+    }
+
+    #[test]
+    fn static_only_assets_reject_protocol_backed_lazy_bodies() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-owner></app-owner>"),
+            (
+                "app-owner.html",
+                r#"<if condition="show" lazy><p>Body</p></if>"#,
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["app-owner".into()];
+        let error = build(options)
+            .err()
+            .expect("incompatible asset delivery mode");
+        let message = error.chain_message();
+        assert!(message.contains(webui_parser::codes::COMPONENT_ASSETS_WITH_LAZY));
+        assert!(
+            message.contains("lazy regions cannot be used inside static component assets"),
+            "{message}"
+        );
+        assert!(message.contains("<if lazy>"), "{message}");
+        assert!(!message.contains("inventory API"), "{message}");
+    }
+
+    #[test]
+    fn progressive_checkpoints_deliver_active_hostless_body_resources() {
+        let app = create_app_dir(&[
+            ("index.html", "<html><head><script type=\"module\" async src=\"./index.js\"></script></head><body><stream-owner></stream-owner></body></html>"),
+            ("stream-owner.html", r#"<boundary name="region"><if condition="shown" lazy><p>Streamed inline body</p><for each="item in items"><span>{{item}}</span></for></if></boundary>"#),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let protocol = Protocol::new(build(options).unwrap().protocol);
+        let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+        for shown in [false, true] {
+            let mut writer = StringWriter { buf: String::new() };
+            handler
+                .render_streaming(
+                    &protocol,
+                    &serde_json::json!({"shown": shown, "items": ["one"]}),
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )
+                .unwrap();
+            assert_eq!(writer.buf.contains("Streamed inline body"), shown);
+            assert_eq!(
+                writer.buf.contains(r#""stream-owner::lazy:@0":{"h":"#),
+                shown
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_simple_html() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(result.protocol.fragments.contains_key("index.html"));
+        assert!(result.stats.fragment_count > 0);
+        assert!(result.stats.protocol_size_bytes > 0);
+        assert!(!result.stats.duration.is_zero());
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Full as i32
+        );
+    }
+
+    #[test]
+    fn light_build_uses_light_unless_component_authors_shadow() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<my-card></my-card><shadow-card></shadow-card>",
+            ),
+            ("my-card.html", "<p>content</p>"),
+            (
+                "shadow-card.html",
+                r#"<template shadowrootmode="open"><p>shadow</p></template>"#,
+            ),
+        ]);
+
+        let result = build(BuildOptions {
+            app_dir: app.path().to_path_buf(),
+            dom: DomStrategy::Light,
+            ..BuildOptions::default()
+        })
+        .unwrap();
+        assert!(!result.protocol.component_uses_shadow_dom("my-card"));
+        assert!(result.protocol.component_uses_shadow_dom("shadow-card"));
+        let light_html: String = result.protocol.fragments["my-card"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(!light_html.contains("shadowrootmode"));
+
+        let shadow_html: String = result.protocol.fragments["shadow-card"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(shadow_html.contains(r#"<template shadowrootmode="open">"#));
+    }
+
+    #[test]
+    fn build_defaults_unwrapped_components_to_shadow() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<p>content</p>"),
+        ]);
+
+        let result = build(default_options(app.path())).unwrap();
+        assert!(result.protocol.component_uses_shadow_dom("my-card"));
+        let html: String = result.protocol.fragments["my-card"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(html.contains(r#"<template shadowrootmode="open">"#));
+    }
+
+    #[test]
+    fn build_rejects_slot_in_unwrapped_light_component() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div><slot></slot></div>"),
+        ]);
+
+        let error = build(BuildOptions {
+            app_dir: app.path().to_path_buf(),
+            dom: DomStrategy::Light,
+            ..BuildOptions::default()
+        })
+        .expect_err("unwrapped Light DOM slot must fail the build");
+
+        assert!(
+            error.chain_message().contains("[light-dom-slot]"),
+            "unexpected build error: {}",
+            error.chain_message()
+        );
+    }
+
+    #[test]
+    fn retained_build_finalizes_projection_without_recompiling_templates_or_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-owner></app-owner>"),
+            (
+                "app-owner.html",
+                r#"<if condition="open" lazy><p>{{serverOnly}}</p></if>"#,
+            ),
+            ("app-owner.ts", "export {};"),
+            ("app-owner.css", ":host { display: block; }"),
+        ]);
+        let options = || BuildOptions {
+            app_dir: app.path().to_path_buf(),
+            plugin: Some(Plugin::WebUI),
+            modules_out: Some(app.path().join(".webui")),
+            ..BuildOptions::default()
+        };
+        let prepared = prepare_build(options()).unwrap();
+        let generated = prepared.lazy_scripts_module().unwrap().clone();
+        let packs = prepared.lazy_pack_files().to_vec();
+        assert!(prepared.component_asset_files().is_empty());
+        prepared.write_modules().unwrap();
+        let module = app.path().join(".webui/lazy.webui.js");
+        let modified = fs::metadata(&module).unwrap().modified().unwrap();
+        prepared.write_modules().unwrap();
+        assert_eq!(fs::metadata(module).unwrap().modified().unwrap(), modified);
+
+        let manifest_json = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("app-owner.ts", "source")],
+            &[("app-owner.js", "output")],
+            &[(
+                "app-owner",
+                "app-owner.ts",
+                &["app-owner.js"],
+                &["open"],
+                &["open"],
+            )],
+        );
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut complete_options = options();
+        complete_options.projection_manifests = vec![manifest.clone().into()];
+        let expected = build(complete_options).unwrap();
+        for name in ["index.html", "app-owner.html", "app-owner.css"] {
+            fs::remove_file(app.path().join(name)).unwrap();
+        }
+        let actual = prepared.finish(vec![manifest.into()]).unwrap();
+        assert_eq!(
+            serde_json::to_value(&actual.protocol).unwrap(),
+            serde_json::to_value(&expected.protocol).unwrap(),
+        );
+        assert_eq!(actual.css_files, expected.css_files);
+        assert_eq!(actual.lazy_scripts_module, Some(generated));
+        assert_eq!(actual.lazy_pack_files, packs);
+        assert_eq!(
+            actual.protocol.components["app-owner"].hydration_keys,
+            ["open"]
+        );
+        assert_eq!(
+            actual.protocol.client_fragments["app-owner::lazy:@0"].state_keys,
+            ["open", "serverOnly"],
+        );
+    }
+
+    #[test]
+    fn retained_build_publishes_component_inputs_and_keeps_unprojected_state() {
+        let app = create_app_dir(&[
+            ("index.html", "<p>Entry</p>"),
+            ("asset-card.html", "<p>{{title}}</p>"),
+        ]);
+        let prepared = prepare_build(BuildOptions {
+            app_dir: app.path().to_path_buf(),
+            plugin: Some(Plugin::WebUI),
+            modules_out: Some(app.path().join(".webui")),
+            component_asset_roots: vec!["asset-card".into()],
+            ..BuildOptions::default()
+        })
+        .unwrap();
+        assert!(prepared.lazy_scripts_module().is_none());
+        assert!(prepared.lazy_pack_files().is_empty());
+        assert!(!prepared.component_asset_files().is_empty());
+        prepared.write_modules().unwrap();
+        for file in prepared.component_asset_files() {
+            assert_eq!(
+                fs::read_to_string(app.path().join(".webui").join(&file.name)).unwrap(),
+                file.content
+            );
+        }
+        fs::remove_file(app.path().join("index.html")).unwrap();
+        let result = prepared.finish(Vec::new()).unwrap();
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Full as i32
+        );
+    }
+
+    #[test]
+    fn retained_build_validates_late_manifest_coverage_and_stale_outputs() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-owner></app-owner>"),
+            ("app-owner.html", "<p>{{title}}</p>"),
+            ("app-owner.ts", "export {};"),
+        ]);
+        for stale in [false, true] {
+            let prepared = prepare_build(BuildOptions {
+                app_dir: app.path().to_path_buf(),
+                plugin: Some(Plugin::WebUI),
+                ..BuildOptions::default()
+            })
+            .unwrap();
+            let components = [(
+                "app-owner",
+                "app-owner.ts",
+                &["app-owner.js"][..],
+                &["title"][..],
+                &["title"][..],
+            )];
+            let json = projection::test_support::build_valid_manifest_json(
+                app.path(),
+                &[("app-owner.ts", "source")],
+                &[("app-owner.js", "output")],
+                if stale { &components } else { &[] },
+            );
+            let manifest =
+                projection::test_support::write_manifest(app.path(), "projection.json", &json);
+            if stale {
+                fs::write(app.path().join("app-owner.js"), "changed after bundle").unwrap();
+            }
+            let error = prepared
+                .finish(vec![manifest.into()])
+                .err()
+                .unwrap()
+                .chain_message();
+            assert!(
+                error.contains(if stale { "PROJ-M004" } else { "PROJ-B001" }),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn pending_projection_unblocks_after_template_compilation() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let (source, completer) = projection_manifest_barrier();
+        let options = BuildOptions {
+            app_dir: app.path().to_path_buf(),
+            plugin: Some(Plugin::WebUI),
+            projection_manifests: vec![source],
+            ..BuildOptions::default()
+        };
+        let handle = std::thread::spawn(move || build(options));
+        let prepared = prepare_projection_manifests(&[]).unwrap();
+        completer.complete(Ok(prepared));
+        let result = handle.join().unwrap().unwrap();
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Components as i32
+        );
+    }
+
+    /// Streaming entries pay O(boundaries x full state) without a projection
+    /// manifest, so the build must say so.
+    #[test]
+    fn streaming_entry_without_projection_manifest_warns() {
+        let app = create_app_dir(&[(
+            "index.html",
+            concat!(
+                "<html><body>",
+                r#"<boundary name="a"><p>{{one}}</p></boundary>"#,
+                r#"<boundary name="b"><p>{{two}}</p></boundary>"#,
+                "</body></html>",
+            ),
+        )]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Full as i32
+        );
+        let boundary_names = |protocol: &WebUIProtocol| {
+            protocol.fragments["index.html"]
+                .fragments
+                .iter()
+                .filter_map(|fragment| match fragment.fragment.as_ref() {
+                    Some(webui_protocol::web_ui_fragment::Fragment::Boundary(boundary))
+                        if boundary.phase() == webui_protocol::BoundaryPhase::Start =>
+                    {
+                        Some(boundary.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(boundary_names(&result.protocol), ["a", "b"]);
+        let decoded = WebUIProtocol::from_protobuf(&result.protocol_bytes).unwrap();
+        assert_eq!(boundary_names(&decoded), ["a", "b"]);
+        let warning = result
+            .warnings
+            .iter()
+            .find(|diag| {
+                diag.error_code() == Some(webui_parser::codes::STREAMING_WITHOUT_PROJECTION)
+            })
+            .expect("a streaming build without projection must warn");
+        assert_eq!(warning.severity(), webui_parser::Severity::Warning);
+        assert!(
+            warning.to_string().contains("2 streaming boundary"),
+            "warning should report the boundary count: {warning}"
+        );
+        assert!(
+            warning
+                .help_text()
+                .is_some_and(|help| help.contains("projection_manifests")),
+            "warning should point at the fix: {warning}"
+        );
+    }
+
+    #[test]
+    fn streaming_entry_with_projection_manifest_does_not_warn() {
+        let app = create_app_dir(&[(
+            "index.html",
+            concat!(
+                "<html><body>",
+                r#"<boundary name="a"><p>{{one}}</p></boundary>"#,
+                "</body></html>",
+            ),
+        )]);
+        let manifest_json =
+            projection::test_support::build_valid_manifest_json(app.path(), &[], &[], &[]);
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest.into()];
+
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Components as i32
+        );
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|diag| diag.error_code()
+                    == Some(webui_parser::codes::STREAMING_WITHOUT_PROJECTION)),
+            "a projected streaming build must not warn"
+        );
+    }
+
+    /// The advisory is streaming-specific: ordinary entries emit one bootstrap
+    /// block, so full state there is not a per-checkpoint multiplier.
+    #[test]
+    fn non_streaming_entry_without_projection_manifest_does_not_warn() {
+        let app = create_app_dir(&[("index.html", "<html><body><p>{{one}}</p></body></html>")]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+
+        let result = build(options).unwrap();
+
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|diag| diag.error_code()
+                    == Some(webui_parser::codes::STREAMING_WITHOUT_PROJECTION)),
+            "a non-streaming build must not warn about projection"
+        );
+    }
+
+    #[test]
+    fn test_build_keeps_scriptless_component_dormant_until_client_use() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><body><demo-card></demo-card></body></html>",
+            ),
+            ("demo-card.html", "<p>{{name}} {{serverTitle}}</p>"),
+        ]);
+        // An empty manifest fragment (no scripted components exist in this
+        // app, so strict coverage trivially passes) still turns on
+        // `InitialStateStrategy::Components`, letting scriptless components'
+        // Rust-derived dormant surface (`None` hydration) take effect.
+        let manifest_json =
+            projection::test_support::build_valid_manifest_json(app.path(), &[], &[], &[]);
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest.into()];
+        let result = build(options).unwrap();
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Components as i32
+        );
+
+        assert!(result
+            .component_templates
+            .iter()
+            .any(|template| template.tag_name == "demo-card"));
+        let component = result
+            .protocol
+            .components
+            .get("demo-card")
+            .expect("scriptless component metadata should be retained");
+        assert!(component.hydration_keys.is_empty());
+        assert_eq!(component.navigation_keys, ["name", "serverTitle"]);
+        assert!(component.template_json.contains(r#""th":1"#));
+
+        let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+        let state = serde_json::json!({ "name": "Server rendered" });
+        let protocol = Protocol::new(result.protocol.clone());
+        let mut writer = StringWriter { buf: String::new() };
+        handler
+            .render(
+                &protocol,
+                &state,
+                &RenderOptions::new("index.html", "/"),
+                &mut writer,
+            )
+            .unwrap();
+        assert!(writer.buf.contains("Server rendered"));
+        assert!(writer.buf.contains(r#""state":{}"#));
+        assert!(writer.buf.contains(r#""templates":{"demo-card":"#));
+    }
+
+    #[test]
+    fn test_build_treats_sibling_component_script_as_scripted() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            (
+                "demo-card.html",
+                r#"<button @click="{onClick()}">{{name}}</button>"#,
+            ),
+            (
+                "demo-card.ts",
+                "import { WebUIElement } from '@microsoft/webui-framework';\n\
+                 class DemoCard extends WebUIElement { onClick() {} }\n\
+                 DemoCard.define('demo-card');",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let result = build(options).unwrap();
+
+        let template = result
+            .component_templates
+            .iter()
+            .find(|template| template.tag_name == "demo-card")
+            .unwrap();
+        assert!(template.template_json.contains(r#""eg":[["click""#));
+    }
+
+    #[test]
+    fn test_build_populates_component_hydration_keys_from_script() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            ("demo-card.html", "<p>{{name}}</p>"),
+            (
+                "demo-card.ts",
+                "import { WebUIElement, attr, observable } from '@microsoft/webui-framework';\n\
+                 class DemoCard extends WebUIElement {\n\
+                 @observable name = '';\n\
+                 @attr({ attribute: 'cta-href' }) ctaHref = '/x';\n\
+                 @observable count = 0;\n\
+                 }\n\
+                 DemoCard.define('demo-card');",
+            ),
+        ]);
+        // Rust performs no JavaScript/TypeScript analysis: the exact keys
+        // come from a bundler-produced projection manifest, not from
+        // scanning `demo-card.ts`.
+        let manifest_json = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("demo-card.ts", "source")],
+            &[("demo-card.js", "output")],
+            &[(
+                "demo-card",
+                "demo-card.ts",
+                &["demo-card.js"],
+                &["count", "ctaHref", "name"],
+                &["count", "ctaHref", "name"],
+            )],
+        );
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest.into()];
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Components as i32
+        );
+        let component = result.protocol.components.get("demo-card").unwrap();
+        assert_eq!(
+            component.hydration_mode,
+            webui_protocol::StateProjectionMode::Keys as i32
+        );
+        assert_eq!(component.hydration_keys, vec!["count", "ctaHref", "name"]);
+        assert_eq!(
+            component.navigation_mode,
+            Some(webui_protocol::StateProjectionMode::Keys as i32)
+        );
+        assert_eq!(component.navigation_keys, vec!["count", "ctaHref", "name"]);
+    }
+
+    #[test]
+    fn test_build_scripted_component_without_manifest_falls_back_to_full_state() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><body><demo-card></demo-card></body></html>",
+            ),
+            ("demo-card.html", "<p>{{name}}</p>"),
+            (
+                "demo-card.ts",
+                "import { WebUIElement, observable } from '@microsoft/webui-framework';\n\
+                 class DemoCard extends WebUIElement {\n\
+                 @observable name = '';\n\
+                 }\n\
+                 DemoCard.define('demo-card');",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        // No `projection_manifests` supplied: without a manifest, Rust never
+        // analyzes `demo-card.ts` and must assume the full, unproven surface.
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Full as i32
+        );
+        let component = result.protocol.components.get("demo-card").unwrap();
+        assert_eq!(
+            component.hydration_mode,
+            webui_protocol::StateProjectionMode::All as i32
+        );
+        assert!(component.hydration_keys.is_empty());
+        assert_eq!(
+            component.navigation_mode,
+            Some(webui_protocol::StateProjectionMode::All as i32)
+        );
+
+        let handler = WebUIHandler::with_plugin(|| Box::new(WebUIHydrationPlugin::new()));
+        let state = serde_json::json!({ "name": "Visible" });
+        let protocol = Protocol::new(result.protocol.clone());
+        let mut writer = StringWriter { buf: String::new() };
+        handler
+            .render(
+                &protocol,
+                &state,
+                &RenderOptions::new("index.html", "/"),
+                &mut writer,
+            )
+            .unwrap();
+        assert!(writer.buf.contains("Visible"));
+        // Full-state fallback serializes the entire supplied state object,
+        // not a narrowed key subset.
+        assert!(writer.buf.contains(r#""state":{"name":"Visible"}"#));
+    }
+
+    #[test]
+    fn test_build_rejects_scriptless_event_component() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            (
+                "demo-card.html",
+                r#"<button @click="{onClick()}">Click</button>"#,
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let err = build(options).expect_err("scriptless events should fail");
+
+        let message = err.chain_message();
+        assert!(
+            message.contains("scriptless-event-handler"),
+            "msg: {message}"
+        );
+    }
+
+    #[test]
+    fn test_build_returns_actionable_error_for_invalid_w_ref() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            ("my-card.html", r#"<div><input w-ref="myInput" /></div>"#),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+
+        // Authoring mistakes are returned (not panicked) so every consumer —
+        // CLI, Node, FFI, WASM — can surface the message its own way.
+        let Err(err) = build(options) else {
+            panic!("non-braced w-ref must fail the build");
+        };
+        let msg = err.chain_message();
+        assert!(msg.contains("invalid w-ref binding"), "msg: {msg}");
+        assert!(
+            msg.contains("component <my-card> · element <input>"),
+            "msg: {msg}"
+        );
+        assert!(msg.contains("help:"), "msg: {msg}");
+    }
+
+    #[test]
+    fn test_build_returns_actionable_error_for_invalid_event_handler() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-btn>x</my-btn>"),
+            (
+                "my-btn.html",
+                r#"<div><button @click="e.preventDefault()">x</button></div>"#,
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+
+        let Err(err) = build(options) else {
+            panic!("invalid @event handler must fail the build");
+        };
+        let msg = err.chain_message();
+        assert!(msg.contains("invalid @click handler"), "msg: {msg}");
+        assert!(
+            msg.contains("component <my-btn> · element <button>"),
+            "msg: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_error_chain_message_has_no_duplicate_source() {
+        let err = WebUIError::Parse {
+            context: "Failed to parse index.html".to_string(),
+            source: webui_parser::ParserError::Directive("Invalid for each: x".to_string()),
+        };
+        // Each layer's Display describes only its own level — the source is not
+        // embedded — so anyhow's `{:#}` / chain walks never repeat it.
+        assert_eq!(err.to_string(), "Failed to parse index.html");
+        // The flat message includes the source exactly once (no repetition).
+        assert_eq!(
+            err.chain_message(),
+            "Failed to parse index.html: Directive error: Invalid for each: x"
+        );
+    }
+
+    #[test]
+    fn test_build_with_directives() {
+        let html = r#"<h1>Hello</h1>
+<for each="item in items">
+    <p>{{item.name}}</p>
+</for>
+<if condition="show">
+    <p>Visible</p>
+</if>"#;
+        let app = create_app_dir(&[("index.html", html)]);
+        let result = build(default_options(app.path())).unwrap();
+
+        let index = &result.protocol.fragments["index.html"].fragments;
+        assert!(index
+            .iter()
+            .any(|f| matches!(f.fragment.as_ref(), Some(Fragment::ForLoop(_)))));
+        assert!(index
+            .iter()
+            .any(|f| matches!(f.fragment.as_ref(), Some(Fragment::IfCond(_)))));
+    }
+
+    #[test]
+    fn named_for_builds_recursive_component_assets_and_styles() {
+        for (css, expected_tokens) in [
+            (":root { --accent: red; }", &[][..]),
+            ("tree-view { --accent: red; }", &["accent"][..]),
+        ] {
+            let app = create_app_dir(&[
+                ("index.html", "<tree-view></tree-view>"),
+                (
+                    "tree-view.html",
+                    r#"<for id="tree-item" each="child in items"><span>{{child.name}}</span><token-leaf></token-leaf><for id="tree-item" each="child in child.children" /></for>"#,
+                ),
+                ("tree-view.css", css),
+                ("token-leaf.html", "<b>leaf</b>"),
+                ("token-leaf.css", "b { color: var(--accent); }"),
+            ]);
+            let result = build(BuildOptions {
+                plugin: Some(Plugin::WebUI),
+                css_bundle: true,
+                component_asset_roots: vec!["tree-view".to_string()],
+                ..light_options(app.path())
+            })
+            .unwrap();
+            assert_eq!(result.protocol.tokens, expected_tokens, "{css}");
+            assert!(!result.component_asset_files.is_empty());
+            assert_eq!(
+                result.protocol.style_closures["tree-view"].component_tags,
+                ["tree-view", "token-leaf"]
+            );
+            let meta: serde_json::Value =
+                serde_json::from_str(&result.protocol.components["tree-view"].template_json)
+                    .unwrap();
+            let blocks = meta["b"].as_array().unwrap();
+            assert_eq!(
+                blocks.len(),
+                1,
+                "recursive depth does not expand compiled metadata"
+            );
+            assert_eq!(meta["r"][0][2], blocks[0]["r"][0][2]);
+            assert!(result.protocol_bytes.len() < 16_384);
+        }
+    }
+
+    #[test]
+    fn test_build_with_component_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+            ("my-card.ts", "export {};"),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert_eq!(result.css_files.len(), 1);
+        assert_eq!(result.css_files[0].0, "my-card.css");
+        assert!(result.css_files[0].1.contains("color: red"));
+        assert_eq!(result.stats.css_file_count, 1);
+    }
+
+    #[test]
+    fn light_css_bytes_align_across_link_style_and_module() {
+        let authored = " \n.ready{color:red}\n ";
+        let expected = authored;
+
+        for strategy in [CssStrategy::Link, CssStrategy::Style, CssStrategy::Module] {
+            let app = create_app_dir(&[
+                ("index.html", "<my-card></my-card>"),
+                ("my-card.html", "<p>content</p>"),
+                ("my-card.css", authored),
+            ]);
+            let mut options = light_options(app.path());
+            options.css = strategy;
+            if strategy == CssStrategy::Link {
+                options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+            }
+            let result = build(options).unwrap();
+
+            let actual = match strategy {
+                CssStrategy::Link => {
+                    let expected_name =
+                        webui_parser::CssLinkOptions::try_new("[name]-[hash].[ext]".to_string())
+                            .unwrap()
+                            .resolve("my-card", expected)
+                            .filename;
+                    assert_eq!(result.css_files[0].0, expected_name);
+                    result.css_files[0].1.clone()
+                }
+                CssStrategy::Module => result.protocol.components["my-card"].css.clone(),
+                CssStrategy::Style => {
+                    assert_eq!(result.protocol.components["my-card"].css, expected);
+                    result.protocol.components["my-card"].css.clone()
+                }
+            };
+            assert_eq!(actual, expected, "mismatch for {strategy:?}");
+            if strategy != CssStrategy::Link {
+                assert_eq!(
+                    result.protocol.component_style_resource("my-card"),
+                    Some(expected)
+                );
+            }
+            assert_eq!(
+                result
+                    .protocol
+                    .style_closure("index.html")
+                    .expect("entry closure"),
+                ["my-card"],
+                "Light CSS must be installed by the Document closure"
+            );
+
+            let protocol = Protocol::new(result.protocol.clone());
+            let mut writer = StringWriter { buf: String::new() };
+            WebUIHandler::new()
+                .render(
+                    &protocol,
+                    &serde_json::json!({}),
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )
+                .unwrap();
+            match strategy {
+                CssStrategy::Link => {
+                    let href = &result.protocol.components["my-card"].css_href;
+                    assert!(writer.buf.contains(&format!(
+                        r#"<link rel="stylesheet" href="{href}" data-webui-resource="my-card" data-webui-strategy="link">"#
+                    )));
+                }
+                CssStrategy::Style | CssStrategy::Module => {
+                    let kind = if strategy == CssStrategy::Module {
+                        "module"
+                    } else {
+                        "style"
+                    };
+                    assert!(writer.buf.contains(&format!(
+                        r#"<style data-webui-resource="my-card" data-webui-strategy="{kind}">{expected}</style>"#
+                    )));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn build_precomputes_style_closures_with_authored_shadow_cut() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<light-card></light-card><shadow-card><after-card></after-card></shadow-card>",
+            ),
+            ("light-card.html", "<nested-card></nested-card>"),
+            ("light-card.css", ".light{}"),
+            (
+                "shadow-card.html",
+                r#"<template shadowrootmode="open"><nested-card></nested-card></template>"#,
+            ),
+            ("shadow-card.css", ".shadow{}"),
+            ("nested-card.html", "<span>nested</span>"),
+            ("nested-card.css", ".nested{}"),
+            ("after-card.html", "<span>after</span>"),
+            ("after-card.css", ".after{}"),
+        ]);
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Style;
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result
+                .protocol
+                .style_closure("index.html")
+                .expect("entry closure"),
+            ["light-card", "nested-card", "after-card"]
+        );
+        assert_eq!(
+            result
+                .protocol
+                .style_closure("shadow-card")
+                .expect("Shadow closure"),
+            ["shadow-card", "nested-card"]
+        );
+    }
+
+    /// A fixture that exercises both bundling outcomes at once: two components
+    /// used only by the entry merge, and one reached from a second CSS tree is
+    /// split out so neither tree over-delivers.
+    fn bundling_app() -> tempfile::TempDir {
+        create_app_dir(&[
+            (
+                "index.html",
+                "<a-card></a-card><b-card></b-card><shared-card></shared-card>\
+                 <shadow-card></shadow-card>",
+            ),
+            ("a-card.html", "<span>a</span>"),
+            ("a-card.css", ".a{color:red}"),
+            ("b-card.html", "<span>b</span>"),
+            ("b-card.css", ".b{color:green}"),
+            ("shared-card.html", "<span>shared</span>"),
+            ("shared-card.css", ".shared{color:blue}"),
+            (
+                "shadow-card.html",
+                r#"<template shadowrootmode="open"><shared-card></shared-card></template>"#,
+            ),
+            ("shadow-card.css", ".shadow{color:black}"),
+        ])
+    }
+
+    /// Concatenate a closure's CSS the way the browser cascade sees it, once
+    /// per component and once per chunk.
+    fn closure_css(protocol: &WebUIProtocol, root: &str) -> (String, String) {
+        let closure = protocol.style_closures.get(root).expect("closure");
+        let unbundled = closure
+            .component_tags
+            .iter()
+            .filter_map(|tag| protocol.components.get(tag))
+            .map(|component| component.css.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let bundled = closure
+            .style_chunks
+            .iter()
+            .filter_map(|index| protocol.style_chunk_resource(*index))
+            .map(|(_, css)| css)
+            .collect::<Vec<_>>()
+            .join("\n");
+        (unbundled, bundled)
+    }
+
+    #[test]
+    fn bundling_preserves_the_cascade_of_every_closure() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Style;
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let roots: Vec<String> = result.protocol.style_closures.keys().cloned().collect();
+        assert!(roots.len() >= 2, "fixture must produce several CSS trees");
+        let mut chunked = 0usize;
+        for root in roots {
+            let (unbundled, bundled) = closure_css(&result.protocol, &root);
+            // A closure the runtime never installs as a unit keeps no chunks and
+            // falls back to per-component delivery, which is the unbundled path.
+            if bundled.is_empty() && !unbundled.is_empty() {
+                continue;
+            }
+            chunked += 1;
+            assert_eq!(
+                bundled, unbundled,
+                "chunked cascade diverged from the per-component cascade for `{root}`"
+            );
+        }
+        assert!(chunked >= 2, "fixture must chunk several CSS trees");
+    }
+
+    #[test]
+    fn bundling_merges_entry_local_styles_and_splits_shared_ones() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Style;
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let members: Vec<&[String]> = result
+            .protocol
+            .style_chunks
+            .iter()
+            .map(|chunk| chunk.component_tags.as_slice())
+            .collect();
+        assert!(
+            members.contains(&["a-card".to_string(), "b-card".to_string()].as_slice()),
+            "entry-local components should merge: {members:?}"
+        );
+        assert!(
+            members.contains(&["shared-card".to_string()].as_slice()),
+            "a component reached from two CSS trees must stay alone: {members:?}"
+        );
+
+        // The shared chunk is the same index in both trees, so it is fetched and
+        // cached once.
+        let entry = result.protocol.style_closure_chunks("index.html").unwrap();
+        let shadow = result.protocol.style_closure_chunks("shadow-card").unwrap();
+        let shared = entry
+            .iter()
+            .find(|index| shadow.contains(index))
+            .expect("both trees should share a chunk");
+        assert_eq!(
+            result.protocol.style_chunk_members(*shared).unwrap(),
+            ["shared-card"]
+        );
+    }
+
+    #[test]
+    fn bundling_is_off_by_default_and_leaves_the_protocol_unchanged() {
+        let app = bundling_app();
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Style;
+        let result = build(options).unwrap();
+
+        assert!(result.protocol.style_chunks.is_empty());
+        for closure in result.protocol.style_closures.values() {
+            assert!(closure.style_chunks.is_empty());
+        }
+    }
+
+    #[test]
+    fn bundling_link_emits_chunks_and_component_fallback_files() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let names: Vec<&str> = result
+            .css_files
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        for (tag, component) in &result.protocol.components {
+            if component.css_href.is_empty() {
+                continue;
+            }
+            assert!(
+                names.contains(&component.css_href.as_str()),
+                "`{tag}` needs its independently loaded fallback file: {names:?}"
+            );
+        }
+        for chunk in &result.protocol.style_chunks {
+            assert!(!chunk.css_href.is_empty(), "Link chunks need an href");
+            assert!(
+                names.contains(&chunk.css_href.as_str()),
+                "every rendered chunk needs an emitted file: {names:?}"
+            );
+            assert!(
+                chunk.css.is_empty(),
+                "Link chunks ship their CSS as a file, not inline"
+            );
+        }
+    }
+
+    #[test]
+    fn bundling_link_chunks_take_the_asset_base_only_when_rendered() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css_bundle = true;
+        options.asset_base = Some("https://cdn.example.com/app/".to_string());
+        let result = build(options).unwrap();
+
+        assert!(!result.protocol.style_chunks.is_empty());
+        for chunk in &result.protocol.style_chunks {
+            assert!(
+                result
+                    .css_files
+                    .iter()
+                    .any(|(name, _)| *name == chunk.css_href),
+                "chunk hrefs are emitted file names: {}",
+                chunk.css_href
+            );
+        }
+
+        let protocol = Protocol::new(result.protocol.clone());
+        let mut writer = StringWriter { buf: String::new() };
+        WebUIHandler::new()
+            .render(
+                &protocol,
+                &serde_json::json!({}),
+                &RenderOptions::new("index.html", "/"),
+                &mut writer,
+            )
+            .unwrap();
+        let escaped_base = webui_handler::encode_safe("https://cdn.example.com/app/");
+        let opening = r#"<link rel="stylesheet" href=""#;
+        let hrefs: Vec<&str> = writer
+            .buf
+            .match_indices(opening)
+            .map(|(index, _)| &writer.buf[index + opening.len()..])
+            .collect();
+        assert!(!hrefs.is_empty(), "{}", writer.buf);
+        for href in &hrefs {
+            assert!(href.starts_with(escaped_base.as_ref()), "{}", writer.buf);
+        }
+        assert!(
+            result.protocol.style_chunks.iter().any(|chunk| writer
+                .buf
+                .contains(&format!("{escaped_base}{}", chunk.css_href))),
+            "a bundled chunk link must be rendered with the base: {}",
+            writer.buf
+        );
+    }
+
+    #[test]
+    fn bundling_keeps_component_files_when_component_assets_need_them() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<a-card></a-card><b-card></b-card><shared-card></shared-card>",
+            ),
+            ("a-card.html", "<span>a</span>"),
+            ("a-card.css", ".a{color:red}"),
+            ("b-card.html", "<span>b</span>"),
+            ("b-card.css", ".b{color:green}"),
+            ("shared-card.html", "<span>shared</span>"),
+            ("shared-card.css", ".shared{color:blue}"),
+            ("lazy-panel.html", "<a-card></a-card><p>lazy</p>"),
+            ("lazy-panel.css", ".lazy{color:gray}"),
+            ("lazy-panel.ts", "export {};"),
+        ]);
+        let mut options = light_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.css_bundle = true;
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+        let result = build(options).unwrap();
+
+        let names: Vec<&str> = result
+            .css_files
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            names.iter().any(|name| name.starts_with("lazy-panel")),
+            "static assets fetch a component's own stylesheet: {names:?}"
+        );
+        assert!(
+            names.iter().any(|name| name.starts_with("_chunk-")),
+            "bundled chunks are still emitted: {names:?}"
+        );
+        assert!(
+            result.component_asset_files[0]
+                .content
+                .contains(r#""a-card":{"kind":"link","href":"a-card.css"}"#),
+            "a deferred CSS tree needs the exact external component resource even when the entry Document uses a bundle: {}",
+            result.component_asset_files[0].content
+        );
+    }
+
+    /// Render a built protocol and return the emitted HTML.
+    fn render_html(protocol: &WebUIProtocol, route: &str) -> String {
+        let protocol = Protocol::new(protocol.clone());
+        let mut writer = StringWriter { buf: String::new() };
+        WebUIHandler::new()
+            .render(
+                &protocol,
+                &serde_json::json!({}),
+                &RenderOptions::new("index.html", route),
+                &mut writer,
+            )
+            .unwrap();
+        writer.buf
+    }
+
+    /// Every stylesheet URL the rendered page tells the browser to fetch.
+    fn linked_stylesheets(html: &str) -> Vec<&str> {
+        let mut hrefs = Vec::new();
+        let mut rest = html;
+        while let Some(start) = rest.find("href=\"") {
+            rest = &rest[start + "href=\"".len()..];
+            let Some(end) = rest.find('"') else { break };
+            let href = &rest[..end];
+            if href.ends_with(".css") {
+                hrefs.push(href);
+            }
+            rest = &rest[end..];
+        }
+        hrefs
+    }
+
+    /// The `data-webui-resource` values in emitted order.
+    fn emitted_resources(html: &str) -> Vec<&str> {
+        let mut resources = Vec::new();
+        let mut rest = html;
+        while let Some(start) = rest.find("data-webui-resource=\"") {
+            rest = &rest[start + "data-webui-resource=\"".len()..];
+            match rest.find('"') {
+                Some(end) => {
+                    resources.push(&rest[..end]);
+                    rest = &rest[end..];
+                }
+                None => break,
+            }
+        }
+        resources
+    }
+
+    #[test]
+    fn bundled_rendering_emits_one_resource_per_chunk() {
+        for strategy in [CssStrategy::Link, CssStrategy::Style] {
+            let app = bundling_app();
+            let mut options = light_options(app.path());
+            options.css = strategy;
+            options.css_bundle = true;
+            let result = build(options).unwrap();
+
+            let html = render_html(&result.protocol, "/");
+            let resources = emitted_resources(&html);
+            assert!(
+                resources.contains(&"_chunk-a-card-2"),
+                "{strategy:?} should deliver the merged chunk once: {resources:?}"
+            );
+            assert!(
+                !resources.contains(&"a-card") && !resources.contains(&"b-card"),
+                "{strategy:?} must not also deliver merged members: {resources:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundling_never_merges_an_authored_shadow_stylesheet() {
+        // `shadow-card` sits between two Light components that share its exact
+        // consumer set, so ordering alone would let all three merge.
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<a-card></a-card><shadow-card></shadow-card><b-card></b-card>",
+            ),
+            ("a-card.html", "<span>a</span>"),
+            ("a-card.css", ".a{color:red}"),
+            ("b-card.html", "<span>b</span>"),
+            ("b-card.css", ".b{color:green}"),
+            (
+                "shadow-card.html",
+                r#"<template shadowrootmode="open"><span>s</span></template>"#,
+            ),
+            ("shadow-card.css", ".shadow{color:black}"),
+        ]);
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Style;
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let chunk = result
+            .protocol
+            .style_chunks
+            .iter()
+            .find(|chunk| chunk.component_tags.iter().any(|tag| tag == "shadow-card"))
+            .expect("shadow-card is styled, so it belongs to a chunk");
+        // A single-member chunk is named after its member and carries its exact
+        // bytes, which is what keeps the parse-time `css_href` and
+        // `shadowrootadoptedstylesheets` references valid under bundling.
+        assert_eq!(
+            chunk.component_tags,
+            vec!["shadow-card".to_string()],
+            "an authored-Shadow stylesheet must stay in a chunk of its own"
+        );
+        assert_eq!(chunk.name, "shadow-card");
+        assert_eq!(
+            chunk.css, result.protocol.components["shadow-card"].css,
+            "its chunk must carry the component's own bytes unchanged"
+        );
+    }
+
+    #[test]
+    fn bundling_never_links_a_stylesheet_the_build_did_not_write() {
+        // The rendered page is the contract: every stylesheet URL the browser is
+        // told to fetch — document links and declarative Shadow roots alike —
+        // must name a file the bundled build actually emitted.
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Link;
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let emitted: HashSet<&str> = result
+            .css_files
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let html = render_html(&result.protocol, "/");
+        let linked = linked_stylesheets(&html);
+        assert!(
+            !linked.is_empty(),
+            "the page should link at least one stylesheet: {html}"
+        );
+        for href in &linked {
+            let name = href.rsplit('/').next().unwrap_or(href);
+            assert!(
+                emitted.contains(name),
+                "page links `{href}`, which the bundled build did not write: {emitted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundling_is_rejected_for_the_module_strategy() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Module;
+        options.css_bundle = true;
+
+        let Err(WebUIError::InvalidBuildOptions(message)) = build(options) else {
+            panic!("Module builds resolve import-map specifiers per component");
+        };
+        assert!(
+            message.contains("--css link"),
+            "the error should name a strategy that works: {message}"
+        );
+    }
+
+    #[test]
+    fn bundled_rendering_delivers_the_same_css_in_the_same_order() {
+        // Style mode inlines the CSS, so the rendered document carries the whole
+        // cascade and the two builds can be compared rule for rule.
+        let extract = |html: &str| -> Vec<String> {
+            let mut blocks = Vec::new();
+            let mut rest = html;
+            while let Some(start) = rest.find("data-webui-strategy=\"style\">") {
+                rest = &rest[start + "data-webui-strategy=\"style\">".len()..];
+                match rest.find("</style>") {
+                    Some(end) => {
+                        blocks.push(rest[..end].to_string());
+                        rest = &rest[end..];
+                    }
+                    None => break,
+                }
+            }
+            blocks
+        };
+
+        let mut plan = Vec::new();
+        for bundle in [false, true] {
+            let app = bundling_app();
+            let mut options = light_options(app.path());
+            options.css = CssStrategy::Style;
+            options.css_bundle = bundle;
+            let result = build(options).unwrap();
+            let html = render_html(&result.protocol, "/");
+            plan.push(extract(&html).join("\n"));
+        }
+
+        assert_eq!(
+            plan[1], plan[0],
+            "bundling must not change the delivered cascade"
+        );
+        assert!(!plan[0].is_empty(), "fixture must deliver CSS");
+    }
+
+    #[test]
+    fn bundled_rendering_never_repeats_a_chunk_across_css_trees() {
+        let app = bundling_app();
+        let mut options = light_options(app.path());
+        options.css = CssStrategy::Style;
+        options.css_bundle = true;
+        let result = build(options).unwrap();
+
+        let html = render_html(&result.protocol, "/");
+        let resources = emitted_resources(&html);
+        // `shared-card` is reached by the document tree and by `shadow-card`'s
+        // ShadowRoot. Each tree scopes styles separately, so it is delivered once
+        // per tree and never twice within one.
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for resource in &resources {
+            *counts.entry(*resource).or_insert(0) += 1;
+        }
+        let shadow_start = html
+            .find(r#"<template shadowrootmode="open""#)
+            .expect("declarative Shadow root");
+        let document_resources = emitted_resources(&html[..shadow_start]);
+        let mut document_counts: HashMap<&str, usize> = HashMap::new();
+        for resource in &document_resources {
+            *document_counts.entry(*resource).or_insert(0) += 1;
+        }
+        for (resource, count) in &document_counts {
+            assert_eq!(
+                *count, 1,
+                "`{resource}` was delivered {count} times in the document tree: {resources:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn authored_shadow_css_bytes_are_not_lowered_or_trimmed() {
+        let authored =
+            " \n:host(.ready){color:red}:host-context(body){color:blue}::slotted(*){color:green}\n ";
+
+        for strategy in [CssStrategy::Link, CssStrategy::Style, CssStrategy::Module] {
+            let app = create_app_dir(&[
+                ("index.html", "<my-card></my-card>"),
+                (
+                    "my-card.html",
+                    r#"<template shadowrootmode="open"><p>content</p></template>"#,
+                ),
+                ("my-card.css", authored),
+            ]);
+            let mut options = default_options(app.path());
+            options.css = strategy;
+            let result = build(options).unwrap();
+
+            match strategy {
+                CssStrategy::Link => assert_eq!(result.css_files[0].1, authored),
+                CssStrategy::Style | CssStrategy::Module => {
+                    assert_eq!(result.protocol.components["my-card"].css, authored);
+                    assert_eq!(
+                        result.protocol.component_style_resource("my-card"),
+                        Some(authored)
+                    );
+                }
+            }
+            assert_eq!(
+                result
+                    .protocol
+                    .style_closure("my-card")
+                    .expect("component closure"),
+                ["my-card"],
+                "the authored Shadow root owns its exact CSS resource"
+            );
+
+            let protocol = Protocol::new(result.protocol.clone());
+            let mut writer = StringWriter { buf: String::new() };
+            WebUIHandler::new()
+                .render(
+                    &protocol,
+                    &serde_json::json!({}),
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )
+                .unwrap();
+            match strategy {
+                CssStrategy::Link => {
+                    let href = &result.protocol.components["my-card"].css_href;
+                    assert!(writer.buf.contains(&format!(
+                        r#"<template shadowrootmode="open"><link rel="stylesheet" href="{href}" data-webui-resource="my-card" data-webui-strategy="link">"#
+                    )));
+                }
+                CssStrategy::Style | CssStrategy::Module => {
+                    let kind = if strategy == CssStrategy::Module {
+                        "module"
+                    } else {
+                        "style"
+                    };
+                    assert!(writer.buf.contains(&format!(
+                        r#"<style data-webui-resource="my-card" data-webui-strategy="{kind}">{authored}</style>"#
+                    )));
+                    let template_start = writer
+                        .buf
+                        .find(r#"<template shadowrootmode="open""#)
+                        .expect("declarative Shadow root");
+                    let style_start = writer
+                        .buf
+                        .find(&format!(
+                            r#"<style data-webui-resource="my-card" data-webui-strategy="{kind}">"#
+                        ))
+                        .expect("tree-local style");
+                    let content_start = writer.buf.find("<p>content</p>").expect("component body");
+                    assert!(template_start < style_start && style_start < content_start);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_strips_non_legal_css_comments_from_output_file() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            (
+                "my-card.css",
+                "/* remove var(--ignored) */ .card { color: var(--textColor); }",
+            ),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert_eq!(result.css_files[0].1, " .card { color: var(--textColor); }");
+        assert_eq!(result.protocol.tokens, vec!["textColor"]);
+    }
+
+    #[test]
+    fn test_build_preserves_legal_css_comments_by_default() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            (
+                "my-card.css",
+                "/*! @license MIT */ .card { color: red; } /* remove */",
+            ),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert_eq!(
+            result.css_files[0].1,
+            "/*! @license MIT */ .card { color: red; } "
+        );
+    }
+
+    #[test]
+    fn test_build_legal_comments_none_strips_legal_css_comments() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", "/*! @license MIT */ .card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.legal_comments = LegalComments::None;
+        let result = build(options).unwrap();
+
+        assert_eq!(result.css_files[0].1, " .card { color: red; }");
+    }
+
+    #[test]
+    fn test_build_with_css_hashed_filename_template() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+        let result = build(options).unwrap();
+
+        assert_eq!(result.css_files.len(), 1);
+        let generated = &result.css_files[0].0;
+        assert!(generated.starts_with("my-card-"));
+        assert!(generated.ends_with(".css"));
+        assert_eq!(generated.len(), "my-card-".len() + 8 + ".css".len());
+        assert_eq!(
+            result
+                .protocol
+                .components
+                .get("my-card")
+                .map(|c| c.css_href.as_str()),
+            Some(generated.as_str())
+        );
+    }
+
+    #[test]
+    fn test_asset_base_keeps_css_href_relative() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+        options.asset_base = Some("https://cdn.example.com/assets/".to_string());
+        let result = build(options).unwrap();
+
+        let filename = &result.css_files[0].0;
+        assert!(filename.starts_with("my-card-"));
+        assert_eq!(
+            result
+                .protocol
+                .components
+                .get("my-card")
+                .map(|c| c.css_href.as_str()),
+            Some(filename.as_str())
+        );
+        assert_eq!(
+            result.protocol.asset_base,
+            "https://cdn.example.com/assets/"
+        );
+    }
+
+    #[test]
+    fn test_asset_base_prefixes_handler_links_but_not_payload_resources() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><head></head><body><my-card>Hello</my-card></body></html>",
+            ),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+        options.asset_base = Some("https://cdn.example.com/assets/".to_string());
+        let result = build(options).unwrap();
+
+        let filename = &result.css_files[0].0;
+        assert_eq!(
+            result.protocol.component_style_resource("my-card"),
+            Some(filename.as_str())
+        );
+        assert_eq!(
+            result
+                .protocol
+                .style_closure("my-card")
+                .expect("component closure"),
+            ["my-card"]
+        );
+
+        let handler = WebUIHandler::new();
+        let protocol = Protocol::new(result.protocol.clone());
+        let mut writer = StringWriter { buf: String::new() };
+        handler
+            .render(
+                &protocol,
+                &serde_json::json!({}),
+                &RenderOptions::new("index.html", "/"),
+                &mut writer,
+            )
+            .unwrap();
+        let prefixed = format!("https://cdn.example.com/assets/{filename}");
+        assert!(
+            writer.buf.contains(&format!(
+                r#"<link rel="stylesheet" href="{}" data-webui-resource="my-card" data-webui-strategy="link">"#,
+                prefixed.replace('/', "&#x2F;")
+            )),
+            "handler Shadow-root resource should use the asset base: {}",
+            writer.buf
+        );
+        let payload = protocol
+            .render_component_templates(&["my-card"], "")
+            .expect("component resource payload");
+        assert_eq!(
+            payload["componentStyles"]["resources"]["my-card"]["href"],
+            filename.as_str()
+        );
+    }
+
+    #[test]
+    fn test_asset_base_keeps_webui_template_style_free() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+            ("my-card.ts", "export {};"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+        options.asset_base = Some("https://cdn.example.com/assets/".to_string());
+        let result = build(options).unwrap();
+
+        let filename = &result.css_files[0].0;
+        let template = &result.protocol.components["my-card"].template_json;
+        assert_eq!(
+            result.protocol.component_style_resource("my-card"),
+            Some(filename.as_str())
+        );
+        assert!(
+            !template.contains(filename.as_str()) && !template.contains("cdn.example.com"),
+            "WebUI templates must not duplicate handler-owned CSS links: {template}"
+        );
+    }
+
+    #[test]
+    fn test_invalid_css_template_is_rejected() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css_file_name_template = "[name]-[bogus].[ext]".to_string();
+        let result = build(options);
+
+        assert!(matches!(result, Err(WebUIError::InvalidBuildOptions(_))));
+    }
+
+    #[test]
+    fn test_css_filename_collision_is_rejected() {
+        let app = create_app_dir(&[
+            ("index.html", "<card-a>A</card-a><card-b>B</card-b>"),
+            (
+                "card-a.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("card-a.css", ".x { color: red; }"),
+            (
+                "card-b.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("card-b.css", ".x { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css_file_name_template = "[hash].[ext]".to_string();
+        let result = build(options);
+
+        assert!(matches!(result, Err(WebUIError::InvalidBuildOptions(_))));
+    }
+
+    #[test]
+    fn test_build_returns_static_component_asset_files() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<div></div>"),
+            (
+                "lazy-panel.html",
+                r#"<if condition="ready"><p>{{title}}</p></if>"#,
+            ),
+            ("lazy-panel.ts", "export {};"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+
+        let result = build(options).unwrap();
+
+        assert_eq!(result.component_asset_files.len(), 2);
+        assert_eq!(result.component_asset_files[0].name, "lazy-panel.webui.js");
+        assert!(result.component_asset_files[0]
+            .content
+            .contains(r#""type":"webui-component-asset""#));
+        assert!(result.component_asset_files[0]
+            .content
+            .contains(r#""version":4"#));
+        assert!(result.component_asset_files[0]
+            .content
+            .contains(r#""root":"lazy-panel""#));
+        assert!(result.component_asset_files[1]
+            .content
+            .contains(r#""templateFunctions":{"lazy-panel":"#));
+        let root = &result.component_asset_files[0].content;
+        let payload = &result.component_asset_files[1].content;
+        for field in ["kind", "components", "requiredComponents"] {
+            assert!(!root.contains(&format!("\"{field}\":")));
+            assert!(!payload.contains(&format!("\"{field}\":")));
+        }
+        for field in ["type", "version\":4", "externalComponents", "imports"] {
+            assert!(!payload.contains(&format!("\"{field}")));
+        }
+        assert!(!root.contains("\"templates\":"));
+        assert!(!result.protocol.fragments.contains_key("lazy-panel"));
+        assert!(
+            !result
+                .protocol
+                .fragments
+                .keys()
+                .any(|key| key.starts_with("__webui_asset_root_")),
+            "synthetic asset root fragments must not be serialized"
+        );
+    }
+
+    #[test]
+    fn component_assets_emit_enhanced_style_catalog_for_all_strategies() {
+        for (strategy, kind) in [
+            (CssStrategy::Link, "link"),
+            (CssStrategy::Style, "style"),
+            (CssStrategy::Module, "module"),
+        ] {
+            let app = create_app_dir(&[
+                ("index.html", "<app-shell></app-shell>"),
+                ("app-shell.html", "<p>Entry</p>"),
+                ("lazy-panel.html", "<p>Lazy</p>"),
+                ("lazy-panel.css", ".lazy{color:red}"),
+            ]);
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            options.css = strategy;
+            options.component_asset_roots = vec!["lazy-panel".to_string()];
+
+            let result = build(options).unwrap();
+            let root = &result.component_asset_files[0].content;
+            let component = &result.component_asset_files[1].content;
+            assert!(root.contains(r#""version":4"#));
+            assert!(component.contains(&format!(
+                r#""componentStyles":{{"version":1,"strategy":"{kind}""#
+            )));
+            assert!(component.contains(&format!(r#""lazy-panel":{{"kind":"{kind}""#)));
+            assert!(component.contains(r#""closures":{"lazy-panel":["lazy-panel"]}"#));
+            if strategy == CssStrategy::Module {
+                assert!(component
+                    .contains(r#""lazy-panel":{"kind":"module","specifier":"lazy-panel","css":"#,));
+            }
+            if strategy == CssStrategy::Link {
+                assert!(component.contains(r#""href":"lazy-panel.css""#));
+                assert!(!component.contains("import.meta.url"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_emits_semantic_component_modules_and_keeps_them_out_of_protocol() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<entry-badge></entry-badge>"),
+            ("entry-badge.html", "<span>Entry</span>"),
+            ("entry-badge.css", ":host { display: inline-block; }"),
+            (
+                "lazy-panel.html",
+                "<entry-badge></entry-badge><shared-detail></shared-detail><panel-only></panel-only>",
+            ),
+            (
+                "secondary-panel.html",
+                "<entry-badge></entry-badge><shared-detail></shared-detail><secondary-only></secondary-only>",
+            ),
+            ("shared-detail.html", "<p>Shared</p>"),
+            ("shared-detail.css", ":host { display: block; }"),
+            ("lazy-panel.css", ":host { color: green; }"),
+            ("secondary-panel.css", ":host { color: blue; }"),
+            ("panel-only.html", "<p>Panel</p>"),
+            ("secondary-only.html", "<p>Secondary</p>"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots =
+            vec!["lazy-panel".to_string(), "secondary-panel".to_string()];
+
+        let result = build(options).unwrap();
+
+        for tag in [
+            "lazy-panel",
+            "secondary-panel",
+            "shared-detail",
+            "panel-only",
+            "secondary-only",
+        ] {
+            assert!(
+                !result.protocol.fragments.contains_key(tag),
+                "asset-only fragment <{tag}> must not be serialized"
+            );
+            assert!(
+                !result.protocol.components.contains_key(tag),
+                "asset-only component <{tag}> must not be serialized"
+            );
+        }
+
+        assert!(result.protocol.fragments.contains_key("app-shell"));
+        assert!(result.protocol.components.contains_key("entry-badge"));
+        assert_eq!(
+            result.protocol.component_asset_style_preloads,
+            vec![
+                webui_protocol::ComponentAssetStylePreload {
+                    root: "lazy-panel".to_string(),
+                    style_hrefs: vec![
+                        "lazy-panel.css".to_string(),
+                        "shared-detail.css".to_string(),
+                    ],
+                },
+                webui_protocol::ComponentAssetStylePreload {
+                    root: "secondary-panel".to_string(),
+                    style_hrefs: vec![
+                        "secondary-panel.css".to_string(),
+                        "shared-detail.css".to_string(),
+                    ],
+                },
+            ]
+        );
+
+        assert_eq!(result.component_asset_files.len(), 7);
+        assert_eq!(result.component_asset_files[0].name, "lazy-panel.webui.js");
+        assert_eq!(
+            result.component_asset_files[1].name,
+            "secondary-panel.webui.js"
+        );
+        let lazy = &result.component_asset_files[0].content;
+        assert!(lazy.contains(r#""version":4"#));
+        assert!(lazy.contains(r#""root":"lazy-panel""#));
+        assert!(lazy.contains(r#""externalComponents":["entry-badge"]"#));
+        assert!(lazy.contains(r#""entry-badge":{"kind":"link","href":"entry-badge.css"}"#));
+        assert!(!lazy.contains(
+            r#""entry-badge":{"kind":"link","href":new URL("entry-badge.css",import.meta.url).href}"#
+        ));
+        for tag in ["lazy-panel", "panel-only", "shared-detail"] {
+            let payload = component_payload(&result.component_asset_files, tag);
+            assert!(lazy.contains(&payload.name));
+        }
+        assert!(!lazy.contains("@microsoft/webui-framework/component-asset-runtime.js"));
+        assert!(!lazy.contains("export const preload"));
+        assert!(!lazy.contains("export const create"));
+        assert!(!lazy.contains(r#""templates":{"entry-badge":"#));
+        assert!(!lazy.contains(r#""templates":{"shared-detail":"#));
+
+        let shared = component_payload(&result.component_asset_files, "shared-detail");
+        assert!(!shared.content.contains(r#""kind":"component""#));
+        assert!(shared.content.contains(r#""templates":{"shared-detail":"#));
+        assert!(shared.content.contains(r#""href":"shared-detail.css""#));
+        assert!(!shared.content.contains("import.meta.url"));
+    }
+
+    #[test]
+    fn build_to_disk_creates_component_asset_parent_directories() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("lazy-panel.html", "<p>Lazy</p>"),
+        ]);
+        let out = tempfile::tempdir().unwrap();
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+
+        build_to_disk(options, out.path()).unwrap();
+
+        assert!(out.path().join("lazy-panel.webui.js").is_file());
+        assert!(fs::read_dir(out.path().join("components"))
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("lazy-panel.")));
+    }
+
+    #[test]
+    fn build_to_disk_preserves_noop_inputs_and_leaves_older_payloads() {
+        let app = create_app_dir(&[
+            ("index.html", "<main>Entry</main>"),
+            ("lazy-panel.html", "<p>Initial</p>"),
+        ]);
+        let out = tempfile::tempdir().unwrap();
+        let options = || {
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            options.component_asset_roots = vec!["lazy-panel".to_string()];
+            options
+        };
+        build_to_disk(options(), out.path()).unwrap();
+        let root = out.path().join("lazy-panel.webui.js");
+        let before = fs::metadata(&root).unwrap().modified().unwrap();
+        build_to_disk(options(), out.path()).unwrap();
+        assert_eq!(before, fs::metadata(&root).unwrap().modified().unwrap());
+
+        for generation in 0..5 {
+            fs::write(
+                app.path().join("lazy-panel.html"),
+                format!("<p>{generation}</p>"),
+            )
+            .unwrap();
+            build_to_disk(options(), out.path()).unwrap();
+        }
+        assert_eq!(
+            fs::read_dir(out.path().join("components")).unwrap().count(),
+            6
+        );
+    }
+
+    #[test]
+    fn test_component_asset_graph_emits_each_component_once() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            (
+                "root-a.html",
+                "<shared-ab></shared-ab><shared-all></shared-all><only-a></only-a>",
+            ),
+            (
+                "root-b.html",
+                "<shared-ab></shared-ab><shared-all></shared-all><only-b></only-b>",
+            ),
+            ("root-c.html", "<shared-all></shared-all><only-c></only-c>"),
+            ("shared-ab.html", "<p>AB</p>"),
+            ("shared-all.html", "<p>All</p>"),
+            ("only-a.html", "<p>A</p>"),
+            ("only-b.html", "<p>B</p>"),
+            ("only-c.html", "<p>C</p>"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec![
+            "root-a".to_string(),
+            "root-b".to_string(),
+            "root-c".to_string(),
+        ];
+
+        let result = build(options).unwrap();
+        assert_eq!(result.component_asset_files.len(), 11);
+        assert_eq!(result.component_asset_files[0].name, "root-a.webui.js");
+        assert_eq!(result.component_asset_files[1].name, "root-b.webui.js");
+        assert_eq!(result.component_asset_files[2].name, "root-c.webui.js");
+        let only_a = component_payload(&result.component_asset_files, "only-a");
+        assert!(result.component_asset_files[0]
+            .content
+            .contains(&only_a.name));
+        assert!(
+            component_payload(&result.component_asset_files, "shared-ab")
+                .content
+                .contains(r#""templates":{"shared-ab":"#)
+        );
+        assert!(
+            component_payload(&result.component_asset_files, "shared-all")
+                .content
+                .contains(r#""templates":{"shared-all":"#)
+        );
+    }
+
+    #[test]
+    fn test_component_asset_graph_is_root_order_independent_with_stable_imports() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("root-a.html", "<shared-detail></shared-detail>"),
+            ("root-b.html", "<shared-detail></shared-detail>"),
+            ("shared-detail.html", "<p>Shared</p>"),
+        ]);
+        let build_files = |roots: Vec<String>| {
+            let mut options = default_options(app.path());
+            options.plugin = Some(Plugin::WebUI);
+            options.component_asset_roots = roots;
+            options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+            build(options).unwrap().component_asset_files
+        };
+
+        let forward = build_files(vec!["root-a".to_string(), "root-b".to_string()]);
+        let reverse = build_files(vec!["root-b".to_string(), "root-a".to_string()]);
+
+        assert_eq!(forward, reverse);
+        let shared_name = &component_payload(&forward, "shared-detail").name;
+        assert!(forward[0].content.contains(shared_name));
+        assert!(forward[1].content.contains(shared_name));
+    }
+
+    #[test]
+    fn test_component_asset_style_preloads_use_final_css_hrefs() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("lazy-panel.html", "<p>Lazy</p>"),
+            ("lazy-panel.css", ":host { display: block; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+        options.css_file_name_template = "[name]-[hash].[ext]".to_string();
+        options.asset_base = Some("https://cdn.example.com/webui/".to_string());
+
+        let result = build(options).unwrap();
+        let preload = &result.protocol.component_asset_style_preloads[0];
+
+        assert_eq!(preload.root, "lazy-panel");
+        assert_eq!(preload.style_hrefs.len(), 1);
+        assert_eq!(preload.style_hrefs[0], result.css_files[0].0);
+        assert!(preload.style_hrefs[0].starts_with("lazy-panel-"));
+        assert!(preload.style_hrefs[0].ends_with(".css"));
+    }
+
+    #[test]
+    fn test_light_component_asset_styles_are_retained_for_document_links() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("z-lazy-panel.html", "<a-lazy-child></a-lazy-child>"),
+            ("z-lazy-panel.css", ".z-lazy-panel { display: block; }"),
+            ("a-lazy-child.html", "<p>Child</p>"),
+            ("a-lazy-child.css", ".a-lazy-child { color: green; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.dom = DomStrategy::Light;
+        options.component_asset_roots = vec!["z-lazy-panel".to_string()];
+
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.component_asset_style_preloads,
+            vec![webui_protocol::ComponentAssetStylePreload {
+                root: "z-lazy-panel".to_string(),
+                style_hrefs: vec![
+                    "z-lazy-panel.css".to_string(),
+                    "a-lazy-child.css".to_string(),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn test_metafile_describes_static_import_graph() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("root-a.html", "<shared-detail></shared-detail>"),
+            ("root-b.html", "<shared-detail></shared-detail>"),
+            ("shared-detail.html", "<p>Shared</p>"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["root-a".to_string(), "root-b".to_string()];
+        options.metafile = true;
+
+        let result = build(options).unwrap();
+        let metafile = result.metafile.as_deref().unwrap();
+        let value: serde_json::Value = serde_json::from_str(metafile).unwrap();
+        assert!(value["inputs"]
+            .get("webui:component/shared-detail")
+            .is_some());
+        assert_eq!(
+            value["outputs"]["root-a.webui.js"]["entryPoint"],
+            "webui:component/root-a"
+        );
+        let shared = component_payload(&result.component_asset_files, "shared-detail");
+        assert_eq!(
+            value["outputs"]["root-a.webui.js"]["imports"][1]["path"],
+            shared.name
+        );
+        assert_eq!(
+            value["outputs"]["root-a.webui.js"]["imports"][1]["kind"],
+            "import-statement"
+        );
+        assert_eq!(
+            value["inputs"]["webui:component/root-a"]["imports"][0]["kind"],
+            "import-statement"
+        );
+        assert_eq!(
+            value["outputs"]["root-a.webui.js"]["exports"],
+            serde_json::json!(["default"])
+        );
+        assert_eq!(
+            value["outputs"][&shared.name]["bytes"],
+            shared.content.len()
+        );
+        assert_eq!(value["lazyPacks"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_component_assets_reject_routes_with_stable_diagnostic() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                r#"<route path="/" component="app-shell" exact />"#,
+            ),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("lazy-panel.html", "<p>Lazy</p>"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+
+        let error = build(options).unwrap_err();
+        match error {
+            WebUIError::ComponentAssets(diagnostic) => {
+                assert_eq!(
+                    diagnostic.error_code(),
+                    Some(webui_parser::codes::COMPONENT_ASSETS_WITH_ROUTES)
+                );
+                assert!(diagnostic.help_text().is_some());
+            }
+            other => panic!("expected route diagnostic, received {other}"),
+        }
+    }
+
+    #[test]
+    fn test_component_asset_input_name_is_independent_from_css_template() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<div></div>"),
+            ("lazy-panel.html", "<p>Lazy</p>"),
+            ("lazy-panel.css", ".panel { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+        options.css_file_name_template = "[name]".to_string();
+
+        let result = build(options).unwrap();
+
+        assert!(result
+            .component_asset_files
+            .iter()
+            .any(|file| file.name == "lazy-panel.webui.js"));
+        assert!(result
+            .css_files
+            .iter()
+            .any(|(name, _)| name == "lazy-panel"));
+    }
+
+    #[test]
+    fn test_build_to_disk_rejects_protocol_name_collision_before_writing() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<div></div>"),
+            ("lazy-panel.html", "<p>Lazy</p>"),
+            ("lazy-panel.css", ".panel { color: red; }"),
+        ]);
+        let out = TempDir::new().unwrap();
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+        options.css_file_name_template = "protocol.bin".to_string();
+
+        let result = build_to_disk(options, out.path());
+
+        assert!(matches!(result, Err(WebUIError::InvalidBuildOptions(_))));
+        assert!(!out.path().join("protocol.bin").exists());
+    }
+
+    #[test]
+    fn test_css_href_set_for_light_dom_link_strategy() {
+        let app = create_app_dir(&[
+            ("index.html", "<has-css>A</has-css><no-css>B</no-css>"),
+            ("has-css.html", "<p>styled</p>"),
+            ("has-css.css", ".yes { color: green; }"),
+            ("no-css.html", "<p>plain</p>"),
+        ]);
+        let options = default_options(app.path());
+        let result = build(options).unwrap();
+
+        let href = result
+            .protocol
+            .components
+            .get("has-css")
+            .map(|c| c.css_href.as_str())
+            .unwrap_or("");
+        assert_eq!(
+            href, "has-css.css",
+            "Light×Link component with CSS should have css_href"
+        );
+
+        let no_href = result
+            .protocol
+            .components
+            .get("no-css")
+            .map(|c| c.css_href.as_str())
+            .unwrap_or("");
+        assert!(
+            no_href.is_empty(),
+            "Component without CSS should have empty css_href"
+        );
+    }
+
+    #[test]
+    fn test_plugin_free_build_persists_component_shadow_usage() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<light-card></light-card><shadow-card></shadow-card>",
+            ),
+            ("light-card.html", "<p>light</p>"),
+            (
+                "shadow-card.html",
+                "<template shadowrootmode=\"open\"><slot></slot></template>",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.dom = DomStrategy::Light;
+        options.plugin = None;
+        let result = build(options).unwrap();
+
+        assert!(!result.protocol.component_uses_shadow_dom("light-card"));
+        assert!(result.protocol.component_uses_shadow_dom("shadow-card"));
+        assert!(!result.protocol.components["light-card"].uses_shadow_dom);
+        assert!(result.protocol.components["shadow-card"].uses_shadow_dom);
+
+        let entry_html: String = result.protocol.fragments["index.html"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(entry_html.contains("<light-card>"));
+        assert!(entry_html.contains("<shadow-card>"));
+        assert!(!entry_html.contains("<shadow-card data-wl"));
+    }
+
+    #[test]
+    fn test_authored_shadow_under_light_matches_ssr_protocol_and_webui_metadata() {
+        let app = create_app_dir(&[
+            ("index.html", "<shadow-card>projected</shadow-card>"),
+            (
+                "shadow-card.html",
+                "<!-- lead --><template shadowrootmode=\"open\"><slot></slot></template><!-- tail -->",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        let result = build(options).unwrap();
+
+        assert!(result.protocol.component_uses_shadow_dom("shadow-card"));
+        assert!(result.protocol.components["shadow-card"]
+            .template_json
+            .contains("\"sd\":1"));
+
+        let component_html: String = result.protocol.fragments["shadow-card"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            component_html,
+            "<template shadowrootmode=\"open\"><slot></slot></template>"
+        );
+        let entry_html: String = result.protocol.fragments["index.html"]
+            .fragments
+            .iter()
+            .filter_map(|fragment| match fragment.fragment.as_ref() {
+                Some(Fragment::Raw(raw)) => Some(raw.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(!entry_html.contains("data-wl"));
+    }
+
+    #[test]
+    fn test_shadow_dom_link_strategy_sets_css_href() {
+        // Shadow×Link: css_href is always set for Link-strategy components.
+        // The handler uses protocol.css_strategy + component Shadow metadata
+        // to decide preload (Shadow) vs stylesheet (Light) in <head>.
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>A</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><p><slot></slot></p></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        let comp = result.protocol.components.get("my-card").unwrap();
+        assert_eq!(
+            comp.css_href, "my-card.css",
+            "Shadow×Link should set css_href"
+        );
+
+        // Strategy fields on protocol
+        assert_eq!(
+            result.protocol.css_strategy(),
+            webui_protocol::CssStrategy::Link,
+        );
+
+        // CSS file should still be emitted for the server to serve
+        assert_eq!(
+            result.css_files.len(),
+            1,
+            "CSS file should still be produced"
+        );
+    }
+
+    #[test]
+    fn test_css_href_empty_for_style_strategy() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>A</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><p><slot></slot></p></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Style;
+        let result = build(options).unwrap();
+
+        let href = result
+            .protocol
+            .components
+            .get("my-card")
+            .map(|c| c.css_href.as_str())
+            .unwrap_or("");
+        assert!(href.is_empty(), "Style-strategy should not set css_href");
+    }
+
+    #[test]
+    fn test_css_href_empty_for_module_strategy() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>A</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><p><slot></slot></p></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Module;
+        let result = build(options).unwrap();
+
+        let href = result
+            .protocol
+            .components
+            .get("my-card")
+            .map(|c| c.css_href.as_str())
+            .unwrap_or("");
+        assert!(href.is_empty(), "Module-strategy should not set css_href");
+        assert!(
+            !result.protocol.components["my-card"].css.is_empty(),
+            "Module-strategy should still populate css content"
+        );
+    }
+
+    #[test]
+    fn test_build_to_disk_writes_files() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+            ("my-card.ts", "export {};"),
+        ]);
+        let out = TempDir::new().unwrap();
+
+        let stats = build_to_disk(default_options(app.path()), out.path()).unwrap();
+
+        assert!(out.path().join("protocol.bin").exists());
+        assert!(out.path().join("my-card.css").exists());
+        assert_eq!(stats.css_file_count, 1);
+        assert!(stats.fragment_count > 0);
+    }
+
+    #[test]
+    fn test_build_to_disk_creates_nested_output_dir() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let out = TempDir::new().unwrap();
+        let nested = out.path().join("nested").join("output");
+
+        let stats = build_to_disk(default_options(app.path()), &nested).unwrap();
+        assert!(nested.join("protocol.bin").exists());
+        assert!(stats.fragment_count > 0);
+    }
+
+    #[test]
+    fn test_build_missing_entry() {
+        let app = create_app_dir(&[("other.html", "<h1>Not index</h1>")]);
+        let result = build(default_options(app.path()));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, WebUIError::Io { .. }));
+    }
+
+    #[test]
+    fn test_build_stats_populated() {
+        let app = create_app_dir(&[("index.html", "<h1>{{title}}</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(result.stats.fragment_count > 0);
+        assert!(result.stats.protocol_size_bytes > 0);
+        assert_eq!(result.stats.css_file_count, 0);
+    }
+
+    #[test]
+    fn test_build_inline_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Style;
+
+        let result = build(options).unwrap();
+        // Inline mode embeds CSS in <style> tags — no external CSS files
+        assert!(result.css_files.is_empty());
+        assert_eq!(result.stats.css_file_count, 0);
+        assert!(result.stats.fragment_count > 0);
+    }
+
+    #[test]
+    fn test_build_module_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Module;
+
+        let result = build(options).unwrap();
+        // Module mode emits <script type="importmap"> data URIs — no external CSS files
+        assert!(result.css_files.is_empty());
+        assert_eq!(result.stats.css_file_count, 0);
+        assert!(result.stats.fragment_count > 0);
+    }
+
+    #[test]
+    fn test_build_custom_entry() {
+        let app = create_app_dir(&[("page.html", "<h1>Custom</h1>")]);
+        let mut options = default_options(app.path());
+        options.entry = "page.html".to_string();
+
+        let result = build(options).unwrap();
+        assert!(result.protocol.fragments.contains_key("page.html"));
+        assert!(!result.protocol.fragments.contains_key("index.html"));
+    }
+
+    #[test]
+    fn test_build_protocol_roundtrip() {
+        let app = create_app_dir(&[("index.html", "<h1>{{title}}</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        let restored = WebUIProtocol::from_protobuf(&result.protocol_bytes).unwrap();
+        assert!(restored.fragments.contains_key("index.html"));
+    }
+
+    #[test]
+    fn protocol_is_available_from_facade() {
+        let protocol = Protocol::new(WebUIProtocol::new(HashMap::new()));
+        assert!(protocol.tokens().is_empty());
+    }
+
+    #[test]
+    fn test_inspect_bytes_valid() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        let json_str = inspect_bytes(&result.protocol_bytes).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.get("fragments").is_some());
+    }
+
+    #[test]
+    fn test_inspect_bytes_invalid() {
+        let result = inspect_bytes(b"not a protobuf");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), WebUIError::Protocol(_)));
+    }
+
+    #[test]
+    fn test_inspect_file() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let out = TempDir::new().unwrap();
+        build_to_disk(default_options(app.path()), out.path()).unwrap();
+
+        let json_str = inspect(&out.path().join("protocol.bin")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed["fragments"]["index.html"]["fragments"].is_array());
+    }
+
+    #[test]
+    fn test_inspect_missing_file() {
+        let result = inspect(Path::new("/nonexistent/protocol.bin"));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), WebUIError::Io { .. }));
+    }
+
+    #[test]
+    fn test_build_with_components_local_path() {
+        let app = create_app_dir(&[("index.html", "<ext-card>Hello</ext-card>")]);
+        let ext_dir = TempDir::new().unwrap();
+        fs::write(
+            ext_dir.path().join("ext-card.html"),
+            r#"<template shadowrootmode="open"><div class="card"><slot></slot></div></template>"#,
+        )
+        .unwrap();
+        fs::write(
+            ext_dir.path().join("ext-card.css"),
+            ".card { border: 1px solid #ccc; }",
+        )
+        .unwrap();
+
+        let mut options = default_options(app.path());
+        options.components = vec![ext_dir.path().to_string_lossy().to_string()];
+
+        let result = build(options).unwrap();
+        assert!(result.protocol.fragments.contains_key("index.html"));
+        assert_eq!(result.css_files.len(), 1);
+        assert!(result.css_files[0].1.contains("border"));
+    }
+
+    #[test]
+    fn test_build_with_scriptless_component_path_emits_dormant_template() {
+        let app = create_app_dir(&[("index.html", "<ext-card></ext-card>")]);
+        let ext_dir = TempDir::new().unwrap();
+        fs::write(ext_dir.path().join("ext-card.html"), "<p>{{title}}</p>").unwrap();
+
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.components = vec![ext_dir.path().to_string_lossy().to_string()];
+
+        let result = build(options).unwrap();
+        assert!(result
+            .component_templates
+            .iter()
+            .any(|template| template.tag_name == "ext-card"));
+        let component = result
+            .protocol
+            .components
+            .get("ext-card")
+            .expect("external scriptless component metadata should be retained");
+        assert!(component.hydration_keys.is_empty());
+        assert_eq!(component.navigation_keys, ["title"]);
+        assert!(component.template_json.contains(r#""th":1"#));
+    }
+
+    #[test]
+    fn test_build_with_scripted_component_path_emits_client_artifact() {
+        let app = create_app_dir(&[("index.html", "<ext-card></ext-card>")]);
+        let ext_dir = TempDir::new().unwrap();
+        fs::write(ext_dir.path().join("ext-card.html"), "<p>{{title}}</p>").unwrap();
+        fs::write(ext_dir.path().join("ext-card.ts"), "export {};").unwrap();
+
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.components = vec![ext_dir.path().to_string_lossy().to_string()];
+
+        let result = build(options).unwrap();
+        let template = &result.protocol.components["ext-card"].template_json;
+        assert!(!template.is_empty(), "template should be emitted");
+    }
+
+    #[test]
+    fn test_build_rejects_projection_manifest_with_non_webui_plugin() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            ("demo-card.html", "<p>{{name}}</p>"),
+            ("demo-card.ts", "export {};"),
+        ]);
+        let manifest_json = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("demo-card.ts", "export {};")],
+            &[("projection-bundle.js", "output")],
+            &[(
+                "demo-card",
+                "demo-card.ts",
+                &["projection-bundle.js"],
+                &["name"],
+                &["name"],
+            )],
+        );
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        // No plugin selected: default/FAST builds are incompatible with
+        // projection manifests (`PROJ-B002`).
+        options.projection_manifests = vec![manifest.into()];
+        let err = build(options).expect_err("non-WebUI plugin + manifest should be rejected");
+        assert!(
+            err.chain_message().contains("PROJ-B002"),
+            "msg: {}",
+            err.chain_message()
+        );
+    }
+
+    #[test]
+    fn test_build_rejects_missing_scripted_component_coverage() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            ("demo-card.html", "<p>{{name}}</p>"),
+            ("demo-card.ts", "export {};"),
+        ]);
+        // Manifest is valid but never mentions `demo-card`, the only
+        // compiled scripted component in this build.
+        let manifest_json =
+            projection::test_support::build_valid_manifest_json(app.path(), &[], &[], &[]);
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest.into()];
+        let err = build(options).expect_err("missing coverage should fail the build");
+        let message = err.chain_message();
+        assert!(message.contains("PROJ-B001"), "msg: {message}");
+        assert!(message.contains("demo-card"), "msg: {message}");
+    }
+
+    #[test]
+    fn test_build_allows_unused_discovered_scripted_component_without_coverage() {
+        let app = create_app_dir(&[
+            ("index.html", "<demo-card></demo-card>"),
+            ("demo-card.html", "<p>{{name}}</p>"),
+            ("demo-card.ts", "export {};"),
+            // `unused-card` is a scripted component discovered on disk but
+            // never referenced from `index.html`, so it is not compiled
+            // into the protocol and does not require manifest coverage.
+            ("unused-card.html", "<p>{{title}}</p>"),
+            ("unused-card.ts", "export {};"),
+        ]);
+        let manifest_json = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("demo-card.ts", "export {};")],
+            &[("projection-bundle.js", "output")],
+            &[(
+                "demo-card",
+                "demo-card.ts",
+                &["projection-bundle.js"],
+                &["name"],
+                &["name"],
+            )],
+        );
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest.into()];
+        let result = build(options).unwrap();
+
+        assert!(!result.protocol.fragments.contains_key("unused-card"));
+        let component = result.protocol.components.get("demo-card").unwrap();
+        assert_eq!(component.hydration_keys, vec!["name"]);
+    }
+
+    #[test]
+    fn test_build_allows_asset_only_scripted_component_without_projection_coverage() {
+        let app = create_app_dir(&[
+            ("index.html", "<app-shell></app-shell>"),
+            ("app-shell.html", "<p>Entry</p>"),
+            ("lazy-panel.html", "<p>{{title}}</p>"),
+            ("lazy-panel.ts", "export {};"),
+        ]);
+        let manifest_json =
+            projection::test_support::build_valid_manifest_json(app.path(), &[], &[], &[]);
+        let manifest = projection::test_support::write_manifest(
+            app.path(),
+            "webui-projection.json",
+            &manifest_json,
+        );
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.component_asset_roots = vec!["lazy-panel".to_string()];
+        options.projection_manifests = vec![manifest.into()];
+
+        let result = build(options).unwrap();
+
+        assert_eq!(result.component_asset_files.len(), 2);
+        assert!(!result.protocol.fragments.contains_key("lazy-panel"));
+        assert!(!result.protocol.components.contains_key("lazy-panel"));
+    }
+
+    #[test]
+    fn test_build_merges_multiple_projection_manifest_fragments() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><body><card-a></card-a><card-b></card-b></body></html>",
+            ),
+            ("card-a.html", "<p>{{alpha}}</p>"),
+            ("card-a.ts", "export {};"),
+            ("card-b.html", "<p>{{beta}}</p>"),
+            ("card-b.ts", "export {};"),
+        ]);
+        let json_a = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("card-a.ts", "export {};")],
+            &[("card-a.js", "output-a")],
+            &[(
+                "card-a",
+                "card-a.ts",
+                &["card-a.js"],
+                &["alpha"],
+                &["alpha"],
+            )],
+        );
+        let manifest_a =
+            projection::test_support::write_manifest(app.path(), "fragment-a.json", &json_a);
+        let json_b = projection::test_support::build_valid_manifest_json(
+            app.path(),
+            &[("card-b.ts", "export {};")],
+            &[("card-b.js", "output-b")],
+            &[("card-b", "card-b.ts", &["card-b.js"], &["beta"], &["beta"])],
+        );
+        let manifest_b =
+            projection::test_support::write_manifest(app.path(), "fragment-b.json", &json_b);
+
+        let mut options = default_options(app.path());
+        options.plugin = Some(Plugin::WebUI);
+        options.projection_manifests = vec![manifest_a.into(), manifest_b.into()];
+        let result = build(options).unwrap();
+
+        assert_eq!(
+            result.protocol.initial_state_strategy,
+            webui_protocol::InitialStateStrategy::Components as i32
+        );
+        let card_a = result.protocol.components.get("card-a").unwrap();
+        assert_eq!(card_a.hydration_keys, vec!["alpha"]);
+        let card_b = result.protocol.components.get("card-b").unwrap();
+        assert_eq!(card_b.hydration_keys, vec!["beta"]);
+    }
+
+    #[test]
+    fn test_build_hello_world_example() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let app_dir = manifest_dir.join("../../examples/app/hello-world/src");
+
+        let result = build(BuildOptions {
+            app_dir,
+            entry: "index.html".to_string(),
+            ..BuildOptions::default()
+        })
+        .unwrap();
+
+        let index = &result.protocol.fragments["index.html"].fragments;
+        assert!(index.iter().any(
+            |f| matches!(f.fragment.as_ref(), Some(Fragment::ForLoop(fl)) if fl.collection == "people")
+        ));
+        assert!(index
+            .iter()
+            .any(|f| matches!(f.fragment.as_ref(), Some(Fragment::IfCond(_)))));
+    }
+
+    // ── Security tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_css_filename_sanitizes_path_separators() {
+        // Even if a component tag somehow contains path separators,
+        // the filename should be sanitized to prevent directory traversal.
+        let app = create_app_dir(&[("index.html", "<h1>Hello</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        // Verify all CSS filenames are plain file names (no path separators)
+        for (filename, _) in &result.css_files {
+            assert!(
+                !filename.contains('/') && !filename.contains('\\'),
+                "CSS filename contains path separator: {filename}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_to_disk_css_stays_in_output_dir() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let out = TempDir::new().unwrap();
+
+        build_to_disk(default_options(app.path()), out.path()).unwrap();
+
+        // Verify CSS file is written inside out_dir
+        let css_path = out.path().join("my-card.css");
+        assert!(css_path.exists());
+        let canonical = css_path.canonicalize().unwrap();
+        let out_canonical = out.path().canonicalize().unwrap();
+        assert!(
+            canonical.starts_with(&out_canonical),
+            "CSS file escaped output directory"
+        );
+    }
+
+    // ── Performance / edge case tests ────────────────────────────────
+
+    #[test]
+    fn test_build_empty_html() {
+        let app = create_app_dir(&[("index.html", "")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(result.protocol.fragments.contains_key("index.html"));
+        assert_eq!(result.stats.fragment_count, 0);
+        assert!(result.stats.protocol_size_bytes > 0);
+    }
+
+    #[test]
+    fn test_build_large_fragment_count() {
+        // Verify stats are accurate with many fragments
+        let mut html = String::with_capacity(2000);
+        for i in 0..50 {
+            html.push_str(&format!("<p>Item {i}</p>\n"));
+        }
+        let app = create_app_dir(&[("index.html", &html)]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(result.stats.fragment_count > 0);
+        assert_eq!(result.stats.css_file_count, 0);
+    }
+
+    #[test]
+    fn test_build_to_disk_inline_mode_no_css_files() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let out = TempDir::new().unwrap();
+        let mut options = default_options(app.path());
+        options.css = CssStrategy::Style;
+
+        let stats = build_to_disk(options, out.path()).unwrap();
+
+        assert!(out.path().join("protocol.bin").exists());
+        assert!(!out.path().join("my-card.css").exists());
+        assert_eq!(stats.css_file_count, 0);
+    }
+
+    #[test]
+    fn test_build_stats_duration_is_nonzero() {
+        let app = create_app_dir(&[("index.html", "<h1>Hello {{name}}</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(!result.stats.duration.is_zero());
+    }
+
+    #[test]
+    fn test_build_multiple_components_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<card-a>A</card-a><card-b>B</card-b>"),
+            (
+                "card-a.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("card-a.css", ".a { color: red; }"),
+            (
+                "card-b.html",
+                r#"<template shadowrootmode="open"><span><slot></slot></span></template>"#,
+            ),
+            ("card-b.css", ".b { color: blue; }"),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert_eq!(result.css_files.len(), 2);
+        assert_eq!(result.stats.css_file_count, 2);
+        let filenames: Vec<&str> = result.css_files.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(filenames.contains(&"card-a.css"));
+        assert!(filenames.contains(&"card-b.css"));
+    }
+
+    #[test]
+    fn test_build_unused_component_css_not_emitted() {
+        // card-b is registered but not referenced in index.html
+        let app = create_app_dir(&[
+            ("index.html", "<card-a>A</card-a>"),
+            (
+                "card-a.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("card-a.css", ".a { color: red; }"),
+            (
+                "card-b.html",
+                r#"<template shadowrootmode="open"><span><slot></slot></span></template>"#,
+            ),
+            ("card-b.css", ".b { color: blue; }"),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert_eq!(result.css_files.len(), 1);
+        assert_eq!(result.css_files[0].0, "card-a.css");
+    }
+
+    #[test]
+    fn test_build_unused_component_render_policy_not_emitted() {
+        let app = create_app_dir(&[
+            ("index.html", "<card-a>A</card-a>"),
+            (
+                "card-a.html",
+                r#"<template w-render="lazy" w-reserve-block-size="10px"><div>a</div></template>"#,
+            ),
+            (
+                "card-b.html",
+                r#"<template w-render="lazy" w-reserve-block-size="20px"><div>b</div></template>"#,
+            ),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+
+        assert!(result.protocol.component_render_css.contains("card-a"));
+        assert!(!result.protocol.component_render_css.contains("card-b"));
+    }
+
+    #[test]
+    fn test_build_persists_interaction_work_policy() {
+        let app = create_app_dir(&[
+            ("index.html", "<interaction-shell></interaction-shell>"),
+            (
+                "interaction-shell.html",
+                r#"<template w-hydrate="interaction"><button>Open</button></template>"#,
+            ),
+            (
+                "interaction-shell.ts",
+                "customElements.define('interaction-shell', class extends HTMLElement {});",
+            ),
+        ]);
+        for plugin in [Plugin::WebUI, Plugin::FastV3] {
+            let is_webui = matches!(plugin, Plugin::WebUI);
+            let mut options = default_options(app.path());
+            options.plugin = Some(plugin);
+            let result = build(options).expect("interaction policy build");
+            let component = &result.protocol.components["interaction-shell"];
+            assert_eq!(
+                component.work_policy,
+                webui_protocol::ComponentWorkPolicy::Interaction as i32
+            );
+            if is_webui {
+                assert!(component.template_json.contains(r#""wp":3"#));
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_persists_combined_render_interaction_policy() {
+        let app = create_app_dir(&[
+            ("index.html", "<interaction-panel></interaction-panel>"),
+            (
+                "interaction-panel.html",
+                concat!(
+                    r#"<template w-render="lazy" w-reserve-block-size="18rem" "#,
+                    r#"w-hydrate="interaction"><button>Open</button></template>"#,
+                ),
+            ),
+            (
+                "interaction-panel.ts",
+                "customElements.define('interaction-panel', class extends HTMLElement {});",
+            ),
+        ]);
+        for plugin in [Plugin::WebUI, Plugin::FastV3] {
+            let is_webui = matches!(plugin, Plugin::WebUI);
+            let mut options = default_options(app.path());
+            options.plugin = Some(plugin);
+            let result = build(options).expect("combined interaction policy build");
+            let component = &result.protocol.components["interaction-panel"];
+            assert_eq!(
+                component.work_policy,
+                webui_protocol::ComponentWorkPolicy::LazyRenderInteraction as i32
+            );
+            assert!(result
+                .protocol
+                .component_render_css
+                .contains("interaction-panel"));
+            if is_webui {
+                assert!(component.template_json.contains(r#""wp":4"#));
+            }
+        }
+    }
+
+    #[test]
+    fn test_inspect_roundtrip_preserves_content() {
+        let app = create_app_dir(&[("index.html", "<h1>{{title}}</h1>")]);
+        let result = build(default_options(app.path())).unwrap();
+
+        let json_str = inspect_bytes(&result.protocol_bytes).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        let fragments = &parsed["fragments"]["index.html"]["fragments"];
+        assert!(fragments.is_array());
+        assert!(!fragments.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_build_nonexistent_app_dir() {
+        let options = BuildOptions {
+            app_dir: PathBuf::from("/nonexistent/path/that/does/not/exist"),
+            ..BuildOptions::default()
+        };
+        let result = build(options);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_allows_fallback_chain_when_all_theme_tokens_exist() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div>Card</div>"),
+            (
+                "my-card.css",
+                ":host { color: var(--token-a, var(--token-b, var(--token-c))); }",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([(
+                "light".to_string(),
+                HashMap::from([
+                    ("token-a".to_string(), "red".to_string()),
+                    ("token-b".to_string(), "blue".to_string()),
+                    ("token-c".to_string(), "green".to_string()),
+                ]),
+            )]),
+        });
+
+        let result = build(options).expect("all fallback tokens are defined");
+        assert!(result.protocol.tokens.contains(&"token-a".to_string()));
+        assert!(result.protocol.tokens.contains(&"token-b".to_string()));
+        assert!(result.protocol.tokens.contains(&"token-c".to_string()));
+    }
+
+    #[test]
+    fn test_build_allows_literal_fallback_token_absent_from_theme() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div>Card</div>"),
+            ("my-card.css", ":host { color: var(--brand, #000); }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([("light".to_string(), HashMap::new())]),
+        });
+
+        // The CSS literal fallback (`#000`) means `--brand` is not required from
+        // the theme, so the build must succeed — but the token is still hoisted
+        // so the runtime resolves it when a theme provides it.
+        let result = build(options).expect("literal fallback should not fail the build");
+        assert!(result.protocol.tokens.contains(&"brand".to_string()));
+        // `--brand` is absent from every theme and only used with a literal
+        // fallback, so it is surfaced as a non-fatal typo advisory.
+        assert_eq!(result.warnings.len(), 1, "warnings: {:?}", result.warnings);
+        assert!(result.warnings[0].body().contains("--brand"));
+    }
+
+    #[test]
+    fn test_build_ancestor_inline_style_definition_after_comment_satisfies_descendant() {
+        // `--foo-bar` is defined in the entry's inline <style> after a signal
+        // comment and consumed inside a component. Custom properties inherit
+        // through Shadow DOM, so the ancestor definition must satisfy the
+        // descendant and the token must not be required from the theme.
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<html><head><style>:root {\n  /*{{{tokens.light}}}*/\n  --foo-bar: 100px;\n}</style></head><body><my-card></my-card></body></html>",
+            ),
+            ("my-card.html", "<div>Card</div>"),
+            ("my-card.css", ":host { padding: var(--foo-bar); }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([("light".to_string(), HashMap::new())]),
+        });
+
+        let result = build(options)
+            .expect("ancestor inline-style definition (after a comment) should satisfy the child");
+        assert!(
+            !result.protocol.tokens.contains(&"foo-bar".to_string()),
+            "ancestor-defined token should not be hoisted: {:?}",
+            result.protocol.tokens
+        );
+    }
+
+    #[test]
+    fn test_build_no_warning_when_literal_fallback_token_is_themed() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div>Card</div>"),
+            ("my-card.css", ":host { color: var(--brand, #000); }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([(
+                "light".to_string(),
+                HashMap::from([("brand".to_string(), "#123456".to_string())]),
+            )]),
+        });
+
+        let result = build(options).expect("themed literal-fallback token builds");
+        assert!(
+            result.warnings.is_empty(),
+            "a themed token must not warn: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn test_build_without_theme_produces_no_warnings() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div>Card</div>"),
+            ("my-card.css", ":host { color: var(--brand, #000); }"),
+        ]);
+        let result = build(default_options(app.path())).unwrap();
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_build_warns_for_multiple_outlets_in_route_component() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                r#"<route path="/" component="app-shell"><route path="child" component="child-page" exact /></route>"#,
+            ),
+            (
+                "app-shell.html",
+                r#"<main><outlet /></main><aside><outlet /></aside>"#,
+            ),
+            ("child-page.html", "<p>Child</p>"),
+        ]);
+
+        let result = build(default_options(app.path())).unwrap();
+        assert_eq!(result.warnings.len(), 1, "warnings: {:?}", result.warnings);
+        let warning = &result.warnings[0];
+        assert_eq!(warning.severity(), Severity::Warning);
+        assert_eq!(
+            warning.error_code(),
+            Some(webui_parser::codes::MULTIPLE_OUTLETS)
+        );
+        assert_eq!(warning.component_name(), Some("app-shell"));
+        assert!(warning.help_text().is_some());
+    }
+
+    #[test]
+    fn test_build_warns_for_outlets_across_component_templates() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                r#"<route path="/" component="app-shell"><route path="child" component="child-page" exact /></route>"#,
+            ),
+            (
+                "app-shell.html",
+                r#"<nested-layout></nested-layout><aside><outlet /></aside>"#,
+            ),
+            ("nested-layout.html", "<main><outlet /></main>"),
+            ("child-page.html", "<p>Matched child</p>"),
+        ]);
+
+        let result = build(default_options(app.path())).unwrap();
+        let html = render_html(&result.protocol, "/child");
+        assert_eq!(html.matches("<p>Matched child</p>").count(), 1, "{html}");
+        assert!(html.contains("<aside></aside>"), "{html}");
+        assert_eq!(result.warnings.len(), 1, "warnings: {:?}", result.warnings);
+        assert_eq!(
+            result.warnings[0].error_code(),
+            Some(webui_parser::codes::MULTIPLE_OUTLETS)
+        );
+        assert_eq!(result.warnings[0].component_name(), Some("app-shell"));
+    }
+
+    #[test]
+    fn test_build_excludes_tokens_defined_by_ancestor_component_css() {
+        let app = create_app_dir(&[
+            ("index.html", "<component-a></component-a>"),
+            ("component-a.html", "<component-b></component-b>"),
+            ("component-a.css", ":host { --brand-color: red; }"),
+            ("component-b.html", "<div>Child</div>"),
+            ("component-b.css", ":host { color: var(--brand-color); }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([("light".to_string(), HashMap::new())]),
+        });
+
+        let result =
+            build(options).expect("ancestor component custom property should satisfy child");
+        assert!(
+            !result.protocol.tokens.contains(&"brand-color".to_string()),
+            "ancestor-defined token should not be exposed: {:?}",
+            result.protocol.tokens
+        );
+    }
+
+    #[test]
+    fn test_build_scoped_parent_overrides_preserve_theme_defaults() {
+        for selector in [
+            ".green",
+            ":host([split]) plain-control",
+            ":host([active])",
+            "@media (width > 10000px) { :host",
+            "@supports (display: unknown) { :host",
+            "@container (width > 10000px) { :host",
+        ] {
+            let mut css = format!("{selector} {{ --brand: var(--green); }}");
+            if selector.starts_with('@') {
+                css.push('}');
+            }
+            let app = create_app_dir(&[
+                ("index.html", "<layout-container></layout-container>"),
+                (
+                    "layout-container.html",
+                    "<plain-control></plain-control><div class=\"green\"><plain-control></plain-control></div>",
+                ),
+                ("layout-container.css", &css),
+                ("plain-control.html", "<button>Primary</button>"),
+                ("plain-control.css", "button { color: var(--brand); }"),
+            ]);
+            let mut options = default_options(app.path());
+            options.theme = Some(TokenFile {
+                themes: HashMap::from([(
+                    "light".to_string(),
+                    HashMap::from([
+                        ("brand".to_string(), "black".to_string()),
+                        ("green".to_string(), "green".to_string()),
+                    ]),
+                )]),
+            });
+            let result = build(options).expect("scoped overrides should build");
+            assert_eq!(result.protocol.tokens, ["brand", "green"], "{selector}");
+
+            let mut options = default_options(app.path());
+            options.theme = Some(TokenFile {
+                themes: HashMap::from([(
+                    "light".to_string(),
+                    HashMap::from([("green".to_string(), "green".to_string())]),
+                )]),
+            });
+            let error = build(options).expect_err("uncovered child still requires --brand");
+            assert!(error.chain_message().contains("missing-theme-token"));
+        }
+    }
+
+    #[test]
+    fn test_build_scoped_inline_overrides_preserve_theme_defaults() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<style>.green { --brand: var(--green); }</style><plain-control></plain-control><div class=\"green\"><plain-control></plain-control></div>",
+            ),
+            ("plain-control.html", "<button>Primary</button>"),
+            ("plain-control.css", "button { color: var(--brand); }"),
+        ]);
+        let result = build(default_options(app.path())).expect("build");
+        assert_eq!(result.protocol.tokens, ["brand", "green"]);
+    }
+
+    #[test]
+    fn test_build_does_not_use_sibling_component_definitions_for_theme_validation() {
+        let app = create_app_dir(&[
+            (
+                "index.html",
+                "<component-a></component-a><component-b></component-b>",
+            ),
+            ("component-a.html", "<div>A</div>"),
+            ("component-a.css", ":host { --brand-color: red; }"),
+            ("component-b.html", "<div>B</div>"),
+            ("component-b.css", ":host { color: var(--brand-color); }"),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([("light".to_string(), HashMap::new())]),
+        });
+
+        let Err(err) = build(options) else {
+            panic!("sibling custom property must not satisfy component-b");
+        };
+        let message = err.chain_message();
+        assert!(message.contains("missing theme token"), "msg: {message}");
+        assert!(message.contains("missing-theme-token"), "msg: {message}");
+        assert!(message.contains("--brand-color"), "msg: {message}");
+    }
+
+    #[test]
+    fn test_build_rejects_missing_theme_token_after_local_definition_filter() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card></my-card>"),
+            ("my-card.html", "<div>Card</div>"),
+            (
+                "my-card.css",
+                ":host { --token-a: red; --foo-bar: var(--token-a, var(--token-b, var(--token-c))); }",
+            ),
+        ]);
+        let mut options = default_options(app.path());
+        options.theme = Some(TokenFile {
+            themes: HashMap::from([(
+                "light".to_string(),
+                HashMap::from([("token-b".to_string(), "green".to_string())]),
+            )]),
+        });
+
+        let Err(err) = build(options) else {
+            panic!("missing --token-c in the theme must fail the build");
+        };
+        let message = err.chain_message();
+        assert!(message.contains("missing-theme-token"), "msg: {message}");
+        assert!(message.contains("--token-c"), "msg: {message}");
+        // The error demands the missing `--token-c`, never the locally-defined
+        // `--token-a` (which only appears in the source snippet as context).
+        assert!(!message.contains("add --token-a"), "msg: {message}");
+    }
+
+    mod package_discovery {
+        use super::*;
+
+        type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+        fn write(root: &Path, name: &str, content: &str) -> TestResult {
+            let path = root.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, content)?;
+            Ok(())
+        }
+
+        fn package_fixture(package: &Path, catalog: Option<&str>) -> TestResult {
+            let mut metadata = serde_json::json!({
+                "name": "@fixture/catalog", "customElements": "custom-elements.json"
+            });
+            if let Some(catalog) = catalog {
+                metadata["webui"] = serde_json::json!({"components": [catalog]});
+            }
+            write(package, "package.json", &metadata.to_string())?;
+            let catalog = package.join(catalog.unwrap_or("components"));
+            write(&catalog, "fixture-card.html", "<p>Package component</p>")?;
+            write(&catalog, "fixture-card.css", "p { color: blue; }")?;
+            write(
+                &catalog,
+                "fixture-card.v2.html",
+                "<span>Dotted component</span>",
+            )?;
+            write(
+                package,
+                "custom-elements.json",
+                r#"{"modules":[{"path":"dist/manifest-card.js","declarations":[{"name":"ManifestCard","tagName":"manifest-card"}]}]}"#,
+            )?;
+            write(package, "dist/manifest-card.js", "export {};")?;
+            write(
+                package,
+                "dist/manifest-card.template-webui.html",
+                r#"<f-template name="manifest-card"><template><p>Manifest component</p></template></f-template>"#,
+            )?;
+            for report in [
+                "test_results/coverage/lcov-report/core/initial-state.ts.html",
+                "test_results/coverage/lcov-report/initial-state.ts.html",
+            ] {
+                write(
+                    package,
+                    report,
+                    "<!doctype html><html><body>Generated coverage report</body></html>",
+                )?;
+            }
+            Ok(())
+        }
+
+        fn assert_build(root: &Path, plugin: Option<Plugin>) -> TestResult {
+            let manifest = matches!(plugin, Some(Plugin::FastV2 | Plugin::FastV3));
+            let app = root.join("app/src");
+            write(&app, "app-local.html", "<span>App component</span>")?;
+            write(
+                &app,
+                "index.html",
+                "<app-local></app-local><fixture-card></fixture-card><fixture-card.v2></fixture-card.v2><manifest-card></manifest-card>",
+            )?;
+            let options = BuildOptions {
+                app_dir: app,
+                components: vec!["@fixture/catalog".to_string()],
+                plugin,
+                css: CssStrategy::Style,
+                ..BuildOptions::default()
+            };
+            for _ in 0..2 {
+                let result = build(options.clone())?;
+                assert_eq!(result.stats.component_count, if manifest { 4 } else { 3 });
+                assert!(!result.protocol.fragments.contains_key("initial-state.ts"));
+                let mut writer = StringWriter { buf: String::new() };
+                WebUIHandler::new().render(
+                    &Protocol::new(result.protocol),
+                    &serde_json::json!({}),
+                    &RenderOptions::new("index.html", "/"),
+                    &mut writer,
+                )?;
+                for text in ["App component", "Package component", "Dotted component"] {
+                    assert!(writer.buf.contains(text), "Missing rendered {text}");
+                }
+                assert!(writer.buf.contains("color: blue"));
+                assert!(!writer.buf.contains("Generated coverage report"));
+                assert_eq!(writer.buf.contains("Manifest component"), manifest);
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn package_build_excludes_reports_for_default_and_explicit_catalogs() -> TestResult {
+            for (plugin, catalog) in [
+                (None, None),
+                (Some(Plugin::WebUI), Some("./src/components")),
+                (Some(Plugin::FastV2), None),
+                (Some(Plugin::FastV3), Some("./src/components")),
+            ] {
+                let root = tempfile::tempdir()?;
+                package_fixture(&root.path().join("node_modules/@fixture/catalog"), catalog)?;
+                assert_build(root.path(), plugin)?;
+            }
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn symlinked_workspace_package_build_excludes_generated_reports() -> TestResult {
+            let root = tempfile::tempdir()?;
+            let package = root.path().join("packages/catalog");
+            package_fixture(&package, Some("./src/components"))?;
+            fs::create_dir_all(root.path().join("node_modules/@fixture"))?;
+            std::os::unix::fs::symlink(
+                &package,
+                root.path().join("node_modules/@fixture/catalog"),
+            )?;
+            assert_build(root.path(), Some(Plugin::FastV3))
+        }
+
+        #[test]
+        fn distinct_files_and_overlapping_roots_preserve_duplicate_errors() -> TestResult {
+            for (roots, second_file) in [
+                (["./a", "./b"], Some("b/fixture-card.html")),
+                (["./a", "./a"], None),
+                (["./", "./a"], None),
+                (["./a", "./"], None),
+            ] {
+                let root = tempfile::tempdir()?;
+                let package = root.path().join("node_modules/@fixture/catalog");
+                write(
+                    &package,
+                    "package.json",
+                    &serde_json::json!({"webui":{"components":roots}}).to_string(),
+                )?;
+                write(&package, "a/fixture-card.html", "<p>First</p>")?;
+                if let Some(path) = second_file {
+                    write(&package, path, "<p>Second</p>")?;
+                }
+                let app = root.path().join("app");
+                write(&app, "index.html", "<fixture-card></fixture-card>")?;
+                let error = build(BuildOptions {
+                    app_dir: app,
+                    components: vec!["@fixture/catalog".to_string()],
+                    ..BuildOptions::default()
+                })
+                .expect_err("Duplicate component names must remain errors");
+                let message = error.chain_message();
+                assert!(message.contains("fixture-card"), "{message}");
+                assert!(message.contains("already registered"), "{message}");
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_build_to_disk_returns_accurate_stats() {
+        let app = create_app_dir(&[
+            ("index.html", "<my-card>Hello</my-card><p>{{name}}</p>"),
+            (
+                "my-card.html",
+                r#"<template shadowrootmode="open"><div><slot></slot></div></template>"#,
+            ),
+            ("my-card.css", ".card { color: red; }"),
+        ]);
+        let out = TempDir::new().unwrap();
+
+        let stats = build_to_disk(default_options(app.path()), out.path()).unwrap();
+
+        assert!(stats.fragment_count > 0);
+        assert_eq!(stats.css_file_count, 1);
+        assert!(stats.component_count > 0);
+        assert!(stats.protocol_size_bytes > 0);
+        assert!(!stats.duration.is_zero());
+    }
+}

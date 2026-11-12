@@ -1,0 +1,709 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+use std::fmt::{Display, Formatter, Write};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thiserror::Error;
+
+/// Cross-platform desktop window configuration stored in a bundle manifest.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WindowOptions {
+    /// Window title.
+    #[serde(default = "default_title")]
+    pub title: String,
+    /// Initial window width in physical-independent pixels.
+    #[serde(default = "default_width")]
+    pub width: u32,
+    /// Initial window height in physical-independent pixels.
+    #[serde(default = "default_height")]
+    pub height: u32,
+    /// Minimum width, when supported by the native backend.
+    #[serde(default, alias = "minWidth")]
+    pub min_width: Option<u32>,
+    /// Minimum height, when supported by the native backend.
+    #[serde(default, alias = "minHeight")]
+    pub min_height: Option<u32>,
+    /// Maximum width, when supported by the native backend.
+    #[serde(default, alias = "maxWidth")]
+    pub max_width: Option<u32>,
+    /// Maximum height, when supported by the native backend.
+    #[serde(default, alias = "maxHeight")]
+    pub max_height: Option<u32>,
+    /// Whether the user can resize the window.
+    #[serde(default = "default_resizable")]
+    pub resizable: bool,
+    /// Whether to start maximized.
+    #[serde(default)]
+    pub maximized: bool,
+    /// Whether to start fullscreen.
+    #[serde(default)]
+    pub fullscreen: bool,
+    /// Whether to keep the window above ordinary windows.
+    #[serde(default, alias = "alwaysOnTop")]
+    pub always_on_top: bool,
+    /// Whether the native backend should center the initial window.
+    #[serde(default = "default_center")]
+    pub center: bool,
+    /// Native pre-paint color and default document background.
+    #[serde(default)]
+    pub background: Option<Rgba>,
+    /// Native titlebar presentation.
+    #[serde(default)]
+    pub titlebar: TitlebarStyle,
+    /// Windows caption button size for overlay and hidden-inset titlebars.
+    /// Defaults to 32 DIPs independently of the application bar height.
+    #[serde(
+        default,
+        alias = "captionButtonSize",
+        skip_serializing_if = "CaptionButtonSize::is_standard"
+    )]
+    pub caption_button_size: CaptionButtonSize,
+    /// Requested platform visual effect.
+    #[serde(default)]
+    pub effect: WindowEffect,
+    /// Whether to persist validated window geometry between launches.
+    #[serde(default, alias = "rememberState")]
+    pub remember_state: bool,
+    /// Whether to enable web inspector/devtools for development builds.
+    #[serde(default)]
+    pub devtools: bool,
+}
+
+const fn default_width() -> u32 {
+    1200
+}
+const fn default_height() -> u32 {
+    800
+}
+const fn default_resizable() -> bool {
+    true
+}
+const fn default_center() -> bool {
+    true
+}
+fn default_title() -> String {
+    "WebUI".to_string()
+}
+
+impl Default for WindowOptions {
+    fn default() -> Self {
+        Self {
+            title: default_title(),
+            width: default_width(),
+            height: default_height(),
+            min_width: None,
+            min_height: None,
+            max_width: None,
+            max_height: None,
+            resizable: true,
+            maximized: false,
+            fullscreen: false,
+            always_on_top: false,
+            center: true,
+            background: None,
+            titlebar: TitlebarStyle::default(),
+            caption_button_size: CaptionButtonSize::default(),
+            effect: WindowEffect::default(),
+            remember_state: false,
+            devtools: false,
+        }
+    }
+}
+
+/// An RGBA color used for the native and document window background.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Rgba {
+    /// Red component.
+    pub r: u8,
+    /// Green component.
+    pub g: u8,
+    /// Blue component.
+    pub b: u8,
+    /// Alpha component.
+    pub a: u8,
+}
+
+impl Display for Rgba {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.a == u8::MAX {
+            write!(formatter, "#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        } else {
+            write!(
+                formatter,
+                "#{:02x}{:02x}{:02x}{:02x}",
+                self.r, self.g, self.b, self.a
+            )
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct LiveBackground(AtomicU64);
+
+impl LiveBackground {
+    pub(crate) fn set(&self, color: Rgba) {
+        let encoded = u64::from_be_bytes([0, 0, 0, 1, color.r, color.g, color.b, color.a]);
+        self.0.store(encoded, Ordering::Release);
+    }
+
+    pub(crate) fn current(&self) -> Option<Rgba> {
+        let encoded = self.0.load(Ordering::Acquire);
+        if encoded == 0 {
+            return None;
+        }
+        let [_, _, _, _, r, g, b, a] = encoded.to_be_bytes();
+        Some(Rgba { r, g, b, a })
+    }
+}
+
+/// Error returned when a manifest color is malformed.
+#[derive(Debug, Error)]
+pub enum RgbaParseError {
+    /// The color did not have a supported number of hex digits.
+    #[error("invalid RGBA color '{value}': expected #rrggbb or #rrggbbaa; help: use lowercase or uppercase hexadecimal digits")]
+    InvalidLength {
+        /// Rejected color text.
+        value: String,
+    },
+    /// The color contains a non-hexadecimal character.
+    #[error("invalid RGBA color '{value}': component '{component}' is not hexadecimal; help: use digits 0-9 and letters a-f")]
+    InvalidHex {
+        /// Rejected color text.
+        value: String,
+        /// Rejected component.
+        component: char,
+    },
+}
+
+impl FromStr for Rgba {
+    type Err = RgbaParseError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let bytes = value.as_bytes();
+        if !(bytes.len() == 7 || bytes.len() == 9) || bytes.first() != Some(&b'#') {
+            return Err(RgbaParseError::InvalidLength {
+                value: value.to_string(),
+            });
+        }
+        let byte = |offset: usize| -> Result<u8, RgbaParseError> {
+            let nibble = |byte: u8| match byte {
+                b'0'..=b'9' => Ok(byte - b'0'),
+                b'a'..=b'f' => Ok(byte - b'a' + 10),
+                b'A'..=b'F' => Ok(byte - b'A' + 10),
+                other => Err(RgbaParseError::InvalidHex {
+                    value: value.to_string(),
+                    component: char::from(other),
+                }),
+            };
+            Ok((nibble(bytes[offset])? << 4) | nibble(bytes[offset + 1])?)
+        };
+        Ok(Self {
+            r: byte(1)?,
+            g: byte(3)?,
+            b: byte(5)?,
+            a: if bytes.len() == 9 { byte(7)? } else { u8::MAX },
+        })
+    }
+}
+
+impl Serialize for Rgba {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+impl<'de> Deserialize<'de> for Rgba {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Size of native Windows caption buttons in an application-drawn titlebar.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptionButtonSize {
+    /// Standard 32-DIP caption buttons (the default).
+    #[default]
+    Standard,
+    /// Tall 48-DIP caption buttons.
+    Tall,
+}
+
+impl CaptionButtonSize {
+    const fn is_standard(&self) -> bool {
+        matches!(self, Self::Standard)
+    }
+}
+
+/// Native titlebar presentation requested by a window.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case", tag = "style")]
+pub enum TitlebarStyle {
+    /// Platform-native titlebar, matching prior WebUI behavior.
+    #[default]
+    Native,
+    /// Native controls float over full-bleed application content.
+    HiddenInset,
+    /// System caption buttons with an application-drawn bar.
+    Overlay {
+        /// Height of the overlay titlebar in CSS pixels.
+        /// The application band reserves at least this height; Windows caption
+        /// buttons are sized independently through [`WindowOptions::caption_button_size`].
+        height: u32,
+    },
+    /// Fully frameless window. The application draws all chrome.
+    None,
+}
+
+/// Platform visual effect requested by a window.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowEffect {
+    /// No platform effect.
+    #[default]
+    None,
+    /// macOS vibrancy or the closest native equivalent.
+    Vibrancy,
+    /// Windows acrylic or closest equivalent.
+    Acrylic,
+    /// Windows mica or closest equivalent.
+    Mica,
+    /// Tabbed titlebar treatment where supported.
+    Tabbed,
+}
+
+/// Native platform used to calculate titlebar safe areas.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DesktopPlatform {
+    /// macOS.
+    Macos,
+    /// Microsoft Windows.
+    Windows,
+    /// Linux desktop environments.
+    Linux,
+}
+impl DesktopPlatform {
+    /// Return the compilation target platform.
+    #[must_use]
+    pub const fn current() -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            Self::Macos
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Self::Windows
+        }
+        #[cfg(target_os = "linux")]
+        {
+            Self::Linux
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        {
+            Self::Linux
+        }
+    }
+}
+
+/// Safe-area insets reserved for native window controls.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WindowInsets {
+    /// Leading safe inset in CSS pixels.
+    pub start: u32,
+    /// Trailing safe inset in CSS pixels.
+    pub end: u32,
+    /// Top safe inset in CSS pixels.
+    pub top: u32,
+}
+impl WindowInsets {
+    /// Calculate native control insets for a style and platform.
+    #[must_use]
+    pub const fn for_style(style: &TitlebarStyle, platform: DesktopPlatform) -> Self {
+        let height = match style {
+            TitlebarStyle::Overlay { height } => *height,
+            TitlebarStyle::HiddenInset => 28,
+            TitlebarStyle::Native | TitlebarStyle::None => 0,
+        };
+        match style {
+            TitlebarStyle::HiddenInset | TitlebarStyle::Overlay { .. } => match platform {
+                DesktopPlatform::Macos => Self {
+                    start: 78,
+                    end: 0,
+                    top: height,
+                },
+                DesktopPlatform::Windows => Self {
+                    start: 0,
+                    end: 138,
+                    top: height,
+                },
+                DesktopPlatform::Linux => Self {
+                    start: 0,
+                    end: 0,
+                    top: height,
+                },
+            },
+            TitlebarStyle::Native | TitlebarStyle::None => Self {
+                start: 0,
+                end: 0,
+                top: 0,
+            },
+        }
+    }
+}
+
+/// Baseline styling every `[webui-drag]` region needs to behave like native
+/// window chrome.
+///
+/// Without `user-select: none`, double-clicking a drag region selects the
+/// title text before the drag script turns the gesture into a maximize toggle,
+/// which no native or Electron titlebar does. `cursor: default` suppresses the
+/// text I-beam over what is really window chrome. `[webui-no-drag]` opts
+/// subtrees back in so inputs and selectable text embedded in a custom
+/// titlebar keep working.
+const DRAG_REGION_CSS: &str =
+    "[webui-drag]{-webkit-user-select:none;user-select:none;cursor:default}\
+[webui-no-drag]{-webkit-user-select:auto;user-select:auto;cursor:auto}";
+
+/// Build the constant `<style>` block carrying window CSS custom properties.
+///
+/// The block depends only on window configuration and the target platform, so
+/// hosts compute it once at startup and reuse it for every rendered document.
+/// Always contains the drag-region rules, because backends inject
+/// [`crate::DRAG_REGION_SCRIPT`] regardless of titlebar style.
+#[must_use]
+pub fn window_css_block(window: &WindowOptions, platform: DesktopPlatform) -> String {
+    window_css_block_inner(window, platform, None)
+}
+
+/// Error when a host-supplied CSP nonce cannot be placed in a style attribute.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum WindowCssNonceError {
+    /// The nonce is empty, too long, or not a Base64/Base64URL token.
+    #[error("invalid CSP style nonce; help: supply a Base64 or Base64URL token of at most 128 ASCII characters from the current response")]
+    Invalid,
+}
+
+/// Build a trusted window style block for a response with nonce-only `style-src`.
+///
+/// The HTTP host generates and authenticates the per-response nonce; this
+/// helper only validates its attribute-safe syntax. It does not modify a
+/// response, disable CSP, or grant renderer authority.
+///
+/// # Errors
+///
+/// Rejects an empty, oversized, or non-Base64 nonce.
+pub fn window_css_block_with_nonce(
+    window: &WindowOptions,
+    platform: DesktopPlatform,
+    nonce: &str,
+) -> Result<String, WindowCssNonceError> {
+    let bytes = nonce.as_bytes();
+    let data_len = bytes
+        .iter()
+        .position(|byte| *byte == b'=')
+        .unwrap_or(bytes.len());
+    if data_len == 0
+        || bytes.len() > 128
+        || data_len % 4 == 1
+        || bytes.len() - data_len > 2
+        || (data_len != bytes.len() && !bytes.len().is_multiple_of(4))
+        || !bytes[..data_len]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'-' | b'_'))
+        || bytes[data_len..].iter().any(|byte| *byte != b'=')
+    {
+        return Err(WindowCssNonceError::Invalid);
+    }
+    Ok(window_css_block_inner(window, platform, Some(nonce)))
+}
+
+fn window_css_block_inner(
+    window: &WindowOptions,
+    platform: DesktopPlatform,
+    nonce: Option<&str>,
+) -> String {
+    let insets = WindowInsets::for_style(&window.titlebar, platform);
+    let mut style = String::with_capacity(320 + nonce.map_or(0, str::len));
+    if let Some(nonce) = nonce {
+        style.push_str("<style nonce=\"");
+        style.push_str(nonce);
+        style.push_str("\">");
+    } else {
+        style.push_str("<style>");
+    }
+    style.push_str(DRAG_REGION_CSS);
+    if matches!(window.titlebar, TitlebarStyle::Native) && window.background.is_none() {
+        style.push_str("</style>");
+        return style;
+    }
+    style.push_str(":root{--webui-titlebar-inset-start:");
+    let _ = write!(
+        style,
+        "{}px;--webui-titlebar-inset-end:{}px;--webui-titlebar-height:{}px",
+        insets.start, insets.end, insets.top
+    );
+    if let Some(background) = window.background {
+        style.push_str(";--webui-window-background:");
+        let _ = write!(style, "{background}");
+    }
+    style.push('}');
+    if window.background.is_some() {
+        style.push_str("html{background:var(--webui-window-background)}");
+    }
+    style.push_str("</style>");
+    style
+}
+
+pub(crate) fn live_background_css(color: Rgba) -> String {
+    let mut style = String::with_capacity(106);
+    append_live_background_css(&mut style, color);
+    style
+}
+
+pub(crate) fn append_live_background_css(style: &mut String, color: Rgba) {
+    style.push_str("<style>:root{--webui-window-background:");
+    let _ = write!(style, "{color}");
+    style.push_str("}html{background:var(--webui-window-background)}</style>");
+}
+
+#[cfg(any(test, feature = "native"))]
+pub(crate) fn live_background_script(color: Rgba) -> String {
+    let mut script = String::with_capacity(155);
+    script.push_str("(()=>{const root=document.documentElement;if(root){root.style.setProperty('--webui-window-background','");
+    let _ = write!(script, "{color}");
+    script.push_str("');root.style.backgroundColor='var(--webui-window-background)'}})()");
+    script
+}
+
+/// Splice a precomputed window CSS block into rendered HTML in one linear scan.
+///
+/// The block is placed inside `<head>` when present. Documents without a head
+/// fall back to the start of `<body>`, and finally to the end of the document,
+/// because injecting ahead of the doctype would force quirks mode.
+#[must_use]
+pub fn apply_window_css(html: String, block: &str) -> String {
+    if block.is_empty() {
+        return html;
+    }
+    apply_window_css_ref(&html, block)
+}
+
+pub(crate) fn apply_window_css_ref(html: &str, block: &str) -> String {
+    let position = html
+        .find("</head>")
+        .or_else(|| html.find("<body"))
+        .unwrap_or(html.len());
+    let mut output = String::with_capacity(html.len() + block.len());
+    output.push_str(&html[..position]);
+    output.push_str(block);
+    output.push_str(&html[position..]);
+    output
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_background_preserves_transparency_and_updates_document_css() {
+        let background = LiveBackground::default();
+        assert_eq!(background.current(), None);
+        let transparent = "#00000000".parse().unwrap();
+        background.set(transparent);
+        assert_eq!(background.current(), Some(transparent));
+        let white = "#ffffffff".parse().unwrap();
+        background.set(white);
+        assert_eq!(background.current(), Some(white));
+
+        assert_eq!(
+            live_background_css(white),
+            "<style>:root{--webui-window-background:#ffffff}html{background:var(--webui-window-background)}</style>"
+        );
+        assert_eq!(
+            live_background_script(white),
+            "(()=>{const root=document.documentElement;if(root){root.style.setProperty('--webui-window-background','#ffffff');root.style.backgroundColor='var(--webui-window-background)'}})()"
+        );
+    }
+
+    #[test]
+    fn parses_rgba() {
+        assert_eq!(
+            "#1234ab80".parse::<Rgba>().unwrap(),
+            Rgba {
+                r: 0x12,
+                g: 0x34,
+                b: 0xab,
+                a: 0x80
+            }
+        );
+        assert_eq!("#1234ab".parse::<Rgba>().unwrap().a, 255);
+    }
+    #[test]
+    fn rejects_bad_rgba_actionably() {
+        assert!("#12"
+            .parse::<Rgba>()
+            .unwrap_err()
+            .to_string()
+            .contains("#rrggbb"));
+        assert!("#zzzzzz"
+            .parse::<Rgba>()
+            .unwrap_err()
+            .to_string()
+            .contains("not hexadecimal"));
+    }
+    #[test]
+    fn calculates_platform_insets() {
+        let style = TitlebarStyle::HiddenInset;
+        assert_eq!(
+            WindowInsets::for_style(&style, DesktopPlatform::Macos).start,
+            78
+        );
+        assert_eq!(
+            WindowInsets::for_style(&style, DesktopPlatform::Windows).end,
+            138
+        );
+        assert_eq!(
+            WindowInsets::for_style(&style, DesktopPlatform::Linux).top,
+            28
+        );
+    }
+    #[test]
+    fn injects_window_css() {
+        let options = WindowOptions {
+            titlebar: TitlebarStyle::HiddenInset,
+            background: Some("#112233".parse().unwrap()),
+            ..WindowOptions::default()
+        };
+        let block = window_css_block(&options, DesktopPlatform::Macos);
+        let html = apply_window_css(
+            "<html><head></head><body></body></html>".to_string(),
+            &block,
+        );
+        assert!(html.contains("--webui-titlebar-inset-start:78px"));
+        assert!(html.contains("html{background"));
+        assert!(html.find("<style>") < html.find("</head>"));
+    }
+
+    #[test]
+    fn native_titlebar_without_background_injects_only_drag_region_rules() {
+        let block = window_css_block(&WindowOptions::default(), DesktopPlatform::Macos);
+        // Backends inject `DRAG_REGION_SCRIPT` for every titlebar style, so the
+        // matching CSS must ship too; only the inset variables are omitted.
+        assert!(block.contains("[webui-drag]"));
+        assert!(!block.contains("--webui-titlebar-inset-start"));
+        assert!(!block.contains("--webui-window-background"));
+    }
+
+    #[test]
+    fn window_css_nonce_is_per_response_and_attribute_safe() {
+        let window = WindowOptions {
+            titlebar: TitlebarStyle::Overlay { height: 64 },
+            ..WindowOptions::default()
+        };
+        let css =
+            window_css_block_with_nonce(&window, DesktopPlatform::Windows, "aB02-_/+").unwrap();
+        assert!(css.starts_with("<style nonce=\"aB02-_/+\">"));
+        assert!(css.contains("--webui-titlebar-inset-end:138px"));
+        assert_eq!(
+            css.replacen("<style nonce=\"aB02-_/+\">", "<style>", 1),
+            window_css_block(&window, DesktopPlatform::Windows)
+        );
+        for invalid in [
+            "",
+            "a",
+            "abc=def",
+            "abcd===",
+            "====",
+            "bad value",
+            "bad\" onload=\"x",
+            "a".repeat(129).as_str(),
+        ] {
+            assert_eq!(
+                window_css_block_with_nonce(&window, DesktopPlatform::Windows, invalid),
+                Err(WindowCssNonceError::Invalid)
+            );
+        }
+    }
+
+    #[test]
+    fn drag_regions_suppress_selection_and_no_drag_restores_it() {
+        let options = WindowOptions {
+            titlebar: TitlebarStyle::HiddenInset,
+            ..WindowOptions::default()
+        };
+        let block = window_css_block(&options, DesktopPlatform::Macos);
+        // A double-click on a drag region must toggle maximize, not select the
+        // title text, so selection is suppressed on the region itself and
+        // restored on opted-out subtrees such as inputs.
+        assert!(block.contains("[webui-drag]{-webkit-user-select:none;user-select:none"));
+        assert!(block.contains("[webui-no-drag]{-webkit-user-select:auto;user-select:auto"));
+    }
+
+    #[test]
+    fn headless_documents_never_inject_ahead_of_the_doctype() {
+        let options = WindowOptions {
+            titlebar: TitlebarStyle::HiddenInset,
+            ..WindowOptions::default()
+        };
+        let block = window_css_block(&options, DesktopPlatform::Macos);
+
+        let with_body =
+            apply_window_css("<!doctype html><body><p>hi</p></body>".to_string(), &block);
+        assert!(with_body.starts_with("<!doctype html>"));
+        assert!(with_body.find("<style>") < with_body.find("<body"));
+
+        let fragment = apply_window_css("<!doctype html><p>hi</p>".to_string(), &block);
+        assert!(fragment.starts_with("<!doctype html>"));
+        assert!(fragment.ends_with("</style>"));
+    }
+    #[test]
+    fn legacy_window_manifest_defaults_new_fields() {
+        let options: WindowOptions = serde_json::from_str(
+            r#"{"title":"Legacy","width":640,"height":480,"maximized":false,"devtools":true}"#,
+        )
+        .unwrap();
+        assert!(options.resizable);
+        assert!(options.center);
+        assert_eq!(options.titlebar, TitlebarStyle::Native);
+        assert_eq!(options.caption_button_size, CaptionButtonSize::Standard);
+        assert_eq!(options.effect, WindowEffect::None);
+    }
+
+    #[test]
+    fn caption_button_size_deserializes_app_config_and_preserves_manifest_format() {
+        let options: WindowOptions = serde_json::from_str(
+            r#"{"titlebar":{"style":"overlay","height":48},"captionButtonSize":"tall"}"#,
+        )
+        .unwrap();
+        assert_eq!(options.titlebar, TitlebarStyle::Overlay { height: 48 });
+        assert_eq!(options.caption_button_size, CaptionButtonSize::Tall);
+        let manifest = serde_json::to_value(&options).unwrap();
+        assert_eq!(manifest["caption_button_size"], "tall");
+        assert!(manifest.get("captionButtonSize").is_none());
+        assert!(serde_json::to_value(WindowOptions::default())
+            .unwrap()
+            .get("caption_button_size")
+            .is_none());
+    }
+
+    #[test]
+    fn app_config_camel_case_window_settings_are_not_discarded() {
+        let options: WindowOptions = serde_json::from_str(
+            r#"{"minWidth":480,"minHeight":320,"maxWidth":1600,"maxHeight":1000,"alwaysOnTop":true,"rememberState":true}"#,
+        )
+        .unwrap();
+        assert_eq!(options.min_width, Some(480));
+        assert_eq!(options.min_height, Some(320));
+        assert_eq!(options.max_width, Some(1600));
+        assert_eq!(options.max_height, Some(1000));
+        assert!(options.always_on_top);
+        assert!(options.remember_state);
+        let manifest = serde_json::to_value(&options).unwrap();
+        assert_eq!(manifest["min_width"], 480);
+        assert_eq!(manifest["remember_state"], true);
+    }
+}

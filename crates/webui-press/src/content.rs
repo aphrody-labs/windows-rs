@@ -1,0 +1,1450 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Content pipeline: reads markdown files, parses frontmatter, builds page state.
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde_json::{Map, Value};
+
+use crate::error::{Error, Result};
+use crate::markdown::{render_markdown_with_links, Highlighter, MarkdownLinks};
+use crate::metadata::{canonical_url, document_path, document_title, site_origin};
+use crate::state::{
+    load_render_states, merge_page_state, parse_markdown_state, parse_markdown_state_file,
+    LoadedStates, StateDependencies, StateLoader,
+};
+use crate::types::{DocsConfig, NavLink, PageDescriptor, ShowMode, SidebarItem, SidebarSection};
+
+/// Normalize a config link (e.g. `/guide/intro/` or `/guide/intro`) to a
+/// canonical URL path that includes the site's `base_path` prefix and
+/// **never** has a trailing slash (except for root, which is just the base).
+/// GitHub Pages and most static hosts auto-redirect `/foo` → `/foo/index.html`,
+/// so trailing slashes are unnecessary and pollute internal hrefs.
+fn normalize_link(base: &str, link: &str) -> String {
+    if link.is_empty() {
+        return String::new();
+    }
+    // Tolerate config links written without a leading slash; also avoids a
+    // panic when `link` starts with a multi-byte UTF-8 char (a bare `&link[1..]`
+    // would slice mid-char and abort the build).
+    let stripped = link.strip_prefix('/').unwrap_or(link);
+    if link.contains('#') {
+        // Fragment link — preserve original shape, don't touch the slash.
+        return format!("{base}{stripped}");
+    }
+    let cleaned = stripped.trim_end_matches('/');
+    if cleaned.is_empty() {
+        // Root: `base` already ends with '/'.
+        base.to_string()
+    } else {
+        format!("{base}{cleaned}")
+    }
+}
+
+fn config_paths_match(left: &str, right: &str) -> bool {
+    left.trim_end_matches('/') == right.trim_end_matches('/')
+}
+
+/// Build a JSON object from key-value pairs without using `json!` (which calls `unwrap`).
+fn json_obj<const N: usize>(entries: [(&str, Value); N]) -> Value {
+    let mut map = Map::with_capacity(N);
+    for (k, v) in entries {
+        map.insert(k.to_string(), v);
+    }
+    Value::Object(map)
+}
+
+/// Parsed frontmatter from a markdown file.
+#[derive(Debug)]
+struct Frontmatter {
+    title: Option<String>,
+    description: Option<String>,
+    layout: Option<String>,
+    outline: Option<bool>,
+    state: Option<Value>,
+    state_file: Option<String>,
+}
+
+fn parse_frontmatter(content: &str) -> Result<(Frontmatter, &str)> {
+    if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
+        return Ok((
+            Frontmatter {
+                title: None,
+                description: None,
+                layout: None,
+                outline: None,
+                state: None,
+                state_file: None,
+            },
+            content,
+        ));
+    }
+
+    // Skip leading "---" + line ending.
+    let body_start_marker = if content.starts_with("---\r\n") { 5 } else { 4 };
+    let after_open = &content[body_start_marker..];
+
+    // Find the closing "---" on its own line (preceded by `\n` or `\r\n`).
+    let (yaml_end_offset, close_skip) = if let Some(i) = after_open.find("\r\n---") {
+        (i, "\r\n---".len())
+    } else if let Some(i) = after_open.find("\n---") {
+        (i, "\n---".len())
+    } else {
+        (after_open.len(), 0)
+    };
+
+    let yaml_str = &after_open[..yaml_end_offset];
+    let body_offset = body_start_marker + yaml_end_offset + close_skip;
+    let body = if body_offset < content.len() {
+        // Strip the line-ending immediately following the closing "---".
+        let rest = &content[body_offset..];
+        rest.strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix('\n'))
+            .unwrap_or(rest)
+    } else {
+        ""
+    };
+
+    let yaml: serde_yaml::Mapping = serde_yaml::from_str(yaml_str).map_err(|e| {
+        Error::Markdown(format!(
+            "Invalid frontmatter YAML: {e}\nhelp: Use valid YAML with unique object keys between the --- delimiters."
+        ))
+    })?;
+
+    Ok((
+        Frontmatter {
+            title: yaml.get("title").and_then(|v| v.as_str()).map(String::from),
+            description: yaml
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            layout: yaml
+                .get("layout")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            outline: yaml
+                .get("outline")
+                .map(crate::outline::parse_override)
+                .transpose()?,
+            state: yaml.get("state").map(parse_markdown_state).transpose()?,
+            state_file: yaml
+                .get("stateFile")
+                .map(parse_markdown_state_file)
+                .transpose()?,
+        },
+        body,
+    ))
+}
+
+struct MarkdownSource {
+    frontmatter: Frontmatter,
+    body: String,
+}
+
+fn process_markdown_batches<T>(
+    registry: &[(String, PathBuf)],
+    config: &DocsConfig,
+    dependencies: &mut StateDependencies,
+    mut process: impl FnMut(usize, &[(String, PathBuf)], Vec<Option<MarkdownSource>>) -> Result<Vec<T>>,
+) -> Result<Vec<T>> {
+    let mut loader = StateLoader::new();
+    // Keep source bodies bounded by worker count while sharing the include cache.
+    let batch_size = rayon::current_num_threads();
+    let results = registry.chunks(batch_size).enumerate().try_fold(
+        Vec::with_capacity(registry.len()),
+        |mut results, (batch_index, batch)| {
+            let sources = batch
+                .iter()
+                .map(|(url, source)| {
+                    let logical = format!("/{}", &url[config.base_path.len()..]);
+                    if config
+                        .custom_pages
+                        .keys()
+                        .any(|key| config_paths_match(key, &logical))
+                        || !source.exists()
+                    {
+                        return Ok(None);
+                    }
+                    let raw = fs::read_to_string(source).map_err(|error| {
+                        Error::Io(format!("Cannot read {}: {error}", source.display()))
+                    })?;
+                    let (mut frontmatter, body) = parse_frontmatter(&raw).map_err(|error| {
+                        Error::Markdown(format!("{}: {error}", source.display()))
+                    })?;
+                    frontmatter.state = loader
+                        .load_markdown_state(
+                            frontmatter.state_file.as_deref(),
+                            frontmatter.state.take(),
+                            source,
+                        )
+                        .map_err(|error| {
+                            Error::Markdown(format!("{}: {error}", source.display()))
+                        })?;
+                    Ok(Some(MarkdownSource {
+                        frontmatter,
+                        body: body.to_string(),
+                    }))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            results.extend(process(batch_index * batch_size, batch, sources)?);
+            Ok(results)
+        },
+    );
+    *dependencies = loader.into_dependencies();
+    results
+}
+
+fn extract_h1(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if let Some(heading) = line.strip_prefix("# ") {
+            return Some(heading.trim().to_string());
+        }
+    }
+    None
+}
+
+/// Collect all links from a sidebar item and its children (iterative).
+fn collect_sidebar_links(items: &[SidebarItem]) -> Vec<&str> {
+    let mut links = Vec::new();
+    let mut stack: Vec<&SidebarItem> = items.iter().rev().collect();
+    while let Some(item) = stack.pop() {
+        if !item.link.is_empty() {
+            links.push(item.link.as_str());
+        }
+        for child in item.items.iter().rev() {
+            stack.push(child);
+        }
+    }
+    links
+}
+
+/// Strip a redundant filename when it should resolve to its parent folder.
+///
+/// E.g., "my-button/my-button" → "my-button"
+///       "my-button/usage" → "my-button/usage" (unchanged)
+fn normalize_path_as_index(path: &str) -> &str {
+    // Find the last slash to split parent/filename
+    let Some(slash_pos) = path.rfind('/') else {
+        return path;
+    };
+
+    let parent = &path[..slash_pos];
+    let filename = &path[slash_pos + 1..];
+
+    // Get the parent folder name (last segment before filename)
+    let folder_name = parent.rsplit('/').next().unwrap_or("");
+
+    // If folder name matches filename, treat as index and strip filename
+    if folder_name == filename {
+        parent
+    } else {
+        path
+    }
+}
+
+/// Resolve the public URL path for a markdown file.
+///
+/// `rel_path` is the file's path relative to the content directory, using
+/// forward slashes (e.g. `guide/install.md`). A nav entry that claims this
+/// file via its `source` field wins outright, which lets a page keep a stable
+/// URL when its filename is dictated by an outside convention. Any fragment
+/// (`#`) or query string (`?`) in the override link is stripped before the
+/// route is formed — they are navigation-only markers that cannot appear in a
+/// filesystem path and would break prev/next matching against normalized
+/// sidebar links. Otherwise the URL is derived from the filesystem: `.md` is
+/// dropped, then a trailing `index` — or a filename that repeats its parent
+/// folder — collapses to the folder.
+fn page_url_path(rel_path: &str, base_path: &str, sources: &HashMap<&str, &str>) -> String {
+    let prefix = base_path.trim_end_matches('/');
+
+    if let Some(&link) = sources.get(rel_path) {
+        // Strip any fragment (#) or query (?) — they are navigation-only and
+        // cannot appear in a filesystem-derived route or match sidebar links.
+        let end = link.find(['#', '?']).unwrap_or(link.len());
+        let link = &link[..end];
+        let cleaned = link.trim_matches('/');
+        return if cleaned.is_empty() {
+            format!("{prefix}/")
+        } else {
+            format!("{prefix}/{cleaned}")
+        };
+    }
+
+    let trimmed = rel_path.trim_end_matches(".md");
+    let trimmed = trimmed.strip_suffix("/index").unwrap_or(trimmed);
+    let trimmed = normalize_path_as_index(trimmed);
+
+    if trimmed.is_empty() || trimmed == "index" {
+        format!("{prefix}/")
+    } else {
+        format!("{prefix}/{trimmed}")
+    }
+}
+
+fn markdown_link_base_url(source_path: &Path, content_dir: &Path, base_path: &str) -> String {
+    let parent = source_path
+        .strip_prefix(content_dir)
+        .ok()
+        .and_then(Path::parent);
+    let parent = parent
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+
+    let prefix = base_path.trim_end_matches('/');
+    let parent = parent.trim_matches('/');
+    let mut url = String::with_capacity(prefix.len() + parent.len() + 2);
+    url.push_str(prefix);
+    url.push('/');
+    if !parent.is_empty() {
+        url.push_str(parent);
+        url.push('/');
+    }
+    url
+}
+
+/// Map each nav entry that declares a `source` file to its configured link.
+///
+/// Keys are content-relative markdown paths; values are raw config links.
+/// Entries whose `link` starts with `http` are excluded because `source` is
+/// only meaningful for internal routes; pairing it with an external URL would
+/// produce an invalid route in `page_url_path`.
+fn nav_source_overrides(nav: &[NavLink]) -> HashMap<&str, &str> {
+    nav.iter()
+        .filter_map(|item| {
+            let source = item.source.as_deref()?;
+            if item.link.starts_with("http") {
+                return None;
+            }
+            Some((source, item.link.as_str()))
+        })
+        .collect()
+}
+
+/// Build the page registry by walking content_dir for every `.md` file.
+///
+/// Discovery is filesystem-driven: any markdown file under content_dir becomes
+/// a page. The sidebar/nav config controls navigation, not discovery.
+fn build_page_registry(
+    content_dir: &Path,
+    base_path: &str,
+    sources: &HashMap<&str, &str>,
+) -> Vec<(String, std::path::PathBuf)> {
+    let mut pages = Vec::new();
+    let mut stack: Vec<std::path::PathBuf> = vec![content_dir.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Skip dotfiles/dotdirs and the build output.
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with('.') || name_str == "dist" || name_str == "node_modules" {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                continue;
+            }
+
+            let rel = match path.strip_prefix(content_dir) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            pages.push((page_url_path(&rel_str, base_path, sources), path));
+        }
+    }
+
+    pages.sort_by(|a, b| a.0.cmp(&b.0));
+    pages
+}
+
+fn build_sidebar_item_state(item: &SidebarItem, base: &str, url_path: &str) -> (Value, bool) {
+    let item_path = normalize_link(base, &item.link);
+    let active = !item_path.is_empty() && item_path == url_path;
+    let mut descendant_active = false;
+    let children: Vec<Value> = item
+        .items
+        .iter()
+        .map(|child| {
+            let child_path = normalize_link(base, &child.link);
+            let child_active = !child_path.is_empty() && child_path == url_path;
+            descendant_active |= child_active;
+            json_obj([
+                ("text", Value::String(child.text.clone())),
+                ("link", Value::String(child_path)),
+                ("active", Value::Bool(child_active)),
+                ("hasChildren", Value::Bool(false)),
+                ("children", Value::Array(vec![])),
+            ])
+        })
+        .collect();
+    let expanded = active || descendant_active;
+    (
+        json_obj([
+            ("text", Value::String(item.text.clone())),
+            ("link", Value::String(item_path)),
+            ("active", Value::Bool(active)),
+            ("expanded", Value::Bool(expanded)),
+            ("hasChildren", Value::Bool(!children.is_empty())),
+            ("children", Value::Array(children)),
+        ]),
+        expanded,
+    )
+}
+
+fn build_sidebar_state(url_path: &str, config: &DocsConfig) -> serde_json::Value {
+    let base = &config.base_path;
+
+    // Determine active sidebar
+    let active_sidebar = config
+        .sidebar_groups
+        .iter()
+        .find(|(prefix, _)| {
+            let full_prefix = format!("{}{}", base, prefix.strip_prefix('/').unwrap_or(prefix));
+            let trimmed = full_prefix.trim_end_matches('/');
+            url_path == trimmed || url_path.starts_with(&format!("{trimmed}/"))
+        })
+        .map(|(_, s)| s.as_slice())
+        .unwrap_or(&config.sidebar);
+
+    let mut current_section = String::new();
+    let sections: Vec<Value> = active_sidebar
+        .iter()
+        .map(|section| {
+            let mut section_active = false;
+            let items: Vec<Value> = section
+                .items
+                .iter()
+                .map(|item| {
+                    let (value, branch_active) = build_sidebar_item_state(item, base, url_path);
+                    section_active |= branch_active;
+                    value
+                })
+                .collect();
+            if section_active {
+                current_section.clone_from(&section.title);
+            }
+            json_obj([
+                ("title", Value::String(section.title.clone())),
+                ("items", Value::Array(items)),
+            ])
+        })
+        .collect();
+
+    json_obj([
+        ("sections", Value::Array(sections)),
+        ("currentSection", Value::String(current_section)),
+    ])
+}
+
+fn find_sidebar_text(url_path: &str, config: &DocsConfig) -> Option<String> {
+    let base = &config.base_path;
+    let all: Vec<&[SidebarSection]> = std::iter::once(config.sidebar.as_slice())
+        .chain(config.sidebar_groups.values().map(|v| v.as_slice()))
+        .collect();
+
+    for sidebar in all {
+        for section in sidebar {
+            // Use iterative stack to search nested items
+            let mut stack: Vec<&SidebarItem> = section.items.iter().collect();
+            while let Some(item) = stack.pop() {
+                if !item.link.is_empty() {
+                    let item_path = normalize_link(base, &item.link);
+                    if item_path == url_path {
+                        return Some(item.text.clone());
+                    }
+                }
+                for child in &item.items {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Process all content files and return page descriptors.
+///
+/// `config_dir` is the directory containing `config.json`; relative paths
+/// declared in the config (such as a custom page's `stateFile`) are resolved
+/// against it.
+///
+/// `head_injection` is the fully-resolved `<head>` snippet (CSS link
+/// tags + `config.head` entries). It MUST be computed before this call
+/// so the descriptor is render-ready.
+#[allow(dead_code)] // Public library API; the binary uses preloaded state for 404 parity.
+pub fn process_content(
+    config: &DocsConfig,
+    config_dir: &Path,
+    highlighter: &Highlighter,
+    head_injection: &str,
+) -> Result<Vec<PageDescriptor>> {
+    let states = load_render_states(config, config_dir)?;
+    process_content_with_states(
+        config,
+        highlighter,
+        head_injection,
+        &states,
+        &mut StateDependencies::default(),
+    )
+}
+
+pub(crate) fn process_content_with_states(
+    config: &DocsConfig,
+    highlighter: &Highlighter,
+    head_injection: &str,
+    states: &LoadedStates,
+    dependencies: &mut StateDependencies,
+) -> Result<Vec<PageDescriptor>> {
+    let content_dir = Path::new(&config.content_dir);
+    let base_path = &config.base_path;
+    let origin = site_origin(config.site.url.as_deref())?;
+
+    let nav_links: Vec<Value> = config
+        .nav
+        .iter()
+        .map(|item| {
+            let full_layout = !item.link.starts_with("http")
+                && config.custom_pages.iter().any(|(path, page)| {
+                    config_paths_match(path, &item.link) && page.layout() == "full"
+                });
+            let (link, section) = if item.link.starts_with("http") {
+                // External links can never match a docs section. Use the URL
+                // itself as a unique sentinel so the equality check below
+                // never matches any page's section slug.
+                (item.link.clone(), item.link.clone())
+            } else {
+                let full = format!("{}{}", base_path, &item.link[1..]);
+                // Derive a section slug from the raw config link, e.g. "/guide/" -> "guide".
+                let slug = item
+                    .link
+                    .trim_start_matches('/')
+                    .split('/')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                (full, slug)
+            };
+            json_obj([
+                ("text", Value::String(item.text.clone())),
+                ("link", Value::String(link)),
+                ("section", Value::String(section)),
+                ("fullLayout", Value::Bool(full_layout)),
+            ])
+        })
+        .collect();
+
+    let mut registry =
+        build_page_registry(content_dir, base_path, &nav_source_overrides(&config.nav));
+    let markdown_page_count = registry.len();
+
+    // Register custom pages
+    for page_link in config.custom_pages.keys() {
+        let normalized = if page_link.ends_with('/') {
+            page_link.clone()
+        } else {
+            format!("{}/", page_link)
+        };
+        let url_path = format!("{}{}", base_path, &normalized[1..]);
+        let src_file = format!("{}index.md", &normalized[1..]);
+        let full_path = content_dir.join(&src_file);
+        if !registry.iter().any(|(p, _)| p == &url_path) {
+            registry.push((url_path, full_path));
+        }
+    }
+
+    let source_routes = registry[..markdown_page_count]
+        .iter()
+        .map(|(route, source)| {
+            let relative = source.strip_prefix(content_dir).map_err(|error| {
+                Error::Build(format!(
+                    "Cannot make {} content-relative: {error}",
+                    source.display()
+                ))
+            })?;
+            let source_url = format!(
+                "{}{}",
+                base_path,
+                relative.to_string_lossy().replace('\\', "/")
+            );
+            Ok((source_url, route.as_str()))
+        })
+        .collect::<Result<HashMap<_, _>>>()?;
+
+    use rayon::prelude::*;
+
+    // Per-page processing: parse markdown / load custom HTML, expand
+    // syntax highlighting, build the state JSON. Always runs for every
+    // page on every call — there is no descriptor cache. The dev
+    // server keeps a `BuildCache` only to amortize the syntect
+    // highlighter load.
+    let results: Vec<(usize, PageDescriptor)> = process_markdown_batches(
+        &registry,
+        config,
+        dependencies,
+        |offset, registry, markdown_sources| {
+            registry
+                .par_iter()
+                .zip(markdown_sources.into_par_iter())
+                .enumerate()
+                .map(
+                    |(idx, ((url_path, full_path), markdown))| -> Result<(usize, PageDescriptor)> {
+                        let mut is_home = false;
+                        let mut html = String::new();
+                        let mut title = config.site.title.clone();
+                        let mut description = config.site.description.clone();
+                        let mut layout = "doc".to_string();
+                        let mut outline = config.outline;
+                        let mut markdown_state = None;
+
+                        // Check custom page override
+                        let logical_path = format!("/{}", &url_path[base_path.len()..]);
+                        let custom_entry = config.custom_pages.get(&logical_path).or_else(|| {
+                            config.custom_pages.get(logical_path.trim_end_matches('/'))
+                        });
+                        let custom_state = states.custom_page_state(&logical_path);
+
+                        if let Some(entry) = custom_entry {
+                            html = entry.html().to_string();
+                            layout = entry.layout().to_string();
+                            outline = entry.outline().unwrap_or(outline);
+                            if let Some(value) = entry.title() {
+                                title = value.to_string();
+                            }
+                            if let Some(value) = entry.description() {
+                                description = value.to_string();
+                            }
+                        } else if let Some(MarkdownSource {
+                            frontmatter: fm,
+                            body,
+                        }) = markdown
+                        {
+                            markdown_state = fm.state;
+                            outline = fm.outline.unwrap_or(outline);
+
+                            is_home = fm.layout.as_deref() == Some("home");
+                            layout = if is_home {
+                                "home".to_string()
+                            } else {
+                                fm.layout.unwrap_or_else(|| "doc".to_string())
+                            };
+                            if !is_home || config.show == ShowMode::Content {
+                                let page_url = if url_path.ends_with('/') {
+                                    url_path.to_string()
+                                } else {
+                                    format!("{url_path}/")
+                                };
+                                let link_base_url =
+                                    markdown_link_base_url(full_path, content_dir, base_path);
+                                html = render_markdown_with_links(
+                                    &body,
+                                    highlighter,
+                                    base_path,
+                                    &page_url,
+                                    MarkdownLinks {
+                                        directory: &link_base_url,
+                                        pages: &source_routes,
+                                    },
+                                )?;
+                            }
+
+                            if let Some(d) = fm.description {
+                                description = d;
+                            }
+
+                            let h1 = extract_h1(&body);
+                            let sidebar_text = find_sidebar_text(url_path, config);
+                            title = fm
+                                .title
+                                .or(h1)
+                                .or(sidebar_text)
+                                .unwrap_or_else(|| config.site.title.clone());
+                        }
+
+                        let hero_val = if is_home {
+                            config
+                                .hero
+                                .as_ref()
+                                .map(|h| {
+                                    json_obj([
+                                        (
+                                            "text",
+                                            h.text
+                                                .as_ref()
+                                                .map_or(Value::Null, |t| Value::String(t.clone())),
+                                        ),
+                                        ("tagline", Value::String(h.tagline.clone())),
+                                        (
+                                            "manifesto",
+                                            h.manifesto
+                                                .as_ref()
+                                                .map_or(Value::Null, |m| Value::String(m.clone())),
+                                        ),
+                                        (
+                                            "actions",
+                                            Value::Array(
+                                                h.actions
+                                                    .iter()
+                                                    .map(|a| {
+                                                        json_obj([
+                                                            ("text", Value::String(a.text.clone())),
+                                                            ("link", Value::String(a.link.clone())),
+                                                            ("brand", Value::Bool(a.brand)),
+                                                        ])
+                                                    })
+                                                    .collect(),
+                                            ),
+                                        ),
+                                        (
+                                            "features",
+                                            Value::Array(
+                                                h.features
+                                                    .iter()
+                                                    .map(|f| {
+                                                        json_obj([
+                                                            ("icon", Value::String(f.icon.clone())),
+                                                            (
+                                                                "title",
+                                                                Value::String(f.title.clone()),
+                                                            ),
+                                                            (
+                                                                "description",
+                                                                Value::String(
+                                                                    f.description.clone(),
+                                                                ),
+                                                            ),
+                                                        ])
+                                                    })
+                                                    .collect(),
+                                            ),
+                                        ),
+                                    ])
+                                })
+                                .unwrap_or(Value::Null)
+                        } else {
+                            Value::Null
+                        };
+
+                        let footer_val = config
+                            .footer
+                            .as_ref()
+                            .map(|f| json_obj([("html", Value::String(f.html.clone()))]))
+                            .unwrap_or(Value::Null);
+
+                        // Top-level section slug for the current page, derived from the
+                        // first path segment after the base. Used by the nav template to
+                        // mark the active link via `?active="{{link.section == page.section}}"`.
+                        let page_section = logical_path
+                            .trim_start_matches('/')
+                            .split('/')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+
+                        let page_path = document_path(url_path);
+                        let canonical = canonical_url(origin, &page_path);
+                        let state = json_obj([
+                            (
+                                "site",
+                                json_obj([
+                                    ("title", Value::String(config.site.title.clone())),
+                                    ("base", Value::String(base_path.to_string())),
+                                    (
+                                        "url",
+                                        origin.map_or(Value::Null, |url| {
+                                            Value::String(url.to_string())
+                                        }),
+                                    ),
+                                ]),
+                            ),
+                            ("navigation", Value::Array(nav_links.clone())),
+                            ("sidebar", build_sidebar_state(url_path, config)),
+                            (
+                                "page",
+                                json_obj([
+                                    ("title", Value::String(title.clone())),
+                                    (
+                                        "documentTitle",
+                                        Value::String(document_title(&title, &config.site.title)),
+                                    ),
+                                    ("description", Value::String(description.clone())),
+                                    ("path", Value::String(page_path)),
+                                    ("canonicalUrl", canonical.map_or(Value::Null, Value::String)),
+                                    ("content", Value::String(html.clone())),
+                                    ("isHome", Value::Bool(is_home)),
+                                    ("layout", Value::String(layout)),
+                                    ("section", Value::String(page_section)),
+                                    ("mobileNavigationOpen", Value::Bool(false)),
+                                    ("outline", Value::Bool(outline)),
+                                ]),
+                            ),
+                            ("hero", hero_val),
+                            ("footer", footer_val),
+                            ("prev", Value::Null),
+                            ("next", Value::Null),
+                            ("pageData", custom_state.cloned().unwrap_or(Value::Null)),
+                            ("headTags", Value::String(head_injection.to_string())),
+                            ("label", Value::String("Copy".to_string())),
+                            ("icon", Value::String("🌙".to_string())),
+                        ]);
+
+                        let state = merge_page_state(
+                            state,
+                            states.global(),
+                            custom_state.or(markdown_state.as_ref()),
+                        );
+
+                        Ok((
+                            offset + idx,
+                            PageDescriptor {
+                                path: url_path.clone(),
+                                is_home,
+                                state,
+                            },
+                        ))
+                    },
+                )
+                .collect::<Result<Vec<_>>>()
+        },
+    )?;
+
+    // Build prev/next links from the sidebar that matches each page's URL.
+    // We resolve the active sidebar per-page by checking sidebar_groups
+    // prefixes, then falling back to the default config.sidebar.
+    let resolve_sidebar = |page_path: &str| -> Vec<SidebarItem> {
+        let active = config
+            .sidebar_groups
+            .iter()
+            .find(|(prefix, _)| {
+                let full_prefix = format!(
+                    "{}{}",
+                    base_path,
+                    prefix.strip_prefix('/').unwrap_or(prefix)
+                );
+                let trimmed = full_prefix.trim_end_matches('/');
+                page_path == trimmed || page_path.starts_with(&format!("{trimmed}/"))
+            })
+            .map(|(_, s)| s.as_slice())
+            .unwrap_or(&config.sidebar);
+        active.iter().flat_map(|s| s.items.clone()).collect()
+    };
+
+    // Restore canonical (registry) order and apply prev/next to each
+    // descriptor. Carrying the registry index explicitly through the
+    // parallel pass avoids depending on `par_iter().collect()`'s
+    // implicit order-preservation contract.
+    let mut pages: Vec<Option<PageDescriptor>> = (0..results.len()).map(|_| None).collect();
+    for (idx, mut desc) in results {
+        let sidebar_items = resolve_sidebar(&desc.path);
+        let flat_links = collect_sidebar_links(&sidebar_items);
+        let all_links: Vec<(String, String)> = flat_links
+            .iter()
+            .map(|link| {
+                let path = normalize_link(base_path, link);
+                let text = find_sidebar_text(&path, config).unwrap_or_default();
+                (path, text)
+            })
+            .collect();
+        if let Some(pos) = all_links.iter().position(|(p, _)| p == &desc.path) {
+            if pos > 0 {
+                let (link, text) = &all_links[pos - 1];
+                desc.state["prev"] = json_obj([
+                    ("link", Value::String(link.clone())),
+                    ("text", Value::String(text.clone())),
+                ]);
+            }
+            if pos + 1 < all_links.len() {
+                let (link, text) = &all_links[pos + 1];
+                desc.state["next"] = json_obj([
+                    ("link", Value::String(link.clone())),
+                    ("text", Value::String(text.clone())),
+                ]);
+            }
+        }
+        pages[idx] = Some(desc);
+    }
+    let pages: Vec<PageDescriptor> = pages
+        .into_iter()
+        .enumerate()
+        .map(|(i, slot)| {
+            slot.ok_or_else(|| Error::Build(format!("missing page at registry index {i}")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(pages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_batches_bound_resident_bodies_and_share_include_cache(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let root = tempfile::tempdir_in(std::env::current_dir()?)?;
+        let include = root.path().join("shared.json");
+        fs::write(&include, r#"{"example":1}"#)?;
+        let body = "# Page\n".repeat(1024);
+        let mut registry = Vec::with_capacity(5);
+        for index in 0..5 {
+            let source = root.path().join(format!("{index}.md"));
+            fs::write(
+                &source,
+                format!("---\nstateFile: ./shared.json\n---\n{body}"),
+            )?;
+            registry.push((format!("/{index}"), source));
+        }
+        let config: DocsConfig = serde_json::from_str(
+            r#"{"site":{"title":"Test"},"basePath":"/","contentDir":".","nav":[],"sidebar":[]}"#,
+        )?;
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(2).build()?;
+        let mut dependencies = StateDependencies::default();
+        let mut batches = 0;
+        let paths = pool.install(|| {
+            process_markdown_batches(
+                &registry,
+                &config,
+                &mut dependencies,
+                |offset, batch, sources| {
+                    assert!(sources.len() <= 2, "all Markdown bodies were preloaded");
+                    assert_eq!(offset, batches * 2);
+                    assert_eq!(sources.len(), batch.len());
+                    for source in sources.into_iter().flatten() {
+                        assert_eq!(source.body, body);
+                        assert_eq!(
+                            source.frontmatter.state.as_ref().map(|v| &v["example"]),
+                            Some(&Value::from(1))
+                        );
+                    }
+                    if batches == 0 {
+                        fs::write(&include, r#"{"example":2}"#)
+                            .map_err(|error| Error::Io(error.to_string()))?;
+                    }
+                    batches += 1;
+                    Ok(batch.iter().map(|(url, _)| url.clone()).collect())
+                },
+            )
+        })?;
+        assert_eq!(batches, 3);
+        assert_eq!(
+            paths,
+            registry
+                .iter()
+                .map(|(url, _)| url.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(dependencies.paths.len(), 1);
+        assert_eq!(dependencies.changed_paths(), dependencies.paths);
+        Ok(())
+    }
+
+    // --- normalize_link --------------------------------------------------
+
+    #[test]
+    fn normalize_link_empty_returns_empty() {
+        assert_eq!(normalize_link("/webui/", ""), "");
+    }
+
+    #[test]
+    fn normalize_link_root_slash_returns_base() {
+        assert_eq!(normalize_link("/webui/", "/"), "/webui/");
+    }
+
+    #[test]
+    fn normalize_link_trims_trailing_slash() {
+        assert_eq!(
+            normalize_link("/webui/", "/guide/intro/"),
+            "/webui/guide/intro"
+        );
+        assert_eq!(
+            normalize_link("/webui/", "/guide/intro"),
+            "/webui/guide/intro"
+        );
+    }
+
+    #[test]
+    fn normalize_link_preserves_fragment() {
+        assert_eq!(
+            normalize_link("/webui/", "/guide/intro#section"),
+            "/webui/guide/intro#section"
+        );
+    }
+
+    #[test]
+    fn normalize_link_tolerates_missing_leading_slash() {
+        // Was previously a slice-from-1 panic risk on multi-byte chars.
+        assert_eq!(
+            normalize_link("/webui/", "guide/intro"),
+            "/webui/guide/intro"
+        );
+    }
+
+    #[test]
+    fn normalize_link_tolerates_non_ascii_first_char() {
+        // `&link[1..]` would have panicked here on UTF-8 boundary.
+        let out = normalize_link("/webui/", "é-page");
+        assert!(out.ends_with("é-page"), "got {out}");
+    }
+
+    #[test]
+    fn config_paths_match_with_or_without_trailing_slash() {
+        assert!(config_paths_match("/playground", "/playground/"));
+        assert!(config_paths_match("/playground/", "/playground"));
+        assert!(!config_paths_match("/playground", "/guide/"));
+    }
+
+    #[test]
+    fn sidebar_item_expands_for_active_descendant() {
+        let item = SidebarItem {
+            text: "Template Syntax".to_string(),
+            link: "/guide/concepts/directives".to_string(),
+            items: vec![SidebarItem {
+                text: "Signals".to_string(),
+                link: "/guide/concepts/directives/signals".to_string(),
+                items: Vec::new(),
+            }],
+        };
+
+        let (state, branch_active) =
+            build_sidebar_item_state(&item, "/webui/", "/webui/guide/concepts/directives/signals");
+
+        assert!(branch_active);
+        assert_eq!(state["expanded"], Value::Bool(true));
+        assert_eq!(state["children"][0]["active"], Value::Bool(true));
+    }
+
+    // --- normalize_path_as_index -----------------------------------------
+
+    #[test]
+    fn normalize_path_as_index_strips_duplicate_folder_name() {
+        assert_eq!(
+            normalize_path_as_index("webui-button/webui-button"),
+            "webui-button"
+        );
+    }
+
+    #[test]
+    fn normalize_path_as_index_keeps_different_filename() {
+        assert_eq!(
+            normalize_path_as_index("webui-button/usage"),
+            "webui-button/usage"
+        );
+    }
+
+    #[test]
+    fn normalize_path_as_index_nested_folders() {
+        assert_eq!(
+            normalize_path_as_index("components/webui-button/webui-button"),
+            "components/webui-button"
+        );
+    }
+
+    #[test]
+    fn normalize_path_as_index_no_slash_returns_unchanged() {
+        assert_eq!(normalize_path_as_index("webui-button"), "webui-button");
+    }
+
+    // --- page_url_path ----------------------------------------------------
+
+    fn sources(pairs: &[(&'static str, &'static str)]) -> HashMap<&'static str, &'static str> {
+        pairs.iter().copied().collect()
+    }
+
+    #[test]
+    fn page_url_path_derives_url_from_filesystem() {
+        let none = sources(&[]);
+        assert_eq!(
+            page_url_path("guide/install.md", "/webui/", &none),
+            "/webui/guide/install"
+        );
+    }
+
+    #[test]
+    fn page_url_path_collapses_index_and_root() {
+        let none = sources(&[]);
+        assert_eq!(
+            page_url_path("guide/index.md", "/webui/", &none),
+            "/webui/guide"
+        );
+        assert_eq!(page_url_path("index.md", "/webui/", &none), "/webui/");
+        assert_eq!(page_url_path("index.md", "", &none), "/");
+    }
+
+    #[test]
+    fn page_url_path_collapses_filename_repeating_its_folder() {
+        let none = sources(&[]);
+        assert_eq!(
+            page_url_path("components/webui-button/webui-button.md", "/webui/", &none),
+            "/webui/components/webui-button"
+        );
+    }
+
+    #[test]
+    fn page_url_path_nav_source_overrides_derived_url() {
+        // `SKILL.md` is a filename fixed by the agent-skill spec; the nav entry
+        // keeps the page on `/ai` instead of leaking it as `/ai/SKILL`.
+        let map = sources(&[("ai/SKILL.md", "/ai")]);
+        assert_eq!(page_url_path("ai/SKILL.md", "/webui/", &map), "/webui/ai");
+    }
+
+    #[test]
+    fn page_url_path_nav_source_tolerates_surrounding_slashes() {
+        let map = sources(&[("ai/SKILL.md", "ai/"), ("b/SKILL.md", "/b")]);
+        assert_eq!(page_url_path("ai/SKILL.md", "/webui/", &map), "/webui/ai");
+        assert_eq!(page_url_path("b/SKILL.md", "", &map), "/b");
+    }
+
+    #[test]
+    fn page_url_path_nav_source_can_target_site_root() {
+        let map = sources(&[("home/landing.md", "/")]);
+        assert_eq!(page_url_path("home/landing.md", "/webui/", &map), "/webui/");
+    }
+
+    #[test]
+    fn page_url_path_ignores_nav_source_for_other_files() {
+        let map = sources(&[("ai/SKILL.md", "/ai")]);
+        assert_eq!(
+            page_url_path("guide/SKILL.md", "/webui/", &map),
+            "/webui/guide/SKILL"
+        );
+    }
+
+    #[test]
+    fn page_url_path_nav_source_strips_fragment_from_override() {
+        // A nav link like "/ai#rules" must route to "/ai", not "/ai#rules".
+        let map = sources(&[("ai/SKILL.md", "/ai#rules")]);
+        assert_eq!(page_url_path("ai/SKILL.md", "/webui/", &map), "/webui/ai");
+    }
+
+    #[test]
+    fn page_url_path_nav_source_strips_query_from_override() {
+        // A nav link like "/ai?v=2" must route to "/ai", not "/ai?v=2".
+        let map = sources(&[("ai/SKILL.md", "/ai?v=2")]);
+        assert_eq!(page_url_path("ai/SKILL.md", "/webui/", &map), "/webui/ai");
+    }
+
+    #[test]
+    fn markdown_link_base_uses_source_directory_for_index_and_leaf_pages() {
+        let content_dir = Path::new("docs");
+        assert_eq!(
+            markdown_link_base_url(Path::new("docs/guide/index.md"), content_dir, "/webui/"),
+            "/webui/guide/"
+        );
+        assert_eq!(
+            markdown_link_base_url(
+                Path::new("docs/guide/installation.md"),
+                content_dir,
+                "/webui/"
+            ),
+            "/webui/guide/"
+        );
+        assert_eq!(
+            markdown_link_base_url(
+                Path::new("docs/guide/topic/index.md"),
+                content_dir,
+                "/webui/"
+            ),
+            "/webui/guide/topic/"
+        );
+    }
+
+    // --- nav_source_overrides ---------------------------------------------
+
+    fn nav_link(text: &str, link: &str, source: Option<&str>) -> NavLink {
+        NavLink {
+            text: text.to_string(),
+            link: link.to_string(),
+            source: source.map(String::from),
+        }
+    }
+
+    #[test]
+    fn nav_source_overrides_collects_only_entries_declaring_a_source() {
+        let nav = vec![
+            nav_link("Guide", "/guide/", None),
+            nav_link("AI", "/ai", Some("ai/SKILL.md")),
+            nav_link("GitHub", "https://github.com/microsoft/webui", None),
+        ];
+        let map = nav_source_overrides(&nav);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("ai/SKILL.md"), Some(&"/ai"));
+    }
+
+    #[test]
+    fn nav_source_overrides_empty_nav_yields_no_overrides() {
+        assert!(nav_source_overrides(&[]).is_empty());
+    }
+
+    #[test]
+    fn nav_source_overrides_excludes_external_link_with_source() {
+        // Accidentally pairing `source` with an external URL must be silently
+        // dropped so it never reaches `page_url_path` as a broken route.
+        let nav = vec![
+            nav_link("AI", "/ai", Some("ai/SKILL.md")),
+            nav_link(
+                "GitHub",
+                "https://github.com/microsoft/webui",
+                Some("github.md"),
+            ),
+        ];
+        let map = nav_source_overrides(&nav);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("ai/SKILL.md"), Some(&"/ai"));
+        assert!(!map.contains_key("github.md"));
+    }
+
+    #[test]
+    fn normalize_path_as_index_deep_nesting_with_match() {
+        assert_eq!(
+            normalize_path_as_index("a/b/c/webui-card/webui-card"),
+            "a/b/c/webui-card"
+        );
+    }
+
+    #[test]
+    fn normalize_path_as_index_deep_nesting_without_match() {
+        assert_eq!(
+            normalize_path_as_index("a/b/c/webui-card/examples"),
+            "a/b/c/webui-card/examples"
+        );
+    }
+
+    // --- parse_frontmatter -----------------------------------------------
+
+    #[test]
+    fn parse_frontmatter_no_frontmatter_returns_full_body() {
+        let (fm, body) = parse_frontmatter("# Hello\nworld\n").expect("ok");
+        assert!(fm.title.is_none());
+        assert!(fm.layout.is_none());
+        assert!(fm.state.is_none());
+        assert_eq!(body, "# Hello\nworld\n");
+    }
+
+    #[test]
+    fn parse_frontmatter_valid_yaml_extracts_fields() {
+        let raw = "---\ntitle: Hello\ndescription: World\nlayout: home\n---\n# Body\n";
+        let (fm, body) = parse_frontmatter(raw).expect("ok");
+        assert_eq!(fm.title.as_deref(), Some("Hello"));
+        assert_eq!(fm.description.as_deref(), Some("World"));
+        assert_eq!(fm.layout.as_deref(), Some("home"));
+        assert_eq!(body, "# Body\n");
+    }
+
+    #[test]
+    fn parse_frontmatter_handles_crlf_line_endings() {
+        let raw = "---\r\ntitle: CRLF\r\nlayout: doc\r\n---\r\n# Body\r\n";
+        let (fm, body) = parse_frontmatter(raw).expect("ok");
+        assert_eq!(fm.title.as_deref(), Some("CRLF"));
+        assert_eq!(fm.layout.as_deref(), Some("doc"));
+        assert_eq!(body, "# Body\r\n");
+    }
+
+    #[test]
+    fn parse_frontmatter_malformed_yaml_returns_error() {
+        // `: : :` is not valid YAML.
+        let raw = "---\ntitle: : : :\n---\nBody\n";
+        let result = parse_frontmatter(raw);
+        assert!(result.is_err(), "expected error, got {result:?}");
+    }
+
+    #[test]
+    fn parse_frontmatter_preserves_json_compatible_state() {
+        let raw = concat!(
+            "---\nstate:\n  example:\n    label: 'Save'\n    count: 2\n",
+            "    enabled: false\n    optional: null\n    ratio: 0.5\n",
+            "    items: [one, two]\n    '1': string-key\n    site: nested-is-allowed\n",
+            "---\n# Example\n"
+        );
+        let (fm, body) = parse_frontmatter(raw).expect("valid state");
+        let state = fm.state.expect("local state");
+        assert_eq!(state["example"]["label"], "Save");
+        assert_eq!(state["example"]["count"], 2);
+        assert_eq!(state["example"]["enabled"], false);
+        assert_eq!(state["example"]["optional"], Value::Null);
+        assert_eq!(state["example"]["ratio"], 0.5);
+        assert_eq!(state["example"]["items"][1], "two");
+        assert_eq!(state["example"]["1"], "string-key");
+        assert_eq!(state["example"]["site"], "nested-is-allowed");
+        assert_eq!(body, "# Example\n");
+    }
+
+    #[test]
+    fn parse_frontmatter_preserves_yaml_scalar_and_alias_semantics() {
+        let raw = concat!(
+            "---\ntitle: 42\ndescription: false\nlayout: [doc]\n",
+            "state:\n  example:\n    word: yes\n    quoted: 'false'\n",
+            "    maximum: 18446744073709551615\n    minimum: -9223372036854775808\n",
+            "    explicit: !!str 42\n    base: &base {count: 2}\n",
+            "    alias: *base\n    merged: {<<: *base}\n",
+            "---\nBody\n"
+        );
+        let (fm, body) = parse_frontmatter(raw).expect("valid YAML scalars");
+        assert!(fm.title.is_none());
+        assert!(fm.description.is_none());
+        assert!(fm.layout.is_none());
+        let state = fm.state.expect("state");
+        assert_eq!(state["example"]["word"], "yes");
+        assert_eq!(state["example"]["quoted"], "false");
+        assert_eq!(state["example"]["maximum"].as_u64(), Some(u64::MAX));
+        assert_eq!(state["example"]["minimum"].as_i64(), Some(i64::MIN));
+        assert_eq!(state["example"]["explicit"], "42");
+        assert_eq!(state["example"]["alias"]["count"], 2);
+        assert_eq!(state["example"]["merged"]["<<"]["count"], 2);
+        assert_eq!(body, "Body\n");
+    }
+
+    #[test]
+    fn parse_frontmatter_preserves_leading_zero_and_underscored_strings() {
+        let raw = concat!(
+            "---\ntitle: 00123\ndescription: 1_000\nlayout: 00\n",
+            "state: {example: {00123: leading, 1_000: underscored, ",
+            "leading: 00123, underscored: 1_000}}\n---\nBody\n"
+        );
+        let (fm, _) = parse_frontmatter(raw).expect("string scalar classification");
+        assert_eq!(fm.title.as_deref(), Some("00123"));
+        assert_eq!(fm.description.as_deref(), Some("1_000"));
+        assert_eq!(fm.layout.as_deref(), Some("00"));
+        let state = fm.state.expect("state");
+        assert_eq!(state["example"]["00123"], "leading");
+        assert_eq!(state["example"]["1_000"], "underscored");
+        assert_eq!(state["example"]["leading"], "00123");
+        assert_eq!(state["example"]["underscored"], "1_000");
+    }
+
+    #[test]
+    fn parse_frontmatter_keeps_validation_scoped_to_state() {
+        for metadata in [
+            "!str value",
+            ".inf",
+            "{42: value}",
+            "{nested: !example value}",
+            "{nested: [one, .nan]}",
+        ] {
+            let raw = format!(
+                "---\nignored: &metadata {metadata}\nstate: {{example: {{count: 2}}}}\n---\nBody\n"
+            );
+            let (fm, _) = parse_frontmatter(&raw).expect(metadata);
+            assert_eq!(fm.state.expect("state")["example"]["count"], 2);
+
+            let raw = format!(
+                "---\nignored: &metadata {metadata}\nstate: {{example: *metadata}}\n---\nBody\n"
+            );
+            let error = parse_frontmatter(&raw).expect_err(metadata).to_string();
+            assert!(
+                error.contains("state") && error.contains("help:"),
+                "{error}"
+            );
+        }
+        let (fm, _) = parse_frontmatter(
+            "---\ntitle: !str Ignored\ndescription: .inf\n42: ignored\nstate: {count: 2}\n---\nBody\n",
+        ).expect("ignored non-JSON metadata");
+        assert_eq!(fm.title.as_deref(), Some("Ignored"));
+        assert!(fm.description.is_none());
+        assert_eq!(fm.state.expect("state")["count"], 2);
+    }
+
+    #[test]
+    fn parse_frontmatter_preserves_text_and_standard_tags() {
+        let raw = concat!(
+            "---\ntitle: !!str 00123\nstate: !!map\n",
+            "  quoted: ' 00123 '\n  explicit: !!str 1_000\n",
+            "  block: |\n    00123\n    1_000\n",
+            "  yes: yes\n  exponent: 1e999\n",
+            "  boolean: !!bool TRUE\n  count: !!int 0x10\n",
+            "  ratio: !!float 1.5\n  empty: !!null null\n",
+            "  items: !!seq [one, two]\n---\nBody\n",
+        );
+        let (fm, _) = parse_frontmatter(raw).expect("standard YAML core tags");
+        assert_eq!(fm.title.as_deref(), Some("00123"));
+        let state = fm.state.expect("state");
+        assert_eq!(state["quoted"], " 00123 ");
+        assert_eq!(state["explicit"], "1_000");
+        assert_eq!(state["block"], "00123\n1_000\n");
+        assert_eq!(state["yes"], "yes");
+        assert_eq!(state["exponent"], "1e999");
+        assert_eq!(state["boolean"], true);
+        assert_eq!(state["count"], 16);
+        assert_eq!(state["ratio"], 1.5);
+        assert!(state["empty"].is_null());
+        assert_eq!(state["items"][1], "two");
+    }
+
+    #[test]
+    fn parse_frontmatter_rejects_invalid_state() {
+        for state in [
+            "null",
+            "example",
+            "42",
+            "false",
+            "[]",
+            "{nested: {1: value}}",
+            "{nested: {true: value}}",
+            "{nested: {.nan: value}}",
+            "{nested: {null: value}}",
+            "{nested: {1.5: value}}",
+            "{nested: {? [one, two]: value}}",
+            "{nested: {value: .inf}}",
+            "{nested: {value: -.inf}}",
+            "{nested: {value: !!float .nan}}",
+            "{nested: {id: 18446744073709551617}}",
+            "{nested: {id: -9223372036854775809}}",
+            "{nested: [1, .nan]}",
+            "{nested: !example value}",
+            "!example {value: tagged}",
+            "{nested: !example [one, two]}",
+            "{nested: !str value}",
+            "{nested: !int 42}",
+            "{nested: !time value}",
+            "{nested: {value: first, value: second}}",
+            "{value: first}\nstate: {value: second}",
+            "{broken: [}",
+        ] {
+            let raw = format!("---\nstate: {state}\n---\n\n# Invalid");
+            let message = parse_frontmatter(&raw).expect_err(state).to_string();
+            assert!(
+                message.contains("state") || message.contains("YAML"),
+                "{message}"
+            );
+            assert!(message.contains("help:"), "{message}");
+        }
+    }
+
+    #[test]
+    fn parse_frontmatter_rejects_reserved_state_keys() {
+        for key in [
+            "site",
+            "navigation",
+            "sidebar",
+            "page",
+            "hero",
+            "footer",
+            "prev",
+            "next",
+            "pageData",
+            "regions",
+            "headTags",
+            "tokens",
+            "label",
+            "icon",
+        ] {
+            let raw = format!("---\nstate:\n  {key}: override\n---\n\n# Reserved");
+            let message = parse_frontmatter(&raw).expect_err(key).to_string();
+            assert!(
+                message.contains(key) && message.contains("reserved"),
+                "{message}"
+            );
+            assert!(message.contains("help:"), "{message}");
+        }
+    }
+}

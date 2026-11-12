@@ -1,0 +1,33 @@
+[package]
+name = "microsoft-webui-expressions"
+description = "Core expression evaluation for WebUI framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["webui", "expressions", "evaluation", "templates", "ssr"]
+categories = ["web-programming", "parser-implementations"]
+
+[lib]
+name = "webui_expressions"
+
+[dependencies]
+microsoft-webui-protocol = { path = "../webui-protocol", version = "3.1.1" }
+microsoft-webui-state = { path = "../webui-state", version = "3.1.1" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+microsoft-webui-test-utils = { path = "../webui-test-utils", version = "3.1.1" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "expressions_bench"
+harness = false
+
+[lints]
+workspace = true

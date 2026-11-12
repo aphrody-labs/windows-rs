@@ -1,0 +1,206 @@
+# microsoft-webui-cli
+
+Command-line tool for the [WebUI](https://github.com/microsoft/webui) framework — build, serve, and inspect WebUI applications.
+
+## Install
+
+```bash
+cargo install microsoft-webui-cli
+```
+
+This installs the `webui` binary.
+
+## Commands
+
+### `webui build`
+
+Build a WebUI application into a compiled protocol and CSS files.
+
+```bash
+webui build [APP] --out <DIR> [--entry <FILE>] [--css <MODE>] [--plugin <NAME>] [--asset-file-name-template <TEMPLATE>] [--asset-base <BASE>] [--modules-out <DIR>] [--component-module <TAG=SPECIFIER>]... [--metafile <PATH>]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `APP` | `.` | Template/component directory |
+| `--out` | *(required)* | Output directory for protocol.bin + CSS, or a `.bin` file path to customize the protocol filename (e.g. `./dist/app1.bin`) |
+| `--entry` | `index.html` | Entry HTML file |
+| `--css` | `link` | CSS mode: `link` (external files) or `style` (inline) |
+| `--plugin` | *(none)* | Plugin identifier (see [Plugins](https://microsoft.github.io/webui/reference/plugins/) for available identifiers) |
+| `--asset-file-name-template` | `[name].[ext]` | Emitted asset filename template. Tokens: `[name]`, `[hash]`, `[ext]` |
+| `--asset-base` | *(none)* | Public URL or path ending in `/` that maps to the output directory. Rendered stylesheet links are prefixed with it, and the browser resolves stylesheet and lazy pack paths against it. Module preload hints keep their paths. Override per request with the `$webui.assetBase` state member |
+| `--modules-out` | `--out` | Directory for generated bundler inputs: component assets, `lazy.webui.js`, and its declaration |
+| `--component-module` | *(none)* | `TAG=SPECIFIER` module for a custom element without a usable `.ts` or `.js` sibling; repeatable |
+| `--metafile` | *(none)* | Write the build metafile: the component asset graph and a cost report for every lazy pack |
+
+```bash
+webui build ./src --out ./dist
+webui build ./src --out ./dist --plugin webui --css style
+webui build ./src --out ./dist/app1.bin
+webui build ./src --out ./dist --asset-file-name-template "[name]-[hash].[ext]"
+webui build ./src --out ./dist --asset-file-name-template "[name]-[hash].[ext]" --asset-base "https://cdn.example.com/assets/"
+webui build ./src --out ./dist --plugin webui --modules-out ./.webui --metafile ./dist/meta.json
+```
+
+A build with `<if lazy>` regions writes their template packs under
+`<out>/_webui/packs/`, and `lazy.webui.js` with its `lazy.webui.d.ts` to
+`--modules-out`.
+Import `lazy.webui.js` before `startRuntime()` for the default loaders. The installer supplies a
+dynamic import for each scripted component a region introduces and the page
+does not already load at startup, so your bundler loads that code. The
+declaration file types the import for TypeScript without `allowJs`.
+Bare `lazy` is activation-only; use selective `lazy="idle"` or `$prefetch(path)`
+to warm a region without opening it.
+
+### `webui serve`
+
+Start a development server with live rebuild and HMR.
+
+```bash
+webui serve [APP] [--state <FILE>] [--servedir <DIR>] [--port <PORT>] [--api-port <PORT>] [--plugin <NAME>] [--watch] [--asset-file-name-template <TEMPLATE>] [--asset-base <BASE>] [--modules-out <DIR>]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `APP` | `.` | Template/component directory |
+| `--state` | *(none)* | JSON state file for rendering |
+| `--servedir` | *(none)* | Static assets directory served at `/*` |
+| `--port` | `3000` | Server port |
+| `--api-port` | *(none)* | Proxy API requests; JSON provides buffered state and `application/x-webui-stream` drives progressive boundaries |
+| `--plugin` | *(none)* | Plugin identifier (see [Plugins](https://microsoft.github.io/webui/reference/plugins/) for available identifiers) |
+| `--watch` | off | Enable file watching + HMR |
+| `--shutdown-timeout <SECONDS>` | *(none)* | Opt in to supervised shutdown with a positive integer grace period, with or without `--watch` |
+| `--asset-file-name-template` | `[name].[ext]` | Emitted asset filename template. Tokens: `[name]`, `[hash]`, `[ext]` |
+| `--asset-base` | *(none)* | Public URL or path ending in `/` that maps to the build output. A path such as `/static/` also serves the build output under that prefix; a URL on another host prints a hint and leaves outputs at their usual paths |
+| `--modules-out` | *(none)* | Directory refreshed after each successful build with generated modules, including `lazy.webui.js` and its declaration, for the application bundler's watcher |
+
+```bash
+webui serve ./src --state ./data/state.json --port 3000 --watch
+webui serve ./src --plugin webui --servedir ./dist --port 3004 --api-port 3014 --watch
+```
+
+By default, shutdown waits for an active rebuild without a deadline. Add
+`--shutdown-timeout 10` to terminate the owned server process tree when a stop
+request cannot finish within ten seconds; a second stop request escalates
+sooner. Forced shutdown returns nonzero and can leave incomplete outputs.
+Supervised mode reserves stdin, so interactive build tools are unsupported.
+See [bounded shutdown](https://microsoft.github.io/webui/reference/cli/#bounded-dev-server-shutdown)
+for platform limits.
+
+Features:
+- Renders HTML at `/` and all route paths
+- Serves static files from `--servedir`
+- JSON partials for client-side navigation (`Accept: application/json`)
+- HMR polling at `/hmr` when `--watch` is enabled
+- API proxy when `--api-port` is set. Backends may return JSON state or a
+  versioned, newline-delimited `application/x-webui-stream` control response;
+  the CLI retains the Rust renderer, caps precommit output staging at 4,000,000
+  bytes, and cancels the backend when the browser disconnects.
+
+The control response uses version 2 and exactly three command types:
+
+```json
+{"type":"start","version":2,"state":{"title":"Initial state"}}
+{"type":"resume","boundary":{"owner":"index.html","name":"hero"},"mode":"updatable","state":{}}
+{"type":"update","boundary":{"owner":"index.html","name":"hero"},"state":{"status":"ready"}}
+```
+
+`start` is first and supplies the initial object state. Each `resume` must echo
+the pending runtime descriptor's `owner`, `name`, and optional string-or-number
+`key`; `declarationId` may also be supplied for validation. The CLI retains
+committed descriptors, so `update` uses the same target without a reverse
+acknowledgement channel. Ambiguous unkeyed update targets are rejected.
+
+The CLI drives the Rust step machine as follows:
+
+| Rust step state | CLI action |
+|---|---|
+| descriptor present | Wait for the matching backend `resume`, then call `resume` |
+| no descriptor and not done | Call `advance` internally |
+| done | Complete the browser response |
+
+Rust `resume` emits only the pending boundary through its checkpoint. The
+following internal `advance` emits parent or tail bytes through the next
+descriptor or terminal. The backend does not send an `advance` control record.
+It closes its NDJSON body after sending the resume for the final descriptor;
+the CLI's final `advance` completes the response. There is no terminal control
+command.
+
+### `webui inspect`
+
+Convert a compiled protocol to JSON for debugging.
+
+```bash
+webui inspect <FILE>
+```
+
+```bash
+webui inspect ./dist/protocol.bin
+```
+
+### `webui desktop`
+
+Run desktop commands through the desktop sidecar backend. `webui` remains the
+only user-facing CLI; the sidecar is resolved automatically from the installed
+desktop support package, next to the `webui` binary, or from the workspace during
+local development. Set `WEBUI_DESKTOP_BINARY` only to override sidecar discovery.
+
+```bash
+webui desktop build ./src \
+  --state ./data/state.json \
+  --servedir ./dist \
+  --out ./desktop-bundle \
+  --plugin webui \
+  --devtools
+```
+
+The sidecar currently creates immutable desktop bundles with `protocol.bin`,
+copied assets, startup state, `manifest.webui-desktop.json`, and SHA-256
+integrity hashes. Native window backends and platform package emitters are
+implemented in the desktop sidecar so the default CLI stays lean.
+
+```bash
+webui desktop package ./my-app --target macos-app --out ./packages
+webui desktop package ./desktop-bundle --target macos-app --out ./packages \
+  --runner ./target/release/my-desktop-host
+```
+
+The Rust packager currently writes runnable macOS `.app` bundles and portable
+folder layouts. For app roots, supply source, assets, build scripts, identity,
+window, and runner settings as `webui desktop package` flags; legacy
+`webuiDesktop` package metadata remains supported and explicit flags override it.
+The sidecar builds the app-specific Cargo runner crate, stages non-generated
+assets, builds the bundle, and packages the runner-backed app. Use `--runner`
+for lower-level existing-bundle flows with
+route providers or typed IPC commands; omitting it packages the generic sidecar
+for file-backed/static seed-state bundles. Installer targets return actionable
+missing-tool diagnostics until the platform packagers are enabled.
+
+Use `--devtools` on desktop build/run to make development webviews inspectable.
+On macOS, inspect from Safari's Develop menu.
+
+Rust desktop apps that need dynamic route data can configure `.route(...)` on
+`webui_desktop::DesktopApp::from_bundle(path)?` or, with the `source` feature,
+`DesktopApp::from_source(config)`. Both builders produce a desktop frame.
+See the [desktop SDK guide](https://microsoft.github.io/webui/build/desktop)
+for setup and customization. The CLI `--state` flag is a file-backed fallback
+for simple demos.
+
+## App Layout
+
+```
+my-app/
+├── src/
+│   ├── index.html          # entry template
+│   ├── my-card.html         # component template
+│   └── my-card.css          # component styles
+├── data/
+│   └── state.json           # render state
+└── dist/                    # build output
+    ├── protocol.bin
+    └── my-card.css
+```
+
+## License
+
+MIT

@@ -1,0 +1,35 @@
+[package]
+name = "microsoft-webui-node"
+description = "Node.js native addon for WebUI framework via napi-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["webui", "nodejs", "napi", "ssr", "rendering"]
+categories = ["api-bindings", "web-programming"]
+
+[lib]
+name = "webui_node"
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { workspace = true }
+napi-derive = { workspace = true }
+microsoft-webui = { path = "../webui", version = "3.1.1" }
+microsoft-webui-handler = { path = "../webui-handler", version = "3.1.1" }
+microsoft-webui-protocol = { path = "../webui-protocol", version = "3.1.1", features = ["projection-manifest"] }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = { workspace = true }
+
+[dev-dependencies]
+microsoft-webui-parser = { path = "../webui-parser", version = "3.1.1", default-features = false }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

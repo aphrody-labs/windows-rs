@@ -1,0 +1,271 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Typed CLI-level errors.
+//!
+//! These represent the handful of failures the CLI itself raises before (or
+//! around) a build/serve — missing inputs, an occupied port, an unreadable
+//! entry file. Modelling them as a type (rather than bare `anyhow!` strings)
+//! lets the command layer attach an actionable `hint:` and pick a meaningful
+//! process exit code by matching the variant, instead of fragile substring
+//! checks against the message text.
+
+use std::fmt;
+
+/// A CLI-level failure with an actionable hint and a stable exit code.
+#[derive(Debug)]
+pub enum CliError {
+    /// The positional app folder argument does not exist.
+    AppFolderNotFound {
+        /// The path that was not found.
+        path: String,
+    },
+
+    /// The `--state` JSON file does not exist.
+    StateFileNotFound {
+        /// The path that was not found.
+        path: String,
+    },
+
+    /// The `--servedir` static-assets directory does not exist.
+    ServeDirNotFound {
+        /// The path that was not found.
+        path: String,
+    },
+
+    /// The requested port is already bound by another process.
+    PortInUse {
+        /// The conflicting port.
+        port: u16,
+    },
+
+    /// `--port 0` cannot be used with listening-port Host validation.
+    InvalidServePort,
+
+    /// An `--allowed-host` value is not a valid exact HTTP Host authority.
+    InvalidAllowedHost {
+        /// The rejected value.
+        host: String,
+    },
+
+    /// The entry file could not be read.
+    EntryReadFailed {
+        /// The path that could not be read.
+        path: String,
+    },
+
+    /// The desktop sidecar backend could not be launched.
+    DesktopBinaryNotFound {
+        /// The binary name or path that failed to launch.
+        binary: String,
+    },
+    /// The WebUI Press sidecar could not be launched.
+    PressBinaryNotFound {
+        /// The binary name or path that failed to launch.
+        binary: String,
+    },
+}
+
+impl fmt::Display for CliError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CliError::AppFolderNotFound { path } => write!(f, "App folder not found: {path}"),
+            CliError::StateFileNotFound { path } => write!(f, "State file not found: {path}"),
+            CliError::ServeDirNotFound { path } => write!(f, "Serve directory not found: {path}"),
+            CliError::PortInUse { port } => {
+                write!(f, "Port {port} on 127.0.0.1 is already in use")
+            }
+            CliError::InvalidServePort => write!(f, "Invalid --port: 0 is not supported"),
+            CliError::InvalidAllowedHost { host } => {
+                write!(f, "Invalid --allowed-host value: {host}")
+            }
+            CliError::EntryReadFailed { path } => write!(f, "Failed to read entry file: {path}"),
+            CliError::DesktopBinaryNotFound { binary } => {
+                write!(f, "Desktop sidecar backend not found: {binary}")
+            }
+            CliError::PressBinaryNotFound { binary } => {
+                write!(f, "Press sidecar backend not found: {binary}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CliError {}
+
+impl CliError {
+    /// A short, actionable next step shown to the developer as `hint:`.
+    #[must_use]
+    pub fn hint(&self) -> &'static str {
+        match self {
+            CliError::AppFolderNotFound { .. } => "Check that the app folder path exists",
+            CliError::StateFileNotFound { .. } => "Pass a valid --state path to a JSON file",
+            CliError::ServeDirNotFound { .. } => "Pass a valid --servedir path for static assets",
+            CliError::PortInUse { .. } => {
+                "Stop the process using that port, or rerun with --port <free-port>. Previous dev \
+                 sessions may have left a server running."
+            }
+            CliError::InvalidServePort => "Pass an explicit --port between 1 and 65535",
+            CliError::InvalidAllowedHost { .. } => {
+                "Pass an exact DNS hostname, optionally followed by :port; URLs and wildcards are not allowed"
+            }
+            CliError::EntryReadFailed { .. } => {
+                "Use --entry <file> to specify a different entry file"
+            }
+            CliError::DesktopBinaryNotFound { .. } => {
+                "Run npm install @microsoft/webui-desktop (with optional dependencies), or set WEBUI_DESKTOP_BINARY to a matching webui-desktop executable"
+            }
+            CliError::PressBinaryNotFound { .. } => {
+                "Run npm install @microsoft/webui-press (with optional dependencies), or set WEBUI_PRESS_BINARY_PATH to a matching webui-press executable"
+            }
+        }
+    }
+
+    /// The process exit code for this failure, following the BSD `sysexits.h`
+    /// conventions so scripts and CI can branch on the cause.
+    #[must_use]
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            // Missing input file/dir → EX_NOINPUT.
+            CliError::AppFolderNotFound { .. }
+            | CliError::StateFileNotFound { .. }
+            | CliError::ServeDirNotFound { .. }
+            | CliError::EntryReadFailed { .. }
+            | CliError::DesktopBinaryNotFound { .. }
+            | CliError::PressBinaryNotFound { .. } => 66,
+            // A required service (the port) is unavailable → EX_UNAVAILABLE.
+            CliError::PortInUse { .. } => 69,
+            // Invalid flag value → usage error.
+            CliError::InvalidServePort | CliError::InvalidAllowedHost { .. } => 2,
+        }
+    }
+}
+
+/// Map a top-level CLI error to a process exit code, following BSD
+/// `sysexits.h` so scripts, CI, and tooling can branch on the cause:
+///
+/// - `66` (`EX_NOINPUT`) / `69` (`EX_UNAVAILABLE`) — CLI input/port failures
+///   (see [`CliError::exit_code`]).
+/// - `65` (`EX_DATAERR`) — a template authoring or parse error (the source is
+///   malformed).
+/// - `74` (`EX_IOERR`) — an I/O failure reading or writing files.
+/// - `1` — any other failure.
+///
+/// (clap already exits with `2` for argument/usage errors before this runs.)
+#[must_use]
+pub fn exit_code(err: &anyhow::Error) -> i32 {
+    if let Some(cli) = err.chain().find_map(|c| c.downcast_ref::<CliError>()) {
+        return i32::from(cli.exit_code());
+    }
+    if let Some(web) = err
+        .chain()
+        .find_map(|c| c.downcast_ref::<webui::WebUIError>())
+    {
+        return match web {
+            webui::WebUIError::Parse { .. }
+            | webui::WebUIError::Serialization(_)
+            | webui::WebUIError::InvalidBuildOptions(_)
+            | webui::WebUIError::ComponentAssets(_)
+            | webui::WebUIError::Projection(_) => 65,
+            // A component registration failure whose underlying cause is a file
+            // read is an I/O error; every other cause (an authoring/template
+            // mistake surfaced by a plugin source transform, an invalid or
+            // duplicate component name, malformed CSS) is a data error, matching
+            // the `Parse` classification.
+            webui::WebUIError::ComponentRegistration {
+                source: webui::ParserError::IO { .. },
+                ..
+            } => 74,
+            webui::WebUIError::ComponentRegistration { .. } => 65,
+            webui::WebUIError::Io { .. } | webui::WebUIError::ComponentAssetPublication { .. } => {
+                74
+            }
+            _ => 1,
+        };
+    }
+    if err.chain().any(|c| c.is::<std::io::Error>()) {
+        return 74;
+    }
+    1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_error_hints_and_codes() {
+        let missing = CliError::AppFolderNotFound { path: "x".into() };
+        assert_eq!(missing.exit_code(), 66);
+        assert!(missing.hint().contains("app folder"));
+
+        let port = CliError::PortInUse { port: 3000 };
+        assert_eq!(port.exit_code(), 69);
+        assert!(port.hint().contains("--port"));
+
+        let invalid_port = CliError::InvalidServePort;
+        assert_eq!(invalid_port.exit_code(), 2);
+        assert!(invalid_port.hint().contains("1 and 65535"));
+
+        let host = CliError::InvalidAllowedHost {
+            host: "*.example.com".into(),
+        };
+        assert_eq!(host.exit_code(), 2);
+        assert!(host.hint().contains("wildcards"));
+    }
+
+    #[test]
+    fn exit_code_classifies_cli_error_through_chain() {
+        let err = anyhow::Error::new(CliError::StateFileNotFound {
+            path: "s.json".into(),
+        })
+        .context("while starting the dev server");
+        assert_eq!(exit_code(&err), 66);
+    }
+
+    #[test]
+    fn exit_code_for_parse_error_is_dataerr() {
+        let err: anyhow::Error = webui::WebUIError::InvalidBuildOptions("bad".into()).into();
+        assert_eq!(exit_code(&err), 65);
+    }
+
+    #[test]
+    fn exit_code_for_registration_template_error_is_dataerr() {
+        let diag = webui::Diagnostic::error("invalid component source")
+            .code("invalid-component-source")
+            .component("file-card")
+            .position(3, 5);
+        let err: anyhow::Error = webui::WebUIError::ComponentRegistration {
+            context: "Failed to register components from ./src".into(),
+            source: webui::ParserError::Template(Box::new(diag)),
+        }
+        .into();
+        assert_eq!(exit_code(&err), 65);
+    }
+
+    #[test]
+    fn exit_code_for_registration_io_error_is_ioerr() {
+        // A file-read failure during registration is an I/O error (74).
+        let err: anyhow::Error = webui::WebUIError::ComponentRegistration {
+            context: "Failed to register components from ./src".into(),
+            source: webui::ParserError::IO {
+                context: "read".into(),
+                source: std::io::Error::new(std::io::ErrorKind::NotFound, "nope"),
+            },
+        }
+        .into();
+        assert_eq!(exit_code(&err), 74);
+    }
+
+    #[test]
+    fn exit_code_for_plain_io_error_is_ioerr() {
+        let io = std::io::Error::new(std::io::ErrorKind::NotFound, "nope");
+        let err = anyhow::Error::new(io).context("reading file");
+        assert_eq!(exit_code(&err), 74);
+    }
+
+    #[test]
+    fn exit_code_default_is_one() {
+        let err = anyhow::anyhow!("something generic");
+        assert_eq!(exit_code(&err), 1);
+    }
+}

@@ -1,0 +1,637 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Parser-only WASM exports.
+
+use crate::error::WasmError;
+use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
+use webui_parser::plugin::webui::WebUIParserPlugin;
+use webui_parser::plugin::{ParserPluginArtifacts, StateSurface};
+use webui_parser::{CssStrategy, Diagnostic, DomStrategy, HtmlParser};
+use webui_protocol::projection_manifest::{ProjectionComponent, ProjectionManifest};
+use webui_protocol::{InitialStateStrategy, StateProjectionMode, WebUIProtocol};
+
+#[cfg(feature = "all")]
+mod app;
+#[cfg(feature = "all")]
+pub use app::build_app;
+
+/// Build protocol protobuf bytes from virtual files without rendering.
+///
+/// `dom` accepts `"shadow"` (default) or `"light"` for unwrapped components;
+/// authored open Shadow roots remain Shadow in either mode.
+///
+/// Returns the serialized `WebUIProtocol` as protobuf bytes. Templates with
+/// lazy regions also need their template packs; use `buildApp` from the
+/// combined WASM build, which returns both.
+#[wasm_bindgen]
+pub fn build_protocol(
+    files: JsValue,
+    entry: &str,
+    projection_manifests: Option<JsValue>,
+    dom: Option<String>,
+) -> Result<Vec<u8>, JsValue> {
+    let (files_map, manifests, dom) = build_inputs(files, projection_manifests, dom)?;
+    build_protocol_inner_with_dom(&files_map, entry, &manifests, dom)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+type BuildInputs = (
+    HashMap<String, String>,
+    Vec<ProjectionManifest>,
+    DomStrategy,
+);
+
+fn build_inputs(
+    files: JsValue,
+    projection_manifests: Option<JsValue>,
+    dom: Option<String>,
+) -> Result<BuildInputs, JsValue> {
+    let files_map: HashMap<String, String> =
+        serde_wasm_bindgen::from_value(files).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let manifests: Vec<ProjectionManifest> = projection_manifests
+        .map(serde_wasm_bindgen::from_value)
+        .transpose()
+        .map_err(|error| JsValue::from_str(&format!("invalid projection manifests: {error}")))?
+        .unwrap_or_default();
+    let dom = parse_dom(dom).map_err(|error| JsValue::from_str(&error))?;
+    Ok((files_map, manifests, dom))
+}
+
+fn parse_dom(dom: Option<String>) -> Result<DomStrategy, String> {
+    Ok(dom
+        .map(|value| value.parse::<DomStrategy>())
+        .transpose()?
+        .unwrap_or_default())
+}
+
+#[cfg(test)]
+pub(crate) fn build_protocol_inner(
+    files: &HashMap<String, String>,
+    entry: &str,
+    projection_manifests: &[ProjectionManifest],
+) -> Result<Vec<u8>, WasmError> {
+    build_protocol_inner_with_dom(files, entry, projection_manifests, DomStrategy::Shadow)
+}
+
+fn build_protocol_inner_with_dom(
+    files: &HashMap<String, String>,
+    entry: &str,
+    projection_manifests: &[ProjectionManifest],
+    dom: DomStrategy,
+) -> Result<Vec<u8>, WasmError> {
+    let (mut protocol, _) = compile(files, entry, projection_manifests, dom, String::new())?;
+    if protocol
+        .client_fragments
+        .values()
+        .any(|fragment| fragment.entry)
+    {
+        return Err(lazy_packs_unavailable());
+    }
+    protocol.assign_build_id().map_err(WasmError::Protocol)?;
+    protocol.to_protobuf().map_err(WasmError::Protocol)
+}
+
+#[cold]
+#[inline(never)]
+fn lazy_packs_unavailable() -> WasmError {
+    WasmError::LazyPacks(
+        "lazy regions need template packs: call buildApp() from the combined WebUI WASM build, or build with `webui build`".to_string(),
+    )
+}
+
+/// Register all component `.html` files and optional companion `.css` files
+/// from the virtual file map, skipping the entry.
+fn register_components(
+    parser: &mut HtmlParser,
+    files: &HashMap<String, String>,
+    entry: &str,
+) -> Result<(), WasmError> {
+    for (filename, content) in files {
+        if filename != entry && filename.ends_with(".html") {
+            let tag_name = filename.trim_end_matches(".html");
+            if tag_name.contains('-') {
+                let css_key = format!("{tag_name}.css");
+                let css = files.get(&css_key).map(String::as_str);
+                // A sibling module marks an authored client component. Rust
+                // never analyzes its source; optional projection manifests
+                // provide exact client state surfaces.
+                let script = component_script(files, tag_name);
+                parser.component_registry_mut().register_component(
+                    webui_parser::ComponentRegistration {
+                        tag_name,
+                        html_content: content,
+                        css_content: css,
+                        is_client_owned: script.is_some(),
+                        script_path: script.map(std::path::Path::new),
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Return the virtual file name of a component's authored module, preferring
+/// `.ts` over `.js`.
+fn component_script<'a>(files: &'a HashMap<String, String>, tag_name: &str) -> Option<&'a str> {
+    ["ts", "js"].into_iter().find_map(|extension| {
+        files
+            .get_key_value(&format!("{tag_name}.{extension}"))
+            .map(|(name, _)| name.as_str())
+    })
+}
+
+type ComponentDeliverySnapshot = (
+    Vec<(String, String)>,
+    Vec<(String, bool)>,
+    Vec<(String, u8)>,
+);
+
+fn component_delivery_snapshot(parser: &HtmlParser) -> ComponentDeliverySnapshot {
+    let css = parser
+        .component_registry()
+        .get_all()
+        .filter(|component| parser.has_fragment(&component.tag_name))
+        .filter_map(|component| {
+            component
+                .css_content
+                .as_ref()
+                .map(|css| (component.tag_name.clone(), css.clone()))
+        })
+        .collect();
+    let shadow_dom = parser
+        .component_shadow_dom_usage()
+        .map(|(tag_name, uses_shadow_dom)| (tag_name.to_string(), uses_shadow_dom))
+        .collect();
+    let work_policies = parser
+        .component_work_policies()
+        .map(|(tag_name, policy)| (tag_name.to_string(), policy))
+        .collect();
+    (css, shadow_dom, work_policies)
+}
+
+fn apply_component_delivery(
+    protocol: &mut WebUIProtocol,
+    snapshot: ComponentDeliverySnapshot,
+    entry: &str,
+) {
+    protocol.set_css_strategy(webui_protocol::CssStrategy::Style);
+    for (tag_name, uses_shadow_dom) in snapshot.1 {
+        if !protocol.fragments.contains_key(&tag_name) {
+            continue;
+        }
+        protocol
+            .components
+            .entry(tag_name)
+            .or_default()
+            .uses_shadow_dom = uses_shadow_dom;
+    }
+    for (tag_name, css) in snapshot.0 {
+        if protocol.fragments.contains_key(&tag_name) {
+            protocol.components.entry(tag_name).or_default().css = css;
+        }
+    }
+    for (tag_name, work_policy) in snapshot.2 {
+        if protocol.fragments.contains_key(&tag_name) {
+            protocol.components.entry(tag_name).or_default().work_policy = i32::from(work_policy);
+        }
+    }
+    protocol.populate_style_closures(&[entry]);
+}
+
+/// Parse virtual files into a `WebUIProtocol` using the real `webui-parser`
+/// with the WebUI plugin.
+#[cfg(test)]
+pub(crate) fn parse_to_protocol(
+    files: &HashMap<String, String>,
+    entry: &str,
+    projection_manifests: &[ProjectionManifest],
+) -> Result<WebUIProtocol, WasmError> {
+    parse_to_protocol_with_dom(files, entry, projection_manifests, DomStrategy::Shadow)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_to_protocol_with_dom(
+    files: &HashMap<String, String>,
+    entry: &str,
+    projection_manifests: &[ProjectionManifest],
+    dom: DomStrategy,
+) -> Result<WebUIProtocol, WasmError> {
+    let (mut protocol, _) = compile(files, entry, projection_manifests, dom, String::new())?;
+    protocol.assign_build_id().map_err(WasmError::Protocol)?;
+    Ok(protocol)
+}
+
+/// Compile virtual files into a protocol and parser warnings.
+///
+/// Lazy-region packs and build identity are assigned by the caller, after the
+/// final metadata exists.
+fn compile(
+    files: &HashMap<String, String>,
+    entry: &str,
+    projection_manifests: &[ProjectionManifest],
+    dom: DomStrategy,
+    asset_base: String,
+) -> Result<(WebUIProtocol, Vec<Diagnostic>), WasmError> {
+    let entry_html = files
+        .get(entry)
+        .ok_or_else(|| WasmError::MissingEntry(entry.to_string()))?;
+
+    let mut parser = HtmlParser::with_plugin_options(
+        Box::new(WebUIParserPlugin::new()),
+        (CssStrategy::Style, dom),
+    );
+    register_components(&mut parser, files, entry)?;
+    parser.parse(entry, entry_html)?;
+    let component_delivery = component_delivery_snapshot(&parser);
+    let templates = match parser.take_plugin_artifacts()? {
+        ParserPluginArtifacts::None => Vec::new(),
+        ParserPluginArtifacts::ComponentTemplates(templates) => templates,
+    };
+    let component_render_css = parser.component_registry().render_policy_css(
+        parser
+            .component_registry()
+            .get_all()
+            .filter(|component| parser.has_fragment(&component.tag_name))
+            .map(|component| component.tag_name.as_str()),
+    );
+    let warnings = parser.take_warnings();
+
+    let mut protocol = WebUIProtocol::new(parser.into_fragment_records());
+    protocol.component_render_css = component_render_css;
+    let projection = merge_projection_manifests(projection_manifests)?;
+    protocol.initial_state_strategy = if projection.is_some() {
+        InitialStateStrategy::Components as i32
+    } else {
+        InitialStateStrategy::Full as i32
+    };
+    if let Some(entries) = &projection {
+        let mut missing = Vec::new();
+        for artifact in &templates {
+            if artifact.is_scripted
+                && protocol.fragments.contains_key(&artifact.tag_name)
+                && !entries.contains_key(&artifact.tag_name)
+            {
+                missing.push(artifact.tag_name.as_str());
+            }
+        }
+        if !missing.is_empty() {
+            missing.sort_unstable();
+            return Err(WasmError::Projection(format!(
+                "PROJ-B001: scripted components have no projection entry: {}",
+                missing.join(", ")
+            )));
+        }
+    }
+    for artifact in templates {
+        let manifest_entry = if artifact.is_scripted {
+            projection
+                .as_ref()
+                .and_then(|entries| entries.get(&artifact.tag_name))
+        } else {
+            None
+        };
+        let component = protocol.components.entry(artifact.tag_name).or_default();
+        component.template = artifact.template;
+        component.template_json = artifact.template_json;
+        component.template_functions = artifact.template_functions;
+        let hydration = manifest_entry.map_or(artifact.hydration, |entry| {
+            StateSurface::Keys(entry.hydration_keys.clone())
+        });
+        let navigation = manifest_entry.map_or(artifact.navigation, |entry| {
+            StateSurface::Keys(union_keys(&entry.navigation_keys, &artifact.template_roots))
+        });
+        let (hydration_mode, hydration_keys) = encode_state_surface(hydration);
+        component.hydration_mode = hydration_mode;
+        component.hydration_keys = hydration_keys;
+        let (navigation_mode, navigation_keys) = encode_state_surface(navigation);
+        component.navigation_mode = Some(navigation_mode);
+        component.navigation_keys = navigation_keys;
+        for fragment in artifact.lazy_templates {
+            let mut data = fragment.data;
+            data.inherit_owner_state(component);
+            protocol.client_fragments.insert(fragment.id, data);
+        }
+    }
+    apply_component_delivery(&mut protocol, component_delivery, entry);
+    protocol.asset_base = asset_base;
+
+    fn merge_projection_manifests(
+        manifests: &[ProjectionManifest],
+    ) -> Result<Option<std::collections::BTreeMap<String, ProjectionComponent>>, WasmError> {
+        if manifests.is_empty() {
+            return Ok(None);
+        }
+        let mut components = std::collections::BTreeMap::new();
+        for manifest in manifests {
+            let serialized_size = serde_json::to_vec(manifest)
+                .map_err(|error| WasmError::Projection(format!("PROJ-M009: {error}")))?
+                .len();
+            if serialized_size > 16 * 1024 * 1024 {
+                return Err(WasmError::Projection(
+                    "PROJ-S001: projection manifest exceeds the 16 MiB limit".to_string(),
+                ));
+            }
+            manifest
+                .validate()
+                .map_err(|error| WasmError::Projection(format!("{}: {error}", error.code())))?;
+            for (tag, entry) in &manifest.components {
+                if components.insert(tag.clone(), entry.clone()).is_some() {
+                    return Err(WasmError::Projection(format!(
+                        "PROJ-M006: component <{tag}> is declared by more than one projection manifest"
+                    )));
+                }
+            }
+        }
+        Ok(Some(components))
+    }
+
+    fn union_keys(left: &[String], right: &[String]) -> Vec<String> {
+        let mut keys = Vec::with_capacity(left.len() + right.len());
+        keys.extend_from_slice(left);
+        keys.extend_from_slice(right);
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+    Ok((protocol, warnings))
+}
+
+fn encode_state_surface(surface: StateSurface) -> (i32, Vec<String>) {
+    match surface {
+        StateSurface::None => (StateProjectionMode::None as i32, Vec::new()),
+        StateSurface::Keys(keys) => (StateProjectionMode::Keys as i32, keys),
+        StateSurface::All => (StateProjectionMode::All as i32, Vec::new()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_protocol_reports_missing_entry() {
+        let files = HashMap::new();
+        let err = build_protocol_inner(&files, "index.html", &[]).unwrap_err();
+        assert_eq!(err.to_string(), "Entry file 'index.html' not found");
+    }
+
+    #[test]
+    fn protocol_only_builds_explain_how_to_get_lazy_packs() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><body><app-owner></app-owner></body></html>".to_string(),
+            ),
+            (
+                "app-owner.html".to_string(),
+                r#"<if condition="show" lazy><p>Body</p></if>"#.to_string(),
+            ),
+        ]);
+        let error = build_protocol_inner(&files, "index.html", &[]).unwrap_err();
+        assert!(error.to_string().contains("buildApp()"), "{error}");
+    }
+
+    #[test]
+    fn virtual_component_modules_prefer_typescript() {
+        let files = HashMap::from([
+            ("a-card.ts".to_string(), String::new()),
+            ("a-card.js".to_string(), String::new()),
+            ("b-card.js".to_string(), String::new()),
+        ]);
+        assert_eq!(component_script(&files, "a-card"), Some("a-card.ts"));
+        assert_eq!(component_script(&files, "b-card"), Some("b-card.js"));
+        assert_eq!(component_script(&files, "c-card"), None);
+    }
+
+    #[test]
+    fn parse_to_protocol_without_manifest_preserves_full_state() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><body><my-card></my-card></body></html>".to_string(),
+            ),
+            (
+                "my-card.html".to_string(),
+                "<template shadowrootmode=\"open\"><p>{{name}}</p></template>".to_string(),
+            ),
+            (
+                "my-card.ts".to_string(),
+                "class MyCard { @observable name = ''; }".to_string(),
+            ),
+        ]);
+
+        let protocol = parse_to_protocol(&files, "index.html", &[]).unwrap();
+        let component = protocol.components.get("my-card").unwrap();
+
+        assert_eq!(
+            protocol.initial_state_strategy,
+            InitialStateStrategy::Full as i32
+        );
+        assert_eq!(component.hydration_mode, StateProjectionMode::All as i32);
+        assert!(component.hydration_keys.is_empty());
+        assert!(!component.template_json.is_empty());
+        assert!(component.uses_shadow_dom);
+        assert!(protocol.style_closures.contains_key("my-card"));
+    }
+
+    #[test]
+    fn parse_to_protocol_resolves_unwrapped_dom_strategy() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><body><my-card></my-card></body></html>".to_string(),
+            ),
+            (
+                "my-card.html".to_string(),
+                "<p>Light content</p>".to_string(),
+            ),
+            (
+                "my-card.css".to_string(),
+                ".card { display: block; }".to_string(),
+            ),
+        ]);
+
+        let shadow = parse_to_protocol(&files, "index.html", &[]).unwrap();
+        assert!(shadow.components["my-card"].uses_shadow_dom);
+        assert_eq!(
+            shadow.components["my-card"].css,
+            ".card { display: block; }"
+        );
+        assert_eq!(
+            shadow.style_closure("my-card").expect("Shadow closure"),
+            ["my-card"]
+        );
+
+        let protocol =
+            parse_to_protocol_with_dom(&files, "index.html", &[], DomStrategy::Light).unwrap();
+        assert_eq!(protocol.css_strategy(), webui_protocol::CssStrategy::Style);
+        assert!(!protocol.components["my-card"].uses_shadow_dom);
+        assert_eq!(
+            protocol.components["my-card"].css,
+            ".card { display: block; }"
+        );
+        assert_eq!(
+            protocol.style_closure("index.html").expect("entry closure"),
+            ["my-card"]
+        );
+    }
+
+    #[test]
+    fn parse_to_protocol_applies_manifest_surfaces() {
+        use std::collections::BTreeMap;
+        use webui_protocol::projection_manifest::{
+            ProjectionAdapter, ProjectionComponent, ProjectionProducer, PRODUCER_NAME, SCHEMA_ID,
+        };
+
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><body><my-card></my-card></body></html>".to_string(),
+            ),
+            (
+                "my-card.html".to_string(),
+                "<template shadowrootmode=\"open\"><p>{{name}}</p></template>".to_string(),
+            ),
+            ("my-card.ts".to_string(), "export {};".to_string()),
+        ]);
+        let mut manifest = ProjectionManifest {
+            schema: SCHEMA_ID.to_string(),
+            producer: ProjectionProducer {
+                name: PRODUCER_NAME.to_string(),
+                version: "0.0.18".to_string(),
+            },
+            adapter: ProjectionAdapter {
+                name: "test".to_string(),
+                bundler: "test@1.0.0".to_string(),
+            },
+            root: ".".to_string(),
+            analysis_hash: format!("sha256:{}", "1".repeat(64)),
+            build_id: String::new(),
+            inputs: BTreeMap::from([(
+                "my-card.ts".to_string(),
+                format!("sha256:{}", "2".repeat(64)),
+            )]),
+            outputs: BTreeMap::from([(
+                "bundle.js".to_string(),
+                format!("sha256:{}", "3".repeat(64)),
+            )]),
+            components: BTreeMap::from([(
+                "my-card".to_string(),
+                ProjectionComponent {
+                    module: "my-card.ts".to_string(),
+                    outputs: vec!["bundle.js".to_string()],
+                    hydration_keys: vec!["name".to_string()],
+                    navigation_keys: vec!["label".to_string(), "name".to_string()],
+                },
+            )]),
+            entry_closures: BTreeMap::new(),
+        };
+        manifest.build_id = manifest.compute_build_id();
+
+        let mut missing = manifest.clone();
+        missing.components.clear();
+        missing.build_id = missing.compute_build_id();
+        let error = parse_to_protocol(&files, "index.html", &[missing]).unwrap_err();
+        assert!(error.to_string().contains("PROJ-B001"));
+
+        let protocol = parse_to_protocol(&files, "index.html", &[manifest]).unwrap();
+        let component = protocol.components.get("my-card").unwrap();
+        assert_eq!(
+            protocol.initial_state_strategy,
+            InitialStateStrategy::Components as i32
+        );
+        assert_eq!(component.hydration_keys, ["name"]);
+        assert_eq!(component.navigation_keys, ["label", "name"]);
+    }
+
+    #[test]
+    fn parse_to_protocol_keeps_scriptless_navigation_metadata() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><body><my-card></my-card></body></html>".to_string(),
+            ),
+            (
+                "my-card.html".to_string(),
+                "<template shadowrootmode=\"open\"><p>{{name}}</p></template>".to_string(),
+            ),
+        ]);
+
+        let protocol = parse_to_protocol(&files, "index.html", &[]).unwrap();
+        let component = protocol.components.get("my-card").unwrap();
+        assert!(component.hydration_keys.is_empty());
+        assert_eq!(component.navigation_keys, ["name"]);
+        assert!(component.template_json.contains(r#""th":1"#));
+    }
+
+    #[test]
+    fn parse_to_protocol_preserves_lazy_render_policy() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><head></head><body><my-card></my-card></body></html>".to_string(),
+            ),
+            (
+                "my-card.html".to_string(),
+                concat!(
+                    r#"<template w-render="lazy" "#,
+                    r#"w-reserve-block-size="18rem"><p>{{name}}</p></template>"#,
+                )
+                .to_string(),
+            ),
+            (
+                "unused-card.html".to_string(),
+                concat!(
+                    r#"<template w-render="lazy" "#,
+                    r#"w-reserve-block-size="99px"><p>unused</p></template>"#,
+                )
+                .to_string(),
+            ),
+            ("my-card.ts".to_string(), "class MyCard {}".to_string()),
+        ]);
+
+        let protocol = parse_to_protocol(&files, "index.html", &[]).unwrap();
+        let component = protocol.components.get("my-card").unwrap();
+        assert!(component.template_json.contains(r#""wp":2"#));
+        assert_eq!(
+            protocol.component_render_css,
+            concat!(
+                r#"my-card:not([w-render="eager"]){content-visibility:auto;"#,
+                "contain-intrinsic-block-size:auto 18rem;}",
+            )
+        );
+    }
+
+    #[test]
+    fn parse_to_protocol_preserves_combined_render_interaction_policy() {
+        let files = HashMap::from([
+            (
+                "index.html".to_string(),
+                "<html><head></head><body><my-panel></my-panel></body></html>".to_string(),
+            ),
+            (
+                "my-panel.html".to_string(),
+                concat!(
+                    r#"<template w-render="lazy" w-reserve-block-size="18rem" "#,
+                    r#"w-hydrate="interaction"><button>Open</button></template>"#,
+                )
+                .to_string(),
+            ),
+            ("my-panel.ts".to_string(), "class MyPanel {}".to_string()),
+        ]);
+
+        let protocol = parse_to_protocol(&files, "index.html", &[]).unwrap();
+        let component = protocol.components.get("my-panel").unwrap();
+        assert!(component.template_json.contains(r#""wp":4"#));
+        assert_eq!(
+            component.work_policy,
+            webui_protocol::ComponentWorkPolicy::LazyRenderInteraction as i32
+        );
+        assert!(protocol
+            .component_render_css
+            .contains("content-visibility:auto"));
+    }
+}
