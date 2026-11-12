@@ -1,0 +1,4 @@
+# Only diskann/ uses Git LFS (68 files under diskann/test_data). GitHub refuses new LFS
+# objects on a public fork, so they are read from the upstream store. See MERGED.toml.
+[lfs]
+	url = https://github.com/microsoft/DiskANN.git/info/lfs

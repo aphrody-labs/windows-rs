@@ -143,4 +143,4 @@ commit = "dd896a3e08650a1b8c50d39230c14ebf79777648"
 commit-date = "2026-11-12T09:38:40-08:00"
 squash = "152f7400afa223b9c6415d62642cab34dd0fbae7"
 workspace = "joined: 18 members; rfcs/ and vectorset/ excluded"
-notes = ["test_data/: 68 Git LFS files (61 objects, 41 MiB) stored in the aphrody-labs/windows-rs LFS store"]
+notes = ["test_data/: 68 Git LFS pointers (61 objects, 41 MiB); GitHub refuses new LFS objects on the public fork (`git lfs push`: \"can not upload new objects to public fork\"), so the root .lfsconfig reads them from https://github.com/microsoft/DiskANN.git/info/lfs"]
