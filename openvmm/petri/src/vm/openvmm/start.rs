@@ -1,0 +1,317 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Methods to start a [`PetriVmConfigOpenVmm`] and produce a running [`PetriVmOpenVmm`].
+
+use super::PetriVmConfigOpenVmm;
+use super::PetriVmOpenVmm;
+use super::PetriVmResourcesOpenVmm;
+use crate::OpenvmmLogConfig;
+use crate::PetriLogFile;
+use crate::PetriVmRuntimeConfig;
+use crate::worker::Worker;
+use anyhow::Context;
+use mesh::payload::message::ProtobufMessage;
+use mesh_process::Mesh;
+use mesh_process::ProcessConfig;
+use mesh_worker::WorkerHost;
+use openvmm_defs::config::DeviceVtl;
+use pal_async::pipe::PolledPipe;
+use pal_async::task::Spawn;
+use petri_artifacts_common::tags::MachineArch;
+use petri_artifacts_common::tags::OsFlavor;
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::io::Write;
+use std::sync::Arc;
+use vm_resource::IntoResource;
+
+impl PetriVmConfigOpenVmm {
+    pub(super) async fn run_core(self) -> anyhow::Result<(PetriVmOpenVmm, PetriVmRuntimeConfig)> {
+        self.run_core_inner(None).await
+    }
+
+    /// Launch a fresh worker that restores from `saved_state`, mirroring
+    /// production `--restore-snapshot`. Exercises the path the in-process
+    /// pulse (`verify_save_restore`) cannot reach.
+    pub(crate) async fn run_restore(
+        self,
+        saved_state: &[u8],
+    ) -> anyhow::Result<(PetriVmOpenVmm, PetriVmRuntimeConfig)> {
+        let saved_state: ProtobufMessage = mesh::payload::decode(saved_state)
+            .context("failed to decode serialized saved state")?;
+        self.run_core_inner(Some(saved_state)).await
+    }
+
+    async fn run_core_inner(
+        self,
+        saved_state: Option<ProtobufMessage>,
+    ) -> anyhow::Result<(PetriVmOpenVmm, PetriVmRuntimeConfig)> {
+        let has_guest_shares = !self.guest_shares.is_empty();
+        let Self {
+            guest_shares: _,
+            private_virtio_devices: _,
+            runtime_config,
+            arch,
+            host_log_levels,
+            mut config,
+            skip_save_restore,
+
+            mesh,
+
+            mut resources,
+
+            openvmm_log_file,
+
+            memory_backing_file,
+            requested_private_memory: _,
+
+            ged,
+            framebuffer_view,
+
+            pending_iommu,
+        } = self.with_private_virtio_devices();
+
+        // Resolve deferred IOMMU assignments.
+        for (name, iommu_config) in &pending_iommu {
+            let rc = config
+                .pcie_root_complexes
+                .iter_mut()
+                .find(|rc| rc.name == *name)
+                .with_context(|| format!("IOMMU configured for unknown root complex '{name}'"))?;
+            rc.iommu = Some(iommu_config.clone());
+        }
+
+        let enable_legacy_pci_config_io =
+            arch == MachineArch::X86_64 && !config.chipset.with_piix4_pci_bus;
+        for root_complex in &mut config.pcie_root_complexes {
+            root_complex.legacy_pci_config_io = enable_legacy_pci_config_io
+                && root_complex.segment == 0
+                && root_complex.start_bus == 0
+                && root_complex.end_bus == u8::MAX;
+        }
+        if config
+            .pcie_root_complexes
+            .iter()
+            .any(|root_complex| root_complex.legacy_pci_config_io)
+        {
+            config
+                .chipset_devices
+                .retain(|device| device.name != "missing-pci");
+        }
+
+        // TODO: OpenHCL needs virt_whp support
+        // TODO: PCAT needs vga device support
+        // TODO: arm64 is broken?
+        // TODO: VPCI and some PCIe endpoints (NVMe/GDMA) don't support
+        // TODO: virtio vsock and console don't support save/restore yet
+        // TODO: 9p shares don't support save/restore yet
+        // TODO: nested virt doesn't support save/restore yet
+        let has_unsupported_pcie_save_restore_device = config
+            .pcie_devices
+            .iter()
+            .any(|device| matches!(device.resource.id(), "nvme" | "gdma"));
+        let supports_save_restore = !skip_save_restore
+            && !resources.properties.is_openhcl
+            && !resources.properties.is_isolated
+            && !resources.properties.is_pcat
+            && !matches!(arch, MachineArch::Aarch64)
+            && !resources.properties.using_vpci
+            && !has_unsupported_pcie_save_restore_device
+            && !resources.properties.use_virtio_vsock
+            && !resources.properties.use_virtio_console
+            && !has_guest_shares
+            && !config.hypervisor.nested_virt;
+
+        // Add the GED and VTL 2 settings.
+        if let Some(mut ged) = ged {
+            ged.vtl2_settings = Some(prost::Message::encode_to_vec(
+                runtime_config.vtl2_settings.as_ref().unwrap(),
+            ));
+            config
+                .vmbus_devices
+                .push((DeviceVtl::Vtl2, ged.into_resource()));
+        }
+
+        tracing::debug!(?config, "OpenVMM config");
+
+        let log_env = match host_log_levels {
+            None | Some(OpenvmmLogConfig::TestDefault) => BTreeMap::<OsString, OsString>::from([
+                // Quiet down `hyper_util`'s connection-pool debug spam that
+                // `disk_blob` triggers on every HTTP range request.
+                ("OPENVMM_LOG".into(), "debug,hyper_util=info".into()),
+                ("OPENVMM_SHOW_SPANS".into(), "false".into()),
+            ]),
+            Some(OpenvmmLogConfig::BuiltInDefault) => BTreeMap::new(),
+            Some(OpenvmmLogConfig::Custom(levels)) => levels
+                .iter()
+                .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+                .collect::<BTreeMap<OsString, OsString>>(),
+        };
+
+        let (host, pid) = Self::openvmm_host(&mut resources, &mesh, openvmm_log_file, log_env)
+            .await
+            .context("failed to create host process")?;
+        // If a memory backing file was requested, open/create it and size
+        // it to match the configured guest RAM.
+        let shared_memory = memory_backing_file
+            .as_ref()
+            .map(|mem_path| {
+                let total_mem_size: u64 = config
+                    .numa
+                    .nodes
+                    .iter()
+                    .filter_map(|n| n.mem.as_ref())
+                    .map(|m| m.mem_size)
+                    .sum();
+                openvmm_helpers::shared_memory::open_memory_backing_file(mem_path, total_mem_size)
+            })
+            .transpose()?;
+
+        // Log the resolved guest RAM backing mode for diagnostics. Read from
+        // the final config so it reflects any backend overrides (e.g.
+        // `with_hugepages` / `with_memory_backing_file` forcing shared). Log
+        // per node, since NUMA nodes can have heterogeneous backings.
+        for (node, mem) in config
+            .numa
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| n.mem.as_ref().map(|m| (i, m)))
+        {
+            tracing::info!(
+                node,
+                mem_size = mem.mem_size,
+                backing_mode = if mem.private_memory {
+                    "private"
+                } else {
+                    "shared"
+                },
+                transparent_hugepages = mem.transparent_hugepages,
+                hugepages = mem.hugepages,
+                "guest RAM backing"
+            );
+        }
+
+        let (worker, halt_notif) = Worker::launch(&host, config, shared_memory, saved_state)
+            .await
+            .context("failed to launch vm worker")?;
+
+        let worker = Arc::new(worker);
+
+        let is_minimal = resources.properties.minimal_mode;
+
+        // Resolve the TCP pipette port now, while the VM is starting.
+        // Consomme binds the port during launch, so the oneshot should
+        // be ready.  Caching the resolved port here lets wait_for_agent
+        // reconnect after a reset without needing the oneshot again.
+        let tcp_pipette_port = match resources.tcp_pipette_port.take() {
+            Some(recv) => Some(
+                recv.await
+                    .context("failed to receive TCP pipette port from consomme")?,
+            ),
+            None => None,
+        };
+
+        let mut vm = PetriVmOpenVmm::new(
+            super::runtime::PetriVmInner {
+                resources,
+                mesh,
+                worker,
+                framebuffer_view,
+                cidata_mounted: false,
+                tcp_pipette_port,
+                pid,
+            },
+            halt_notif,
+        );
+
+        tracing::info!("Resuming VM");
+        vm.resume().await?;
+
+        // Run the basic save/restore pulse if supported. This also verifies
+        // that a restored VM can be saved and restored again.
+        if supports_save_restore && !is_minimal {
+            tracing::info!("Testing save/restore");
+            vm.verify_save_restore().await?;
+        }
+
+        tracing::info!("VM ready");
+        Ok((vm, runtime_config))
+    }
+
+    /// Run the VM, configuring pipette to automatically start if it is
+    /// included in the config
+    pub async fn run(mut self) -> anyhow::Result<(PetriVmOpenVmm, PetriVmRuntimeConfig)> {
+        // Set up the IMC hive for Windows guests that use pipette in VTL0.
+        // Skip when VMBus is disabled — the no-vmbus prepped image has
+        // pipette pre-configured via offline registry injection.
+        if self.resources.properties.using_vtl0_pipette
+            && !self.resources.properties.external_pipette
+            && matches!(self.resources.properties.os_flavor, OsFlavor::Windows)
+            && !self.resources.properties.is_isolated
+            && !self.resources.properties.no_vmbus
+        {
+            let mut imc_hive_file = tempfile::tempfile().context("failed to create temp file")?;
+            imc_hive_file
+                .write_all(include_bytes!("../../../guest-bootstrap/imc.hiv"))
+                .context("failed to write imc hive")?;
+
+            self.config.vmbus_devices.push((
+                DeviceVtl::Vtl0,
+                vmbfs_resources::VmbfsImcDeviceHandle {
+                    file: imc_hive_file,
+                }
+                .into_resource(),
+            ));
+        }
+
+        // On non-pipette-as-init Linux direct, launch pipette via the serial
+        // agent. (When pipette is PID 1, it auto-starts on boot and the
+        // serial agent is not present.)
+        let launch_via_serial = self.resources.linux_direct_serial_agent.is_some()
+            && self.resources.properties.using_vtl0_pipette;
+
+        // Start the VM.
+        let (mut vm, config) = self.run_core().await?;
+
+        if launch_via_serial {
+            vm.launch_linux_direct_pipette().await?;
+        }
+
+        Ok((vm, config))
+    }
+
+    async fn openvmm_host(
+        resources: &mut PetriVmResourcesOpenVmm,
+        mesh: &Mesh,
+        log_file: PetriLogFile,
+        vmm_env: BTreeMap<OsString, OsString>,
+    ) -> anyhow::Result<(WorkerHost, i32)> {
+        // Copy the child's stderr to this process's, since internally this is
+        // wrapped by the test harness.
+        let (stderr_read, stderr_write) = pal::pipe_pair()?;
+        let task = resources.driver.spawn(
+            "serial log",
+            crate::log_task(
+                log_file,
+                PolledPipe::new(&resources.driver, stderr_read)
+                    .context("failed to create polled pipe")?,
+                "openvmm stderr",
+            ),
+        );
+        resources.log_stream_tasks.push(task);
+
+        let (host, runner) = mesh_worker::worker_host();
+        let pid = mesh
+            .launch_host(
+                ProcessConfig::new("vmm")
+                    .process_name(&resources.openvmm_path)
+                    .stderr(Some(stderr_write))
+                    .env(vmm_env),
+                openvmm_defs::entrypoint::MeshHostParams { runner },
+            )
+            .await?;
+        Ok((host, pid))
+    }
+}

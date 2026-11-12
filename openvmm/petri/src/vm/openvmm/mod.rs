@@ -1,0 +1,614 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Code managing the lifetime of a `PetriVmOpenVmm`. All VMs live the same lifecycle:
+//! * A `PetriVmConfigOpenVmm` is built for the given firmware and architecture in `construct`.
+//! * The configuration is optionally modified from the defaults using the helpers in `modify`.
+//! * The `PetriVmOpenVmm` is started by the code in `start`.
+//! * The VM is interacted with through the methods in `runtime`.
+//! * The VM is either shut down by the code in `runtime`, or gets dropped and cleaned up automatically.
+
+mod construct;
+#[cfg(target_os = "linux")]
+mod hugetlb;
+mod modify;
+mod mshv;
+mod runtime;
+mod start;
+
+#[cfg(target_os = "linux")]
+pub use hugetlb::HUGETLB_2MB_PAGE_SIZE;
+#[cfg(target_os = "linux")]
+pub use hugetlb::ensure_2mb_hugetlb_pages;
+pub use runtime::OpenVmmFramebufferAccess;
+pub use runtime::OpenVmmInspector;
+pub use runtime::PetriVmOpenVmm;
+
+use crate::Disk;
+use crate::DiskPath;
+use crate::Firmware;
+use crate::ModifyFn;
+use crate::OpenHclServicingFlags;
+use crate::OpenvmmLogConfig;
+use crate::PetriLogFile;
+use crate::PetriVmConfig;
+use crate::PetriVmResources;
+use crate::PetriVmRuntimeConfig;
+use crate::PetriVmgsDisk;
+use crate::PetriVmgsResource;
+use crate::PetriVmmBackend;
+use crate::VmmQuirks;
+use crate::linux_direct_serial_agent::LinuxDirectSerialAgent;
+use crate::vm::PetriVmProperties;
+use anyhow::Context;
+use async_trait::async_trait;
+use chipset_resources::acpi_power_button::PowerButtonRpc;
+use disk_backend_resources::DiskLayerDescription;
+use disk_backend_resources::LayeredDiskHandle;
+use disk_backend_resources::layer::DiskLayerHandle;
+use disk_backend_resources::layer::RamDiskLayerHandle;
+use disk_backend_resources::layer::SqliteAutoCacheDiskLayerHandle;
+use disk_backend_resources::layer::SqliteDiskLayerFormatParams;
+use disk_backend_resources::layer::SqliteDiskLayerHandle;
+use get_resources::ged::FirmwareEvent;
+use guid::Guid;
+use hyperv_ic_resources::shutdown::ShutdownRpc;
+use mesh::Receiver;
+use mesh::Sender;
+use net_backend_resources::mac_address::MacAddress;
+use openvmm_defs::config::Config;
+use openvmm_helpers::disk::OpenDiskOptions;
+use openvmm_helpers::disk::open_disk_type;
+use pal_async::DefaultDriver;
+use pal_async::socket::PolledSocket;
+use pal_async::task::Task;
+use petri_artifacts_common::tags::GuestQuirksInner;
+use petri_artifacts_common::tags::MachineArch;
+use petri_artifacts_core::ArtifactResolver;
+use petri_artifacts_core::ResolvedArtifact;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use tempfile::TempPath;
+use unix_socket::UnixListener;
+use vm_resource::IntoResource;
+use vm_resource::Resource;
+use vm_resource::kind::DiskHandleKind;
+use vm_resource::kind::VirtioDeviceHandle;
+use vmgs_resources::VmgsDisk;
+use vmgs_resources::VmgsResource;
+
+/// The instance guid for the MANA nic automatically added when specifying [`PetriVmConfigOpenVmm::with_nic`]
+const MANA_INSTANCE: Guid = guid::guid!("f9641cf4-d915-4743-a7d8-efa75db7b85a");
+
+/// The MAC address used by the NIC assigned with [`PetriVmConfigOpenVmm::with_nic`].
+pub const NIC_MAC_ADDRESS: MacAddress = MacAddress::new([0x00, 0x15, 0x5D, 0x12, 0x12, 0x12]);
+
+/// OpenVMM Petri Backend
+#[derive(Debug)]
+pub struct OpenVmmPetriBackend {
+    openvmm_path: ResolvedArtifact,
+}
+
+impl crate::PetriVmBuilder<OpenVmmPetriBackend> {
+    /// Add a single-port Linux virtio console, captured in `hvc0.log`.
+    ///
+    /// Linux-direct boot selects `console=hvc0` and requires initrd-owned agent
+    /// startup. UEFI guests select their console through their boot configuration.
+    /// The firmware UART is unchanged.
+    pub fn with_virtio_console(mut self) -> Self {
+        assert!(
+            matches!(
+                self.config.firmware,
+                Firmware::LinuxDirect { .. } | Firmware::Uefi { .. }
+            ) && self.config.firmware.os_flavor() == petri_artifacts_common::tags::OsFlavor::Linux
+                && self.config.firmware.isolation().is_none(),
+            "virtio-console requires Linux-direct or non-isolated Linux UEFI"
+        );
+        self.use_virtio_console = true;
+        self
+    }
+}
+
+impl OpenVmmPetriBackend {
+    /// Launch a separately supplied, protocol-compatible native executable.
+    pub fn from_binary(path: PathBuf) -> Self {
+        Self {
+            openvmm_path: ResolvedArtifact::from_local_path(path),
+        }
+    }
+}
+
+#[async_trait]
+impl PetriVmmBackend for OpenVmmPetriBackend {
+    type VmmConfig = PetriVmConfigOpenVmm;
+    type VmRuntime = PetriVmOpenVmm;
+    const SUPPORTS_VMBUS: bool = true;
+    const SUPPORTS_FILE_SHARING: bool = cfg!(any(windows, target_os = "linux"));
+
+    fn check_compat(firmware: &Firmware, arch: MachineArch) -> bool {
+        !(firmware.is_openhcl() && (!cfg!(windows) || arch == MachineArch::Aarch64))
+    }
+
+    fn quirks(firmware: &Firmware) -> (GuestQuirksInner, VmmQuirks) {
+        (
+            firmware.quirks().openvmm,
+            VmmQuirks {
+                // Workaround for #3897
+                flaky_boot: firmware.is_pcat().then_some(Duration::from_secs(15)),
+            },
+        )
+    }
+
+    fn default_servicing_flags() -> OpenHclServicingFlags {
+        OpenHclServicingFlags {
+            enable_nvme_keepalive: true,
+            enable_mana_keepalive: true,
+            override_version_checks: false,
+            stop_timeout_hint_secs: None,
+        }
+    }
+
+    fn create_guest_dump_disk() -> anyhow::Result<
+        Option<(
+            Arc<TempPath>,
+            Box<dyn FnOnce() -> anyhow::Result<Box<dyn fatfs::ReadWriteSeek>>>,
+        )>,
+    > {
+        Ok(None) // TODO #2403
+    }
+
+    fn build_custom_init_script(_pipette_path: &str) -> Option<String> {
+        None
+    }
+
+    fn new(resolver: &ArtifactResolver<'_>, arch: MachineArch) -> Self {
+        // OpenVMM guests must have the same arch as the host
+        assert_eq!(arch, MachineArch::host());
+        OpenVmmPetriBackend {
+            openvmm_path: resolver
+                .require(petri_artifacts_vmm_test::artifacts::OPENVMM_NATIVE)
+                .erase(),
+        }
+    }
+
+    async fn run(
+        self,
+        config: PetriVmConfig,
+        modify_vmm_config: Option<ModifyFn<Self::VmmConfig>>,
+        resources: &PetriVmResources,
+        properties: &PetriVmProperties,
+    ) -> anyhow::Result<(Self::VmRuntime, PetriVmRuntimeConfig)> {
+        let mut config =
+            PetriVmConfigOpenVmm::new(&self.openvmm_path, config, resources, properties).await?;
+
+        if let Some(f) = modify_vmm_config {
+            config = f.0(config);
+        }
+
+        config.run().await
+    }
+}
+
+/// Reusable OpenVMM configuration for tests that launch the same VM recipe in
+/// multiple worker processes.
+pub struct OpenVmmRelaunchConfig {
+    builder: crate::PetriVmBuilder<OpenVmmPetriBackend>,
+    /// Holds the disk write files shared by all launched workers.
+    _diff_dir: tempfile::TempDir,
+    /// Bounds the entire recipe, including time between worker launches.
+    _watchdog_task: Option<Task<()>>,
+}
+
+impl crate::PetriVmBuilder<OpenVmmPetriBackend> {
+    /// Prepare this configuration for launching multiple OpenVMM workers with
+    /// the same VM recipe.
+    ///
+    /// Differencing disks store their writes in files shared by all launched
+    /// workers, so a restored guest sees the disk writes made before the save.
+    pub fn prepare_openvmm_relaunch(self) -> anyhow::Result<OpenVmmRelaunchConfig> {
+        anyhow::ensure!(
+            self.modify_vmm_config.is_none(),
+            "OpenVMM relaunch configurations do not support modify_backend"
+        );
+
+        let mut builder = self.add_boot_disk()?.add_agent_disks()?;
+        if builder.uses_pipette_as_init() && builder.resources.prebuilt_initrd.is_none() {
+            builder.resources.prebuilt_initrd = Some(builder.prepare_initrd()?);
+        }
+
+        let diff_dir = tempfile::tempdir().context("failed to create disk write directory")?;
+        let config = &mut builder.config;
+        let drive_disks = config
+            .vmbus_storage_controllers
+            .values_mut()
+            .flat_map(|controller| controller.drives.values_mut())
+            .chain(config.pcie_nvme_drives.iter_mut().map(|d| &mut d.drive))
+            .chain(
+                config
+                    .pcie_virtio_blk_drives
+                    .iter_mut()
+                    .map(|d| &mut d.drive),
+            )
+            .chain(
+                config
+                    .firmware
+                    .ide_controllers_mut()
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .flatten(),
+            )
+            .filter_map(|drive| drive.disk.as_mut());
+        let vmgs_disk = match &mut config.vmgs {
+            PetriVmgsResource::Disk(vmgs)
+            | PetriVmgsResource::ReprovisionOnFailure(vmgs)
+            | PetriVmgsResource::ReprovisionSingle(vmgs) => Some(&mut vmgs.disk),
+            PetriVmgsResource::Ephemeral => None,
+        };
+        for (i, disk) in drive_disks.chain(vmgs_disk).enumerate() {
+            if let Disk::Differencing(base) = disk {
+                *disk = Disk::SqliteDifferencing {
+                    base: base.clone(),
+                    dbhd_path: diff_dir.path().join(format!("disk{i}.dbhd")),
+                };
+            }
+        }
+
+        let watchdog_task =
+            Self::start_watchdog_timer(&builder.resources.driver, builder.watchdog_timeout);
+        Ok(OpenVmmRelaunchConfig {
+            builder,
+            _diff_dir: diff_dir,
+            _watchdog_task: watchdog_task,
+        })
+    }
+}
+
+impl OpenVmmRelaunchConfig {
+    async fn config(
+        &self,
+        memory_backing_file: impl Into<PathBuf>,
+    ) -> anyhow::Result<PetriVmConfigOpenVmm> {
+        Ok(PetriVmConfigOpenVmm::new(
+            &self.builder.backend.openvmm_path,
+            self.builder.config.clone(),
+            &self.builder.resources,
+            &self.builder.properties(),
+        )
+        .await?
+        .with_memory_backing_file(memory_backing_file))
+    }
+
+    /// Launch a new worker using this VM recipe and file-backed guest memory.
+    pub async fn launch(
+        &self,
+        memory_backing_file: impl Into<PathBuf>,
+    ) -> anyhow::Result<PetriVmOpenVmm> {
+        let (vm, _) = self.config(memory_backing_file).await?.run_core().await?;
+        Ok(vm)
+    }
+
+    /// Launch a new worker using this VM recipe and restore its state from
+    /// serialized snapshot bytes.
+    pub async fn restore(
+        &self,
+        memory_backing_file: impl Into<PathBuf>,
+        saved_state: &[u8],
+    ) -> anyhow::Result<PetriVmOpenVmm> {
+        let (vm, _) = self
+            .config(memory_backing_file)
+            .await?
+            .run_restore(saved_state)
+            .await?;
+        Ok(vm)
+    }
+}
+
+/// Configuration state for a test VM.
+pub struct PetriVmConfigOpenVmm {
+    guest_shares: std::collections::HashMap<String, crate::GuestShare>,
+    private_virtio_devices: Vec<(&'static str, Resource<VirtioDeviceHandle>)>,
+    // Direct configuration related information.
+    runtime_config: PetriVmRuntimeConfig,
+    arch: MachineArch,
+    host_log_levels: Option<OpenvmmLogConfig>,
+    config: Config,
+    skip_save_restore: bool,
+
+    // Mesh host
+    mesh: mesh_process::Mesh,
+
+    // Runtime resources
+    resources: PetriVmResourcesOpenVmm,
+
+    // Logging
+    openvmm_log_file: PetriLogFile,
+
+    // File-backed guest memory.
+    memory_backing_file: Option<PathBuf>,
+
+    // The private-memory setting explicitly requested via
+    // `MemoryConfig::private_memory`, preserved so that backend methods which
+    // force shared memory (e.g. `with_hugepages`, `with_memory_backing_file`)
+    // can fail when the caller explicitly asked for private memory rather than
+    // silently downgrading it.
+    requested_private_memory: Option<bool>,
+
+    // Resources that are only used during startup.
+    ged: Option<get_resources::ged::GuestEmulationDeviceHandle>,
+    framebuffer_view: Option<framebuffer::View>,
+
+    // Deferred IOMMU configuration: (rc_name, iommu_config) pairs resolved
+    // against pcie_root_complexes at VM start time.
+    pending_iommu: Vec<(String, openvmm_defs::config::PcieIommuConfig)>,
+}
+/// Various channels and resources used to interact with the VM while it is running.
+struct PetriVmResourcesOpenVmm {
+    log_stream_tasks: Vec<Task<anyhow::Result<()>>>,
+    firmware_event_recv: Receiver<FirmwareEvent>,
+    ipmi_sel_event_recv: Receiver<get_resources::ged::IpmiSelEvent>,
+    shutdown_ic_send: Option<Sender<ShutdownRpc>>,
+    acpi_power_button_send: Option<Sender<PowerButtonRpc>>,
+    kvp_ic_send: Option<Sender<hyperv_ic_resources::kvp::KvpConnectRpc>>,
+    ged_send: Option<Sender<get_resources::ged::GuestEmulationRequest>>,
+    pipette_listener: PolledSocket<UnixListener>,
+    vtl2_pipette_listener: Option<PolledSocket<UnixListener>>,
+    linux_direct_serial_agent: Option<LinuxDirectSerialAgent>,
+
+    /// When set, the host connects to pipette via TCP through consomme
+    /// port forwarding instead of accepting on the Unix socket listener.
+    /// Used for Windows no-vmbus guests where virtio-vsock is unavailable.
+    /// The receiver yields the OS-assigned host port once the consomme
+    /// resolver has bound the socket.
+    tcp_pipette_port: Option<mesh::OneshotReceiver<u16>>,
+
+    // Externally injected management stuff also needed at runtime.
+    driver: DefaultDriver,
+    openvmm_path: ResolvedArtifact,
+    output_dir: PathBuf,
+
+    // TempPaths that cannot be dropped until the end.
+    vtl2_vsock_path: Option<TempPath>,
+    _vsock_path: TempPath,
+
+    // properties needed at runtime
+    properties: PetriVmProperties,
+
+    // vmswitch DirectIO switch port handles, held in the test (parent)
+    // process for the lifetime of the child VMM so the kernel port object
+    // survives until the VMM detaches.
+    #[cfg(windows)]
+    _switch_ports: Vec<vmswitch::kernel::SwitchPort>,
+}
+
+/// Discovers a usable Hyper-V virtual switch for `-net dio` tests.
+///
+/// Tries the well-known Default Switch GUID first (which is provisioned
+/// automatically when Hyper-V is installed). If that switch is not
+/// available (e.g. it was removed, or this host uses a different default
+/// switch SKU), falls back to enumerating all HCN networks and returning
+/// the first one reported.
+///
+/// Returns `None` when no switch can be opened — typically because
+/// Hyper-V is not installed, the user lacks privileges, or
+/// `computenetwork.dll` is missing.
+#[cfg(windows)]
+pub fn find_switch() -> Option<Guid> {
+    if vmswitch::hcn::Network::open(&vmswitch::hcn::DEFAULT_SWITCH).is_ok() {
+        return Some(vmswitch::hcn::DEFAULT_SWITCH);
+    }
+    let networks = match vmswitch::hcn::enumerate_networks() {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(
+                error = &e as &dyn std::error::Error,
+                "failed to enumerate HCN networks"
+            );
+            return None;
+        }
+    };
+    networks.into_iter().find(|guid| {
+        if let Err(e) = vmswitch::hcn::Network::open(guid) {
+            tracing::debug!(
+                %guid,
+                error = &e as &dyn std::error::Error,
+                "skipping unopenable HCN network"
+            );
+            false
+        } else {
+            true
+        }
+    })
+}
+
+/// Discovers a usable Hyper-V virtual switch.
+///
+/// Always `None` on non-Windows platforms.
+#[cfg(not(windows))]
+pub fn find_switch() -> Option<Guid> {
+    None
+}
+
+fn ram_diff_layer() -> DiskLayerDescription {
+    RamDiskLayerHandle {
+        len: None,
+        sector_size: None,
+    }
+    .into_resource()
+    .into()
+}
+
+/// Returns a SQLite diff layer stored in `dbhd_path`, creating the file if it
+/// doesn't exist yet.
+fn sqlite_diff_layer(dbhd_path: &Path) -> DiskLayerDescription {
+    SqliteDiskLayerHandle {
+        dbhd_path: dbhd_path.display().to_string(),
+        format_dbhd: (!dbhd_path.exists()).then_some(SqliteDiskLayerFormatParams {
+            logically_read_only: false,
+            len: None,
+        }),
+    }
+    .into_resource()
+    .into()
+}
+
+fn layered_disk(
+    diff: DiskLayerDescription,
+    base: Vec<DiskLayerDescription>,
+) -> Resource<DiskHandleKind> {
+    LayeredDiskHandle {
+        layers: std::iter::once(diff).chain(base).collect(),
+    }
+    .into_resource()
+}
+
+/// Memory differencing disk over a local base disk.
+async fn memdiff_disk(path: &Path) -> anyhow::Result<Resource<DiskHandleKind>> {
+    Ok(layered_disk(
+        ram_diff_layer(),
+        local_base_layers(path).await?,
+    ))
+}
+
+/// Memory differencing disk over a remote base disk.
+fn memdiff_remote_disk(url: &str) -> anyhow::Result<Resource<DiskHandleKind>> {
+    Ok(layered_disk(ram_diff_layer(), remote_base_layers(url)))
+}
+
+/// SQLite differencing disk over a local base disk, storing writes in
+/// `dbhd_path`.
+async fn sqldiff_disk(path: &Path, dbhd_path: &Path) -> anyhow::Result<Resource<DiskHandleKind>> {
+    Ok(layered_disk(
+        sqlite_diff_layer(dbhd_path),
+        local_base_layers(path).await?,
+    ))
+}
+
+/// SQLite differencing disk over a remote base disk, storing writes in
+/// `dbhd_path`.
+fn sqldiff_remote_disk(url: &str, dbhd_path: &Path) -> anyhow::Result<Resource<DiskHandleKind>> {
+    Ok(layered_disk(
+        sqlite_diff_layer(dbhd_path),
+        remote_base_layers(url),
+    ))
+}
+
+async fn local_base_layers(path: &Path) -> anyhow::Result<Vec<DiskLayerDescription>> {
+    let disk = open_disk_type(
+        path,
+        OpenDiskOptions {
+            read_only: true,
+            direct: false,
+        },
+    )
+    .await
+    .with_context(|| format!("failed to open disk: {}", path.display()))?;
+    Ok(vec![DiskLayerHandle(disk).into_resource().into()])
+}
+
+fn remote_base_layers(url: &str) -> Vec<DiskLayerDescription> {
+    // Strip query parameters and fragments before checking the file extension.
+    let url_path = url.split(['?', '#']).next().unwrap_or(url);
+    let format = if url_path.ends_with(".vhd") || url_path.ends_with(".vmgs") {
+        disk_backend_resources::BlobDiskFormat::FixedVhd1
+    } else {
+        disk_backend_resources::BlobDiskFormat::Flat
+    };
+
+    let cache_dir = super::petri_disk_cache_dir();
+
+    // For VHD1-formatted blobs, let the auto-cache layer derive the cache key
+    // from the VHD's unique ID (a UUID embedded in the footer). This means the
+    // cache automatically invalidates when the image is replaced with a new one,
+    // even if the filename stays the same. For flat-format blobs (e.g. ISOs),
+    // fall back to the URL filename since there's no embedded ID.
+    let cache_key = match format {
+        disk_backend_resources::BlobDiskFormat::FixedVhd1 => None,
+        disk_backend_resources::BlobDiskFormat::Flat => {
+            Some(url_path.rsplit('/').next().unwrap_or(url_path).to_owned())
+        }
+    };
+
+    vec![
+        DiskLayerDescription {
+            read_cache: true,
+            write_through: false,
+            layer: SqliteAutoCacheDiskLayerHandle {
+                cache_path: cache_dir,
+                cache_key,
+            }
+            .into_resource(),
+        },
+        DiskLayerHandle(
+            disk_backend_resources::BlobDiskHandle {
+                url: url.to_owned(),
+                format,
+            }
+            .into_resource(),
+        )
+        .into_resource()
+        .into(),
+    ]
+}
+
+async fn memdiff_vmgs(vmgs: &PetriVmgsResource) -> anyhow::Result<VmgsResource> {
+    async fn convert_disk(disk: &PetriVmgsDisk) -> anyhow::Result<VmgsDisk> {
+        Ok(VmgsDisk {
+            disk: petri_disk_to_openvmm(&disk.disk).await?,
+            encryption_policy: disk.encryption_policy,
+        })
+    }
+
+    Ok(match vmgs {
+        PetriVmgsResource::Disk(disk) => VmgsResource::Disk(convert_disk(disk).await?),
+        PetriVmgsResource::ReprovisionOnFailure(disk) => {
+            VmgsResource::ReprovisionOnFailure(convert_disk(disk).await?)
+        }
+        PetriVmgsResource::ReprovisionSingle(disk) => {
+            VmgsResource::ReprovisionSingle(convert_disk(disk).await?)
+        }
+        PetriVmgsResource::Ephemeral => VmgsResource::Ephemeral,
+    })
+}
+
+async fn petri_disk_to_openvmm(disk: &Disk) -> anyhow::Result<Resource<DiskHandleKind>> {
+    Ok(match disk {
+        Disk::Memory(len) => LayeredDiskHandle::single_layer(RamDiskLayerHandle {
+            len: Some(*len),
+            sector_size: None,
+        })
+        .into_resource(),
+        Disk::Differencing(DiskPath::Local(path)) => memdiff_disk(path).await?,
+        Disk::Differencing(DiskPath::Remote { url }) => memdiff_remote_disk(url)?,
+        Disk::SqliteDifferencing {
+            base: DiskPath::Local(path),
+            dbhd_path,
+        } => sqldiff_disk(path, dbhd_path).await?,
+        Disk::SqliteDifferencing {
+            base: DiskPath::Remote { url },
+            dbhd_path,
+        } => sqldiff_remote_disk(url, dbhd_path)?,
+        Disk::Persistent(path) => {
+            open_disk_type(
+                path.as_ref(),
+                OpenDiskOptions {
+                    read_only: false,
+                    direct: false,
+                },
+            )
+            .await?
+        }
+        Disk::Temporary(path) => {
+            open_disk_type(
+                path.as_ref(),
+                OpenDiskOptions {
+                    read_only: false,
+                    direct: false,
+                },
+            )
+            .await?
+        }
+    })
+}

@@ -1,0 +1,177 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Logging support for the bootshim.
+//!
+//! The bootshim performs no filtering of its logging messages when running in
+//! a confidential VM. This is because it runs before any keys can be accessed
+//! or any guest code is executed, and therefore it can not leak anything
+//! sensitive.
+
+#[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+use crate::arch::snp::SnpSerialBackend;
+#[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+use crate::arch::tdx::TdxSerialBackend;
+use crate::host_params::shim_params::IsolationType;
+use crate::single_threaded::SingleThreaded;
+use core::cell::RefCell;
+use core::fmt;
+use core::fmt::Write;
+use host_fdt_parser::ComInfo;
+use memory_range::MemoryRange;
+#[cfg(target_arch = "aarch64")]
+use minimal_rt::arch::Serial;
+use string_page_buf::StringBuffer;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::BaudRate;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::Config;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::Uart16550;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::Uart16550Tty;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::backend::Backend;
+#[cfg(target_arch = "x86_64")]
+use uart_16550::backend::PioBackend;
+
+enum Logger {
+    #[cfg(target_arch = "x86_64")]
+    Serial(Uart16550Tty<PioBackend>),
+    #[cfg(target_arch = "aarch64")]
+    #[expect(dead_code)]
+    Serial(Serial),
+    #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+    TdxSerial(Uart16550Tty<TdxSerialBackend>),
+    #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+    SnpSerial(Uart16550Tty<SnpSerialBackend>),
+    None,
+}
+
+/// Initializes the serial device at the speed advertised by the host, which
+/// is also passed to Linux. Returns `None` if the device isn't present or the
+/// speed is invalid.
+#[cfg(target_arch = "x86_64")]
+fn init_serial<B: Backend>(mut uart: Uart16550<B>, baud_rate: u32) -> Option<Uart16550Tty<B>> {
+    // The host controls the speed, and uart_16550 debug-asserts that it is
+    // non-zero.
+    if baud_rate == 0 {
+        return None;
+    }
+    let config = Config {
+        baud_rate: BaudRate::Custom(baud_rate),
+        ..Config::DEFAULT
+    };
+    uart.init(config).ok()?;
+    Some(Uart16550Tty::from_inner(uart))
+}
+
+impl Logger {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        match self {
+            Logger::Serial(serial) => serial.write_str(s),
+            #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+            Logger::TdxSerial(serial) => serial.write_str(s),
+            #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+            Logger::SnpSerial(serial) => serial.write_str(s),
+            Logger::None => Ok(()),
+        }
+    }
+}
+
+pub struct BootLogger {
+    logger: SingleThreaded<RefCell<Logger>>,
+    in_memory_logger: SingleThreaded<RefCell<Option<StringBuffer<'static>>>>,
+}
+
+pub static BOOT_LOGGER: BootLogger = BootLogger {
+    logger: SingleThreaded(RefCell::new(Logger::None)),
+    in_memory_logger: SingleThreaded(RefCell::new(None)),
+};
+
+/// Initialize the in-memory log buffer. This range must be identity mapped, and
+/// unused by anything else.
+pub fn boot_logger_memory_init(buffer: MemoryRange) {
+    if buffer.is_empty() {
+        return;
+    }
+
+    let log_buffer_ptr = buffer.start() as *mut u8;
+    // SAFETY: At file build time, this range is enforced to be unused by
+    // anything else. The rest of the bootshim will mark this range as reserved
+    // and not free to be used by anything else.
+    //
+    // The VA is valid as we are identity mapped.
+    let log_buffer_slice =
+        unsafe { core::slice::from_raw_parts_mut(log_buffer_ptr, buffer.len() as usize) };
+
+    *BOOT_LOGGER.in_memory_logger.borrow_mut() = Some(
+        StringBuffer::new(log_buffer_slice)
+            .expect("log buffer should be valid from fixed at build config"),
+    );
+}
+
+/// Initialize the runtime boot logger, for logging to serial or other outputs.
+///
+/// If a runtime logger was initialized, emit any in-memory log to the
+/// configured runtime output.
+pub fn boot_logger_runtime_init(isolation_type: IsolationType, com3_serial_available: ComInfo) {
+    let mut logger = BOOT_LOGGER.logger.borrow_mut();
+
+    *logger = match (isolation_type, com3_serial_available) {
+        #[cfg(target_arch = "x86_64")]
+        (IsolationType::None | IsolationType::Vbs, ComInfo::Ns16550 { current_speed, .. }) => {
+            init_serial(minimal_rt::arch::com3(), current_speed)
+                .map_or(Logger::None, Logger::Serial)
+        }
+        // TODO: fix the PL011 minimal_rt driver. Currently hangs even if
+        // the MMIO address is correctly configured.
+        // #[cfg(target_arch = "aarch64")]
+        // (IsolationType::None, ComInfo::Pl011 { .. }) => Logger::Serial(Serial::init()),
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+        (IsolationType::Tdx, ComInfo::Ns16550 { current_speed, .. }) => {
+            let backend = TdxSerialBackend(minimal_rt::arch::COM3);
+            // SAFETY: COM3 is a valid I/O port, which is used for debug output
+            // only.
+            let uart = unsafe { Uart16550::new_with_backend(backend) };
+            init_serial(uart, current_speed).map_or(Logger::None, Logger::TdxSerial)
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_boot_log"))]
+        (IsolationType::Snp, ComInfo::Ns16550 { current_speed, .. }) => {
+            let backend = SnpSerialBackend(minimal_rt::arch::COM3);
+            // SAFETY: COM3 is a valid I/O port, which is used for debug output
+            // only.
+            let uart = unsafe { Uart16550::new_with_backend(backend) };
+            init_serial(uart, current_speed).map_or(Logger::None, Logger::SnpSerial)
+        }
+        _ => Logger::None,
+    };
+
+    // Emit any in-memory log to the runtime logger.
+    if let Some(buf) = BOOT_LOGGER.in_memory_logger.borrow_mut().as_mut() {
+        let _ = logger.write_str(buf.contents());
+    }
+}
+
+impl Write for &BootLogger {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if let Some(buf) = self.in_memory_logger.borrow_mut().as_mut() {
+            // Ignore the errors from the in memory logger.
+            let _ = buf.append(s);
+        }
+        self.logger.borrow_mut().write_str(s)
+    }
+}
+
+impl log::Log for BootLogger {
+    fn enabled(&self, _metadata: &log::Metadata<'_>) -> bool {
+        // TODO: filter level
+        true
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        let _ = writeln!(&*self, "[{}] {}", record.level(), record.args());
+    }
+
+    fn flush(&self) {}
+}

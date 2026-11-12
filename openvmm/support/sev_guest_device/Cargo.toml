@@ -1,0 +1,27 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+[package]
+name = "sev_guest_device"
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+# Declare SNP_GET_REPORT and SNP_GET_DERIVED_KEY over the 80-byte TIO ioctl
+# struct, which changes their ioctl request numbers. Only for a kernel whose
+# sev-guest driver carries the matching TIO patch.
+dev_snp_tio_guest_ioctl_abi = []
+
+[dependencies]
+static_assertions.workspace = true
+zerocopy.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { workspace = true, features = ["ioctl"] }
+thiserror.workspace = true
+tracing.workspace = true
+x86defs.workspace = true
+sev_guest_device_tio.workspace = true
+
+[lints]
+workspace = true
