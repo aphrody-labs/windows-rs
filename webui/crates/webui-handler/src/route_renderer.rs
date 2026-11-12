@@ -1,0 +1,139 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Route and outlet rendering helpers.
+//!
+//! Free functions for escaping HTML attribute values and selecting the best
+//! matching route among sibling route fragments.
+
+use crate::route_matcher;
+use crate::route_matcher::CompiledRouteIndex;
+use crate::{ResponseWriter, Result};
+use webui_protocol::{web_ui_fragment::Fragment, WebUIFragment, WebUiFragmentRoute};
+
+/// Write attributes needed by the client before a route partial resolves.
+///
+/// Cache-related attributes (cache-tags, invalidates) and query are omitted
+/// from the DOM because they're delivered via the inline SSR chain JSON.
+/// Pending/error/keep-alive remain available on unmatched placeholders so the
+/// client can select destination boundary UI before the partial arrives.
+pub(crate) fn write_route_navigation_attrs(
+    writer: &mut dyn ResponseWriter,
+    route: &WebUiFragmentRoute,
+) -> Result<()> {
+    if !route.pending_component.is_empty() {
+        writer.write(" pending=\"")?;
+        writer.write(&route.pending_component)?;
+        writer.write("\"")?;
+    }
+    if !route.error_component.is_empty() {
+        writer.write(" error=\"")?;
+        writer.write(&route.error_component)?;
+        writer.write("\"")?;
+    }
+    if route.keep_alive {
+        writer.write(" keep-alive")?;
+    }
+    Ok(())
+}
+
+// Keep hidden siblings in declaration order so client boundary ties match SSR.
+pub(crate) fn write_hidden_routes(
+    writer: &mut dyn ResponseWriter,
+    routes: &[WebUiFragmentRoute],
+) -> Result<()> {
+    for route in routes {
+        if route.fragment_id.is_empty() {
+            continue;
+        }
+        writer.write("<webui-route path=\"")?;
+        writer.write(&route.path)?;
+        writer.write("\" component=\"")?;
+        writer.write(&route.fragment_id)?;
+        writer.write("\"")?;
+        if route.exact {
+            writer.write(" exact")?;
+        }
+        write_route_navigation_attrs(writer, route)?;
+        writer.write(" style=\"display:none\"></webui-route>")?;
+    }
+    Ok(())
+}
+
+/// Escape HTML special characters in an attribute value and write directly to the writer.
+///
+/// Escapes `&`, `"`, `<`, and `>` using HTML entities. Writes unescaped
+/// segments directly to avoid intermediate string allocation.
+pub(crate) fn write_escaped_state_attr(writer: &mut dyn ResponseWriter, value: &str) -> Result<()> {
+    let mut last = 0;
+
+    for (index, ch) in value.char_indices() {
+        let escaped = match ch {
+            '&' => Some("&amp;"),
+            '"' => Some("&quot;"),
+            '<' => Some("&lt;"),
+            '>' => Some("&gt;"),
+            _ => None,
+        };
+
+        if let Some(entity) = escaped {
+            if last < index {
+                writer.write(&value[last..index])?;
+            }
+            writer.write(entity)?;
+            last = index + ch.len_utf8();
+        }
+    }
+
+    if last < value.len() {
+        writer.write(&value[last..])?;
+    }
+
+    Ok(())
+}
+
+/// Pre-scan sibling route fragments and return the best match info.
+///
+/// Picks the route with the highest specificity (most literal segments).
+/// This ensures `/contacts/add` (2 literals) beats `/contacts/:id` (1 literal + 1 param).
+///
+/// `route_base` is used to resolve relative paths (starting with `./`).
+///
+/// Request segmentation is deferred until a route fragment is actually seen:
+/// every record entry calls this, and the overwhelming majority of records —
+/// component bodies, conditions, loop bodies — carry no routes at all, so a
+/// route-free record must not pay for a segment vector.
+pub(crate) fn find_best_route_match(
+    fragments: &[WebUIFragment],
+    request_path: &str,
+    route_base: &str,
+    route_index: &CompiledRouteIndex,
+) -> Option<(String, route_matcher::RouteMatch)> {
+    let mut best: Option<(String, route_matcher::RouteMatch)> = None;
+    let mut request_segments: Option<Vec<&str>> = None;
+
+    for item in fragments {
+        if let Some(Fragment::Route(route_frag)) = item.fragment.as_ref() {
+            let segments = request_segments
+                .get_or_insert_with(|| route_matcher::split_request_path(request_path));
+            if let Some(m) = route_matcher::match_route_indexed_with_segments(
+                route_index,
+                &route_frag.path,
+                route_base,
+                segments,
+                route_frag.exact,
+            ) {
+                let is_better = best
+                    .as_ref()
+                    .is_none_or(|(_, prev)| m.specificity > prev.specificity);
+
+                if is_better {
+                    let key = route_frag.fragment_id.clone();
+                    best = Some((key, m));
+                }
+            }
+        }
+    }
+
+    best
+}

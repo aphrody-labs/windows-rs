@@ -1,0 +1,118 @@
+# microsoft-webui-desktop
+
+Native desktop SDK for WebUI applications.
+
+This crate owns the runtime-neutral pieces: desktop bundle metadata, safe
+custom-protocol routing, startup rendering, bounded asset reads, and protobuf
+IPC dispatch, application construction, and native webview backends.
+Applications use one `webui_desktop` API on macOS, Windows, and Linux.
+
+Native Windows builds use Windows App SDK 1.8.11 for system-owned overlay
+caption buttons and WebView2 for application content; no XAML or web-rendered
+caption controls are required. Install the matching-architecture Windows App
+Runtime 1.8 (8000.946.1701.0 or newer 1.8 servicing version), the applicable
+Visual C++ Redistributable, and WebView2. Other runtime families are not a
+substitute. See [Microsoft's runtime downloads](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads).
+
+The build stages the small bootstrap DLL and its license notices beside native
+Windows executables. Windows portable packaging preserves these companions,
+including for custom runners; redistribute the directory and install the
+shared runtime separately. This is framework-dependent deployment, not a
+self-contained Windows App Runtime bundle. Non-Windows and headless builds
+do not use these assets.
+
+Rust-first packaged apps should load bundles with
+`DesktopRuntime::from_bundle_config` so the executable can keep route providers
+and typed IPC handlers in Rust while reusing immutable `protocol.bin` and asset
+files from the bundle.
+
+There are no default features:
+
+- `native`: the current platform's native window and system webview.
+- `local-server`: a native window for an already-bound loopback HTTP server on
+  macOS, Windows, or Linux, including `bind_owned_local_server` for exclusive
+  loopback binding; it includes `native` but does not grant page IPC.
+- `native-url-activation`: host-only incoming custom-scheme URLs on macOS;
+  includes `local-server` and enables `LocalServerFrame::on_url_activation`
+  and its associated types.
+- `application-ipc`: typed application IPC, sessions, workers, and browser assets.
+- `source`: source compilation, bundle construction, and packaging APIs.
+- `packaging`: build-only layout for an already-compiled host and explicitly
+  mapped resources, independent of `source`, `native`, and `cli`.
+- `verified-update`: host-only verification of an already-open staged release
+  file; independent of native windows, source compilation, and packaging.
+- `cli`: the `webui-desktop` tooling binary, including `native` and `source`.
+
+Apps normally enable `native` and opt into `source` only during development.
+`webui desktop package` selects an optimized, runtime-only app build by default.
+The default library supports headless bundle rendering and custom backends
+without requiring native SDKs or the template compiler.
+Application IPC is opt-in: neither `native`, `source`, nor `cli` enables it.
+Enable `application-ipc` alongside `native` when using generated Rust bindings.
+Without it, no application IPC sessions, workers, embedded assets, or native
+transport handlers are installed. Window controls and lifecycle events remain
+available independently.
+Hosts calling `on_url_activation` must explicitly enable `native-url-activation`;
+`local-server` alone no longer exposes that method or its URL activation types.
+The feature does not register URL schemes with the OS or grant renderer access.
+An owned local-server host may enable generated IPC only with its exact,
+exclusive bound listener and `application-ipc`; attached daemons are ineligible.
+Linux uses a private, top-frame-only content-world mediator for that local
+carrier. It does not grant native authority or preview navigation to subframes.
+
+Packaging supports macOS `.app` bundles and Windows/Linux portable directories,
+not installers, archives, or signing. Shell configuration exposes app icons,
+menus, and tray icons, subject to backend capabilities.
+
+## Staged release byte integrity
+
+With `verified-update`, the trusted Rust host can call
+`verified_update::verify_staged(file, &expected, &policy)` with an already-open
+`File`, independently authenticated expected metadata, and a policy derived
+from the installed host. Require user approval separately. The receipt retains
+the scanned handle, rewound to offset 0, and observed digest; it is not an
+installer or authorization to mutate the installed app. This check does not
+authenticate release provenance, prove identity inside an archive, or verify
+signatures/notarization. Signed installed apps and policies requiring these OS
+proofs fail closed.
+For authenticated SHA-512 expectations, use `ExpectedUpdateSha512::new` and
+`verify_staged_sha512`, which returns a SHA-512-only receipt. A digest computed
+from the downloaded candidate is not an authenticated expected digest; do not
+wire product updates until provenance, archive/signature, and installer approval
+are separately established.
+See the [desktop guide](https://microsoft.github.io/webui/build/desktop#staged-release-byte-integrity).
+
+Consumers that own their HTTP server and sealed assets can use
+`package_precompiled_host` with the `packaging` feature instead of building a
+second WebUI desktop render bundle. Provide an already-compiled native host,
+target triple, identity, optional icon, and explicit file mappings for workers
+and opaque assets. Existing output directories are never removed or replaced.
+See the [desktop guide](https://microsoft.github.io/webui/build/desktop#precompiled-host-layout)
+for layout, validation, and Windows deployment requirements.
+
+Application IPC uses `ipc::IpcLimits::default()` with checked
+`with_max_frame_bytes(...)` and `with_default_timeout(...)` policy builders.
+The SDK owns queue, callback, control-reservation, and aggregate memory budgets;
+applications cannot tune these independently.
+
+See the [desktop guide](https://microsoft.github.io/webui/build/desktop)
+for application setup and customization.
+
+## Regenerating the Windows projection
+
+Maintainers generate the private Rust projection from the official
+`Microsoft.WindowsAppSDK.InteractiveExperiences` NuGet package
+`1.8.260708001`, using its `metadata/10.0.17763.0` directory. The archive SHA-256
+is `496eea92d353b5d3601b67353f06dcadd6d2d9b635575acebe6e42587dbfad76`.
+From the workspace root, run:
+
+```powershell
+cargo run -p xtask --features windows-app-sdk-tools -- windows-app-sdk-bindings <metadata-directory>
+cargo fmt --all
+```
+
+The generator verifies each metadata input against its pinned hash and uses
+Microsoft's `windows-bindgen` version compatible with the workspace Windows
+Rust crates. Unused APIs without projected dependencies are reported and
+omitted. Consumers compile the checked-in projection, without a generator,
+NuGet restore, or network access during Cargo builds.

@@ -1,0 +1,485 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Semantic component ESM input generation for application-owned bundling.
+
+mod graph;
+mod json;
+mod metafile;
+mod payload;
+mod render;
+mod serialize;
+mod traversal;
+
+use std::collections::HashSet;
+use webui_protocol::{ComponentAssetStylePreload, WebUIProtocol};
+
+use crate::WebUIError;
+pub(crate) use metafile::{render_metafile, AssetGraphMetafile};
+
+/// A generated component or root ESM input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComponentAssetFile {
+    /// Stable root or content-addressed component input filename.
+    pub name: String,
+    /// JavaScript module content.
+    pub content: String,
+}
+
+/// Rendered component asset graph.
+#[derive(Debug)]
+pub struct ComponentAssetGraph {
+    /// Root and component ESM input files.
+    pub files: Vec<ComponentAssetFile>,
+    /// Optional esbuild-compatible metafile JSON.
+    pub metafile: Option<String>,
+    /// Compiler-resolved Link stylesheet hrefs for intent-time root preloading.
+    pub style_preloads: Vec<ComponentAssetStylePreload>,
+    entry_fragments: Vec<String>,
+    entry_components: Vec<String>,
+}
+
+impl ComponentAssetGraph {
+    pub(crate) fn retain_entry_protocol(
+        &mut self,
+        protocol: &mut WebUIProtocol,
+    ) -> Result<(), WebUIError> {
+        if self.files.is_empty() {
+            return Ok(());
+        }
+        protocol.component_asset_style_preloads = std::mem::take(&mut self.style_preloads);
+        protocol
+            .fragments
+            .retain(|name, _| self.entry_fragments.binary_search(name).is_ok());
+        protocol
+            .components
+            .retain(|name, _| self.entry_components.binary_search(name).is_ok());
+        let fragments = &protocol.fragments;
+        protocol
+            .style_closures
+            .retain(|name, _| fragments.contains_key(name));
+        let components = &protocol.components;
+        for closure in protocol.style_closures.values_mut() {
+            closure
+                .component_tags
+                .retain(|name| components.contains_key(name));
+        }
+        Self::retain_referenced_style_chunks(protocol)
+    }
+
+    fn retain_referenced_style_chunks(protocol: &mut WebUIProtocol) -> Result<(), WebUIError> {
+        if protocol.style_chunks.is_empty() {
+            return Ok(());
+        }
+
+        let mut retained = vec![false; protocol.style_chunks.len()];
+        for closure in protocol.style_closures.values() {
+            for &index in &closure.style_chunks {
+                if let Some(slot) = retained.get_mut(index as usize) {
+                    *slot = true;
+                }
+            }
+        }
+
+        let old_chunks = std::mem::take(&mut protocol.style_chunks);
+        let mut remap = vec![u32::MAX; old_chunks.len()];
+        protocol
+            .style_chunks
+            .reserve(retained.iter().filter(|keep| **keep).count());
+        for (old_index, (chunk, keep)) in old_chunks.into_iter().zip(retained).enumerate() {
+            if !keep {
+                continue;
+            }
+            remap[old_index] = u32::try_from(protocol.style_chunks.len()).map_err(|_| {
+                WebUIError::InvalidBuildOptions(
+                    "component asset style chunk count exceeds the protocol u32 index limit"
+                        .to_string(),
+                )
+            })?;
+            protocol.style_chunks.push(chunk);
+        }
+
+        for closure in protocol.style_closures.values_mut() {
+            closure.style_chunks.retain(|index| {
+                remap
+                    .get(*index as usize)
+                    .is_some_and(|mapped| *mapped != u32::MAX)
+            });
+            for index in &mut closure.style_chunks {
+                if let Some(mapped) = remap.get(*index as usize) {
+                    *index = *mapped;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Render a static component asset graph.
+///
+/// Entry-reachable components remain external prerequisites. Each asset-owned
+/// component is emitted once, and roots statically import their full closure.
+/// The application bundler chooses final chunks, filenames, and delivery.
+/// With `emit_metafile`, a graph with roots also returns its esbuild-compatible
+/// metafile, with an empty `lazyPacks` report.
+///
+/// # Errors
+///
+/// Returns [`WebUIError`] when the entry/root graph is invalid, contains a
+/// route, lacks compiled template metadata, or produces colliding filenames.
+#[must_use = "component asset graph files must be written or otherwise consumed"]
+pub fn render_component_assets(
+    protocol: &WebUIProtocol,
+    entry: &str,
+    roots: &[String],
+    emit_metafile: bool,
+) -> Result<ComponentAssetGraph, WebUIError> {
+    let (mut graph, metafile) = render_graph(protocol, entry, roots, emit_metafile)?;
+    graph.metafile = metafile
+        .map(|metafile| metafile::render_metafile(Some(&metafile), &[]))
+        .transpose()?;
+    Ok(graph)
+}
+
+/// Render a component asset graph and, with `emit_metafile`, the description
+/// of its outputs for the build metafile. Neither exists without roots.
+pub(crate) fn render_graph(
+    protocol: &WebUIProtocol,
+    entry: &str,
+    roots: &[String],
+    emit_metafile: bool,
+) -> Result<(ComponentAssetGraph, Option<AssetGraphMetafile>), WebUIError> {
+    if roots.is_empty() {
+        return Ok((
+            ComponentAssetGraph {
+                files: Vec::new(),
+                metafile: None,
+                style_preloads: Vec::new(),
+                entry_fragments: Vec::new(),
+                entry_components: Vec::new(),
+            },
+            None,
+        ));
+    }
+
+    let plan = graph::plan_component_assets(protocol, entry, roots)?;
+    let rendered = render::render_component_asset_graph(protocol, &plan, emit_metafile)?;
+    let style_preloads = collect_component_asset_style_preloads(protocol, &plan);
+    validate_unique_asset_file_names(&rendered.files)?;
+    let metafile =
+        emit_metafile.then(|| metafile::collect_asset_graph(protocol, &rendered.outputs));
+
+    Ok((
+        ComponentAssetGraph {
+            files: rendered.files,
+            metafile: None,
+            style_preloads,
+            entry_fragments: plan.entry_fragments,
+            entry_components: plan.entry_components,
+        },
+        metafile,
+    ))
+}
+
+fn collect_component_asset_style_preloads(
+    protocol: &WebUIProtocol,
+    plan: &graph::AssetGraphPlan<'_>,
+) -> Vec<ComponentAssetStylePreload> {
+    let mut preloads = Vec::with_capacity(plan.roots.len());
+    for root in &plan.roots {
+        let mut style_hrefs = Vec::new();
+        let mut seen = HashSet::with_capacity(root.required_components.len());
+        for component in &root.style_components {
+            if root.external_components.binary_search(component).is_ok() {
+                continue;
+            }
+            let Some(href) = protocol
+                .components
+                .get(plan.component_names[*component])
+                .map(|component| component.css_href.as_str())
+                .filter(|href| !href.is_empty())
+            else {
+                continue;
+            };
+            if seen.insert(href) {
+                style_hrefs.push(href.to_string());
+            }
+        }
+        if style_hrefs.is_empty() {
+            continue;
+        }
+        preloads.push(ComponentAssetStylePreload {
+            root: root.root.clone(),
+            style_hrefs,
+        });
+    }
+    preloads
+}
+
+fn validate_unique_asset_file_names(files: &[ComponentAssetFile]) -> Result<(), WebUIError> {
+    let mut names = HashSet::with_capacity(files.len());
+    for file in files {
+        if !names.insert(file.name.as_str()) {
+            return Err(WebUIError::InvalidBuildOptions(format!(
+                "component asset filename collision for '{}'. Choose distinct component root tags.",
+                file.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use webui_protocol::{ComponentData, ComponentStyleClosure, FragmentList, StyleChunk};
+
+    #[test]
+    fn retain_entry_protocol_prunes_style_closure_roots_and_resources() {
+        let mut protocol = WebUIProtocol::default();
+        for name in ["index.html", "kept-card", "removed-card"] {
+            protocol
+                .fragments
+                .insert(name.to_string(), FragmentList::default());
+        }
+        for name in ["kept-card", "removed-card"] {
+            protocol
+                .components
+                .insert(name.to_string(), ComponentData::default());
+        }
+        protocol.style_closures.insert(
+            "index.html".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["kept-card".to_string(), "removed-card".to_string()],
+                style_chunks: Vec::new(),
+            },
+        );
+        protocol.style_closures.insert(
+            "removed-card".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["removed-card".to_string()],
+                style_chunks: Vec::new(),
+            },
+        );
+        let mut graph = ComponentAssetGraph {
+            files: vec![ComponentAssetFile {
+                name: "root.js".to_string(),
+                content: String::new(),
+            }],
+            metafile: None,
+            style_preloads: Vec::new(),
+            entry_fragments: vec!["index.html".to_string(), "kept-card".to_string()],
+            entry_components: vec!["kept-card".to_string()],
+        };
+
+        graph
+            .retain_entry_protocol(&mut protocol)
+            .expect("retain entry protocol");
+
+        assert_eq!(
+            protocol.style_closures["index.html"].component_tags,
+            ["kept-card"]
+        );
+        assert!(!protocol.style_closures.contains_key("removed-card"));
+    }
+
+    #[test]
+    fn retain_entry_protocol_prunes_and_remaps_style_chunks() {
+        let mut protocol = WebUIProtocol::default();
+        for name in ["index.html", "kept-card", "removed-card"] {
+            protocol
+                .fragments
+                .insert(name.to_string(), FragmentList::default());
+        }
+        for name in ["kept-card", "removed-card"] {
+            protocol
+                .components
+                .insert(name.to_string(), ComponentData::default());
+        }
+        protocol.style_chunks = vec![
+            StyleChunk {
+                name: "removed".to_string(),
+                css: ".removed{}".to_string(),
+                component_tags: vec!["removed-card".to_string()],
+                ..Default::default()
+            },
+            StyleChunk {
+                name: "kept".to_string(),
+                css: ".kept{}".to_string(),
+                component_tags: vec!["kept-card".to_string()],
+                ..Default::default()
+            },
+        ];
+        protocol.style_closures.insert(
+            "index.html".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["kept-card".to_string()],
+                style_chunks: vec![1],
+            },
+        );
+        protocol.style_closures.insert(
+            "removed-card".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["removed-card".to_string()],
+                style_chunks: vec![0],
+            },
+        );
+        let mut graph = ComponentAssetGraph {
+            files: vec![ComponentAssetFile {
+                name: "removed-card.js".to_string(),
+                content: String::new(),
+            }],
+            metafile: None,
+            style_preloads: Vec::new(),
+            entry_fragments: vec!["index.html".to_string(), "kept-card".to_string()],
+            entry_components: vec!["kept-card".to_string()],
+        };
+
+        graph
+            .retain_entry_protocol(&mut protocol)
+            .expect("retain entry protocol");
+
+        assert_eq!(protocol.style_chunks.len(), 1);
+        assert_eq!(protocol.style_chunks[0].name, "kept");
+        assert_eq!(protocol.style_closures["index.html"].style_chunks, [0]);
+    }
+
+    #[test]
+    fn component_asset_rejects_missing_style_closure_metadata() {
+        let mut protocol = WebUIProtocol::default();
+        protocol
+            .fragments
+            .insert("index.html".to_string(), FragmentList::default());
+        protocol.fragments.insert(
+            "legacy-card".to_string(),
+            FragmentList {
+                fragments: vec![webui_protocol::WebUIFragment::raw("<p>Legacy</p>")],
+                contains_boundary: false,
+            },
+        );
+        protocol.components.insert(
+            "legacy-card".to_string(),
+            ComponentData {
+                template_json: r#"{"h":"<p>Legacy</p>"}"#.to_string(),
+                css: ".legacy{display:block}".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let error =
+            render_component_assets(&protocol, "index.html", &["legacy-card".to_string()], false)
+                .expect_err("current component assets require style closure metadata");
+        assert!(error
+            .to_string()
+            .contains("requires missing style closure metadata"));
+    }
+
+    #[test]
+    fn component_asset_serializes_closures_only_for_owned_components() {
+        let mut protocol = WebUIProtocol::default();
+        protocol.set_css_strategy(webui_protocol::CssStrategy::Style);
+        protocol.fragments.insert(
+            "index.html".to_string(),
+            FragmentList {
+                fragments: vec![webui_protocol::WebUIFragment::component("entry-card")],
+                contains_boundary: false,
+            },
+        );
+        protocol
+            .fragments
+            .insert("entry-card".to_string(), FragmentList::default());
+        protocol.fragments.insert(
+            "deferred-card".to_string(),
+            FragmentList {
+                fragments: vec![webui_protocol::WebUIFragment::component("entry-card")],
+                contains_boundary: false,
+            },
+        );
+        for tag in ["entry-card", "deferred-card"] {
+            protocol.components.insert(
+                tag.to_string(),
+                ComponentData {
+                    template_json: r#"{"h":"<div></div>"}"#.to_string(),
+                    css: format!(".{tag}{{display:block}}"),
+                    ..Default::default()
+                },
+            );
+        }
+        protocol.style_closures.insert(
+            "entry-card".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["entry-card".to_string()],
+                style_chunks: Vec::new(),
+            },
+        );
+        protocol.style_closures.insert(
+            "deferred-card".to_string(),
+            ComponentStyleClosure {
+                component_tags: vec!["deferred-card".to_string(), "entry-card".to_string()],
+                style_chunks: Vec::new(),
+            },
+        );
+
+        let graph = render_component_assets(
+            &protocol,
+            "index.html",
+            &["deferred-card".to_string()],
+            false,
+        )
+        .expect("render component asset");
+        let asset = graph
+            .files
+            .iter()
+            .find(|file| file.name.starts_with("components/deferred-card."))
+            .expect("deferred component module");
+
+        assert!(asset
+            .content
+            .contains(r#""closures":{"deferred-card":["deferred-card","entry-card"]}"#));
+        assert!(!asset.content.contains(r#""entry-card":["entry-card"]"#));
+
+        for missing in ["unknown-card", "entry-card"] {
+            let mut invalid = protocol.clone();
+            invalid
+                .style_closures
+                .get_mut("deferred-card")
+                .unwrap()
+                .component_tags
+                .push(missing.to_string());
+            if missing == "entry-card" {
+                invalid.components.get_mut(missing).unwrap().css.clear();
+            }
+            let error = render_component_assets(
+                &invalid,
+                "index.html",
+                &["deferred-card".to_string()],
+                false,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("unavailable style resource"));
+        }
+
+        let mut outside = protocol.clone();
+        outside.components.insert(
+            "outside-card".to_string(),
+            ComponentData {
+                css: ".outside{}".to_string(),
+                template_json: r#"{"h":"<p>Outside</p>"}"#.to_string(),
+                ..Default::default()
+            },
+        );
+        outside
+            .style_closures
+            .get_mut("deferred-card")
+            .unwrap()
+            .component_tags
+            .push("outside-card".to_string());
+        assert!(render_component_assets(
+            &outside,
+            "index.html",
+            &["deferred-card".to_string()],
+            false,
+        )
+        .is_err());
+    }
+}

@@ -1,0 +1,700 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Markdown → HTML conversion with syntax highlighting.
+//! Uses comrak for GFM markdown and syntect for dual-theme code highlighting.
+
+use std::collections::HashMap;
+
+use comrak::nodes::{NodeHtmlBlock, NodeValue};
+use comrak::{parse_document, Arena, Options};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
+
+use crate::error::Result;
+
+/// Highlighter with pre-loaded syntax definitions and theme.
+/// Outputs semantic CSS classes (`hl-keyword`, `hl-string`, etc.)
+/// instead of inline styles — colors are controlled via design tokens.
+pub struct Highlighter {
+    ss: SyntaxSet,
+    theme: syntect::highlighting::Theme,
+}
+
+impl Default for Highlighter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Highlighter {
+    pub fn new() -> Self {
+        use syntect::highlighting::ThemeSet;
+        let mut ts = ThemeSet::load_defaults();
+        // Move out of the map so we own it (avoids per-call clone).
+        let theme = ts
+            .themes
+            .remove("InspiredGitHub")
+            .unwrap_or_else(|| ts.themes.into_values().next().unwrap_or_default());
+        Self {
+            ss: SyntaxSet::load_defaults_newlines(),
+            theme,
+        }
+    }
+
+    /// Highlight a code block using semantic CSS classes.
+    /// Colors are controlled via CSS custom properties for dual light/dark
+    /// theme support (GitHub Light / GitHub Dark style).
+    fn highlight_code(&self, code: &str, lang: &str) -> String {
+        use syntect::easy::HighlightLines;
+
+        // Map language aliases — syntect's defaults lack TypeScript, TOML, etc.
+        let mapped_lang = match lang {
+            "ts" | "typescript" | "tsx" | "jsx" => "js",
+            "sh" | "shell" | "zsh" => "bash",
+            "yml" => "yaml",
+            "golang" => "go",
+            "csharp" => "cs",
+            "toml" => "ini", // closest available
+            other => other,
+        };
+
+        let syntax = self
+            .ss
+            .find_syntax_by_token(mapped_lang)
+            .unwrap_or_else(|| self.ss.find_syntax_plain_text());
+
+        let mut hl = HighlightLines::new(syntax, &self.theme);
+
+        let mut out = String::with_capacity(code.len() * 2);
+        out.push_str("<code-block><pre class=\"code-block\"><code>");
+
+        for line in LinesWithEndings::from(code) {
+            let regions = hl.highlight_line(line, &self.ss).unwrap_or_default();
+            for &(style, text) in &regions {
+                let cls = scope_to_css_class(style.foreground);
+                if cls.is_empty() {
+                    emit_escaped(&mut out, text);
+                } else {
+                    out.push_str("<span class=\"hl-");
+                    out.push_str(cls);
+                    out.push_str("\">");
+                    emit_escaped(&mut out, text);
+                    out.push_str("</span>");
+                }
+            }
+        }
+
+        out.push_str("</code></pre></code-block>");
+        out
+    }
+}
+
+fn emit_escaped(buf: &mut String, s: &str) {
+    // Byte-scan: find the next char needing escape, bulk-copy the rest.
+    // `{` and `}` are escaped so `{{...}}` inside code spans/blocks is not
+    // interpreted as a WebUI signal binding by the template parser.
+    let bytes = s.as_bytes();
+    let mut start = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let esc = match b {
+            b'&' => "&amp;",
+            b'<' => "&lt;",
+            b'>' => "&gt;",
+            b'{' => "&#123;",
+            b'}' => "&#125;",
+            _ => continue,
+        };
+        // SAFETY: all matched bytes are ASCII so byte indices are valid char boundaries.
+        buf.push_str(&s[start..i]);
+        buf.push_str(esc);
+        start = i + 1;
+    }
+    buf.push_str(&s[start..]);
+}
+
+/// Map a highlight color from the InspiredGitHub theme to a semantic CSS class.
+/// The actual display colors come from CSS custom properties — this mapping
+/// just classifies tokens into semantic groups for theming.
+fn scope_to_css_class(fg: syntect::highlighting::Color) -> &'static str {
+    let hex = ((fg.r as u32) << 16) | ((fg.g as u32) << 8) | (fg.b as u32);
+    match hex {
+        // Keywords (if, else, return, import, export, const, let, fn, pub, use, etc.)
+        0xa71d5d => "keyword",
+        // Strings
+        0x183691 => "string",
+        // Comments
+        0x969896 => "comment",
+        // Numbers
+        0xed6a43 => "number",
+        // Tags (HTML)
+        0x63a35c => "tag",
+        // Attributes / decorators
+        0x795da3 => "attr",
+        // Properties / built-ins
+        0x0086b3 => "property",
+        // Functions
+        0x6f42c1 => "function",
+        // Types (in some themes)
+        0x333333 => "variable",
+        _ => "",
+    }
+}
+
+/// Convert heading text to a URL-friendly slug.
+fn slugify(text: &str) -> String {
+    let mut slug = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+        } else if (ch == ' ' || ch == '-' || ch == '_') && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
+/// Collect text from a comrak node's children (iterative).
+/// Returns `(plain_text, html_text)` — plain for slugs, HTML for display.
+fn collect_node_text<'a>(
+    node: &'a comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>,
+) -> (String, String) {
+    let mut plain = String::new();
+    let mut html = String::new();
+    let mut stack: Vec<&comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>> =
+        Vec::new();
+    // Push children in reverse for left-to-right traversal
+    let mut child = node.last_child();
+    while let Some(c) = child {
+        stack.push(c);
+        child = c.previous_sibling();
+    }
+    while let Some(n) = stack.pop() {
+        let data = n.data.borrow();
+        match &data.value {
+            NodeValue::Text(t) => {
+                plain.push_str(t);
+                html.push_str(t);
+            }
+            NodeValue::Code(code) => {
+                plain.push_str(&code.literal);
+                html.push_str("<code>");
+                // Escape HTML entities and template braces inside code spans
+                // so `{{...}}` is not interpreted as a WebUI signal binding.
+                emit_escaped(&mut html, &code.literal);
+                html.push_str("</code>");
+            }
+            _ => {
+                drop(data);
+                let mut c = n.last_child();
+                while let Some(ch) = c {
+                    stack.push(ch);
+                    c = ch.previous_sibling();
+                }
+            }
+        }
+    }
+    (plain, html)
+}
+
+fn has_uri_scheme(url: &str) -> bool {
+    let mut bytes = url.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+
+    for byte in bytes {
+        match byte {
+            b':' => return true,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'+' | b'-' | b'.' => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn has_base_path_prefix(url: &str, base_prefix: &str) -> bool {
+    if base_prefix.is_empty() {
+        return true;
+    }
+    let Some(suffix) = url.strip_prefix(base_prefix) else {
+        return false;
+    };
+    suffix.is_empty()
+        || suffix
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| matches!(*byte, b'/' | b'?' | b'#'))
+}
+
+fn resolve_relative_link(base_path: &str, link_base_url: &str, target: &str) -> Option<String> {
+    if target.is_empty()
+        || target.starts_with('/')
+        || target.starts_with('#')
+        || target.starts_with('?')
+        || has_uri_scheme(target)
+    {
+        return None;
+    }
+
+    let suffix_start = target.find(['?', '#']).unwrap_or(target.len());
+    let path = &target[..suffix_start];
+    if path.is_empty() {
+        return None;
+    }
+
+    let trailing_slash = path.ends_with('/') || path == "." || path == "..";
+    let segment_capacity = link_base_url.bytes().filter(|byte| *byte == b'/').count()
+        + path.bytes().filter(|byte| *byte == b'/').count()
+        + 1;
+    let base_segment_count = base_path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .count();
+    let mut segments = Vec::with_capacity(segment_capacity);
+    for segment in link_base_url.split('/').chain(path.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.len() > base_segment_count {
+                    segments.pop();
+                }
+            }
+            _ => segments.push(segment),
+        }
+    }
+
+    let mut resolved = String::with_capacity(link_base_url.len() + target.len() + 1);
+    resolved.push('/');
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            resolved.push('/');
+        }
+        resolved.push_str(segment);
+    }
+    if trailing_slash && !resolved.ends_with('/') {
+        resolved.push('/');
+    }
+    resolved.push_str(&target[suffix_start..]);
+    Some(resolved)
+}
+
+/// Render markdown content to HTML with syntax-highlighted code blocks.
+/// Root-absolute internal links are prefixed with `base_path`, and relative
+/// links are resolved from `link_base_url`.
+///
+/// `page_url` is the current page's canonical URL path (base-prefixed, with a
+/// trailing slash — e.g. `/webui/guide/`). In-page fragment links (heading
+/// anchors and `[text](#section)` links) are emitted as absolute paths
+/// (`{page_url}#slug`) rather than bare `#slug`. A bare fragment would resolve
+/// against the document's `<base href>` — which points at the site root — and
+/// navigate away from the current page instead of scrolling within it.
+///
+/// `link_base_url` is the URL directory corresponding to the Markdown source
+/// file. It can differ from `page_url` when configuration overrides the route.
+#[allow(dead_code)] // Public library API; site builds also supply the discovered page routes.
+pub fn render_markdown(
+    content: &str,
+    highlighter: &Highlighter,
+    base_path: &str,
+    page_url: &str,
+    link_base_url: &str,
+) -> Result<String> {
+    render_markdown_with_links(
+        content,
+        highlighter,
+        base_path,
+        page_url,
+        MarkdownLinks {
+            directory: link_base_url,
+            pages: &HashMap::new(),
+        },
+    )
+}
+
+pub(crate) struct MarkdownLinks<'a> {
+    pub directory: &'a str,
+    pub pages: &'a HashMap<String, &'a str>,
+}
+
+pub(crate) fn render_markdown_with_links(
+    content: &str,
+    highlighter: &Highlighter,
+    base_path: &str,
+    page_url: &str,
+    links: MarkdownLinks<'_>,
+) -> Result<String> {
+    let arena = Arena::new();
+    let mut options = Options::default();
+    options.extension.table = true;
+    options.extension.strikethrough = true;
+    options.extension.autolink = true;
+    options.render.r#unsafe = true; // Allow raw HTML passthrough
+
+    let root = parse_document(&arena, content, &options);
+    let base_prefix = base_path.trim_end_matches('/');
+
+    // Multi-pass approach: collect node pointers first, then modify.
+    // This avoids modifying the tree during iteration and lets heading
+    // rendering see original code-span nodes before they are converted to raw
+    // HTML for WebUI template-signal escaping.
+
+    // Pass 1: Rewrite internal links and images before custom heading rendering.
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        let is_page_link = matches!(data.value, NodeValue::Link(_));
+        if let NodeValue::Link(ref mut link) | NodeValue::Image(ref mut link) = data.value {
+            if link.url.is_empty() {
+                link.url = page_url.to_string();
+            } else if link.url.starts_with('#') {
+                // In-page fragment link. Make it absolute to the current page so
+                // it isn't resolved against `<base href>` (the site root).
+                link.url = format!("{page_url}{}", link.url);
+            } else if link.url.starts_with('?') {
+                // Query-only links also target the current page, not the site root.
+                link.url = format!("{page_url}{}", link.url);
+            } else if link.url.starts_with('/')
+                && !link.url.starts_with("//")
+                && !has_base_path_prefix(&link.url, base_prefix)
+            {
+                // Prepend base_path to absolute internal links
+                link.url = format!("{base_prefix}{}", link.url);
+            } else if let Some(resolved) =
+                resolve_relative_link(base_path, links.directory, &link.url)
+            {
+                // The document-level `<base href>` points at the site root, so
+                // relative Markdown links must be resolved during the build.
+                link.url = resolved;
+            }
+            if is_page_link {
+                let suffix = link.url.find(['?', '#']).unwrap_or(link.url.len());
+                if let Some(route) = links.pages.get(&link.url[..suffix]) {
+                    let mut destination =
+                        String::with_capacity(route.len() + link.url.len() - suffix);
+                    destination.push_str(route);
+                    destination.push_str(&link.url[suffix..]);
+                    link.url = destination;
+                }
+            }
+        }
+    }
+
+    // Pass 2: Collect heading nodes, then replace them
+    let headings: Vec<_> = root
+        .descendants()
+        .filter(|node| matches!(node.data.borrow().value, NodeValue::Heading(_)))
+        .collect();
+
+    for node in headings {
+        let (level, plain_text, html_text) = {
+            let data = node.data.borrow();
+            if let NodeValue::Heading(ref h) = data.value {
+                let (plain, html) = collect_node_text(node);
+                (h.level, plain, html)
+            } else {
+                continue;
+            }
+        };
+        let slug = slugify(&plain_text);
+        let anchor_label = html_escape::encode_double_quoted_attribute(&plain_text);
+        let html = format!(
+            "<h{level} id=\"{slug}\">{html_text} <a class=\"header-anchor\" href=\"{page_url}#{slug}\" aria-label=\"Link to {anchor_label}\">#</a></h{level}>"
+        );
+        // Detach children first, then replace value. The heading is a
+        // block-level node, so its raw-HTML replacement must be an
+        // `HtmlBlock` (not `HtmlInline`) — comrak 0.53 validates that block
+        // containers only hold block-level children.
+        while let Some(child) = node.first_child() {
+            child.detach();
+        }
+        node.data.borrow_mut().value = NodeValue::HtmlBlock(NodeHtmlBlock {
+            block_type: 6,
+            literal: html,
+        });
+    }
+
+    // Pass 3: Replace code blocks and inline code after heading extraction,
+    // so headings can still collect code-span literals for display and slugs.
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        match &mut data.value {
+            NodeValue::CodeBlock(ref mut block) => {
+                let lang = if block.info.is_empty() {
+                    "text"
+                } else {
+                    block.info.split_whitespace().next().unwrap_or("text")
+                };
+                let highlighted = highlighter.highlight_code(&block.literal, lang);
+                // A code block is block-level: replace with an `HtmlBlock` so
+                // comrak 0.53's AST validation accepts it as a block child.
+                data.value = NodeValue::HtmlBlock(NodeHtmlBlock {
+                    block_type: 6,
+                    literal: highlighted,
+                });
+            }
+            NodeValue::Code(ref code) => {
+                // Replace inline code with pre-escaped HTML so `{{...}}` inside
+                // code spans is not interpreted as a WebUI signal binding.
+                let mut html = String::with_capacity(code.literal.len() + 13);
+                html.push_str("<code>");
+                emit_escaped(&mut html, &code.literal);
+                html.push_str("</code>");
+                data.value = NodeValue::HtmlInline(html);
+            }
+            _ => {}
+        }
+    }
+
+    let mut html = String::with_capacity(content.len());
+    comrak::format_html(root, &options, &mut html)
+        .map_err(|e| crate::error::Error::Markdown(e.to_string()))?;
+
+    Ok(html)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn syntect_language_mapping() {
+        let ss = SyntaxSet::load_defaults_newlines();
+        // Languages we need for the docs site
+        for tok in &[
+            "js", "go", "python", "py", "cpp", "rust", "rs", "html", "css", "json", "bash", "yaml",
+            "cs",
+        ] {
+            assert!(
+                ss.find_syntax_by_token(tok).is_some(),
+                "syntect should support token '{tok}'"
+            );
+        }
+        // These are NOT in syntect defaults — we alias them
+        for tok in &["ts", "typescript", "tsx", "jsx", "toml", "csharp", "golang"] {
+            assert!(
+                ss.find_syntax_by_token(tok).is_none(),
+                "'{tok}' should NOT be in syntect defaults (we alias it)"
+            );
+        }
+    }
+
+    #[test]
+    fn inline_code_escapes_template_braces() {
+        // `{{value}}` inside inline code (e.g. in markdown tables or prose)
+        // must not be interpreted as a WebUI signal binding by the template
+        // parser — escape `{` and `}` to HTML entities.
+        let h = Highlighter::new();
+        let html =
+            render_markdown("Use `{{value}}` for escaped output.", &h, "/", "/", "/").unwrap();
+        assert!(
+            html.contains("&#123;&#123;value&#125;&#125;"),
+            "inline code braces should be escaped: {html}"
+        );
+        assert!(
+            !html.contains("{{value}}"),
+            "raw `{{{{value}}}}` must not survive: {html}"
+        );
+    }
+
+    #[test]
+    fn heading_inline_code_survives_custom_anchor_rendering() {
+        let h = Highlighter::new();
+        let html = match render_markdown("# `<for>` Loop Directive\n", &h, "/", "/", "/") {
+            Ok(html) => html,
+            Err(e) => panic!("render_markdown should succeed: {e}"),
+        };
+
+        assert!(
+            html.contains(
+                r##"<h1 id="for-loop-directive"><code>&lt;for&gt;</code> Loop Directive"##
+            ),
+            "heading inline code should render as code: {html}"
+        );
+    }
+
+    #[test]
+    fn in_page_anchors_are_absolute_to_the_page() {
+        // With a `<base href>` set on every page, bare `#slug` fragment links
+        // resolve against the site root and navigate away from the page.
+        // Heading anchors and `[text](#section)` links must be emitted as
+        // absolute paths to the current page.
+        let h = Highlighter::new();
+        let html = render_markdown(
+            "# Hello\n\nSee [below](#hello).\n",
+            &h,
+            "/webui/",
+            "/webui/guide/",
+            "/webui/guide/",
+        )
+        .unwrap();
+
+        assert!(
+            html.contains(r##"href="/webui/guide/#hello""##),
+            "heading anchor should be absolute to the page: {html}"
+        );
+        assert!(
+            html.contains(r##"aria-label="Link to Hello""##),
+            "heading anchor should have a descriptive accessible name: {html}"
+        );
+        assert!(
+            html.contains(r##"<a href="/webui/guide/#hello">below</a>"##),
+            "in-content fragment link should be absolute to the page: {html}"
+        );
+    }
+
+    #[test]
+    fn relative_links_are_absolute_to_the_markdown_source_directory() {
+        let h = Highlighter::new();
+        let html = render_markdown(
+            "[Sibling](./sibling) [Parent](../parent) [Bare](other?tab=1#details)",
+            &h,
+            "/webui/",
+            "/webui/guide/current/",
+            "/webui/guide/",
+        )
+        .unwrap();
+
+        assert!(
+            html.contains(r#"<a href="/webui/guide/sibling">Sibling</a>"#),
+            "dot-relative link should use the source directory: {html}"
+        );
+        assert!(
+            html.contains(r#"<a href="/webui/parent">Parent</a>"#),
+            "parent-relative link should normalize dot segments: {html}"
+        );
+        assert!(
+            html.contains(r#"<a href="/webui/guide/other?tab=1#details">Bare</a>"#),
+            "bare relative link should preserve its query and fragment: {html}"
+        );
+    }
+
+    #[test]
+    fn relative_images_are_absolute_to_the_markdown_source_directory() {
+        let h = Highlighter::new();
+        let html = render_markdown(
+            "![Diagram](./images/diagram.png)",
+            &h,
+            "/webui/",
+            "/webui/guide/current/",
+            "/webui/guide/",
+        )
+        .unwrap();
+
+        assert!(
+            html.contains(r#"<img src="/webui/guide/images/diagram.png" alt="Diagram" />"#),
+            "relative image should use the source directory: {html}"
+        );
+    }
+
+    #[test]
+    fn relative_links_cannot_escape_the_base_path() {
+        let h = Highlighter::new();
+        let html = match render_markdown(
+            "[Clamped](../../x)",
+            &h,
+            "/webui/",
+            "/webui/guide/",
+            "/webui/guide/",
+        ) {
+            Ok(html) => html,
+            Err(e) => panic!("render_markdown should succeed: {e}"),
+        };
+
+        assert!(
+            html.contains(r#"<a href="/webui/x">Clamped</a>"#),
+            "parent segments should stop at the base path: {html}"
+        );
+    }
+
+    #[test]
+    fn empty_link_destination_targets_the_current_page() {
+        let h = Highlighter::new();
+        let html = match render_markdown(
+            "[]()",
+            &h,
+            "/webui/",
+            "/webui/guide/current/",
+            "/webui/guide/",
+        ) {
+            Ok(html) => html,
+            Err(e) => panic!("render_markdown should succeed: {e}"),
+        };
+
+        assert!(
+            html.contains(r#"<a href="/webui/guide/current/"></a>"#),
+            "empty destination should target the current page: {html}"
+        );
+    }
+
+    #[test]
+    fn absolute_internal_links_respect_base_path_boundaries() {
+        let h = Highlighter::new();
+        for base_path in ["/webui/", "/webui"] {
+            let html = render_markdown(
+                "[Root](/webui) [Nested](/webui/guide) [Query](/webui?tab=1) [Sibling](/webui-press)",
+                &h,
+                base_path,
+                "/webui/guide/current/",
+                "/webui/guide/",
+            )
+            .unwrap();
+
+            assert!(
+                html.contains(r#"<a href="/webui">Root</a>"#),
+                "base root should not be double-prefixed: {html}"
+            );
+            assert!(
+                html.contains(r#"<a href="/webui/guide">Nested</a>"#),
+                "nested base path should not be double-prefixed: {html}"
+            );
+            assert!(
+                html.contains(r#"<a href="/webui?tab=1">Query</a>"#),
+                "query on the base root should not be double-prefixed: {html}"
+            );
+            assert!(
+                html.contains(r#"<a href="/webui/webui-press">Sibling</a>"#),
+                "a similarly named path should still receive basePath: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_relative_links_keep_their_existing_semantics() {
+        let h = Highlighter::new();
+        let html = render_markdown(
+            "[External](https://example.com/docs) [Network](//cdn.example.com/docs) [Query](?tab=1)",
+            &h,
+            "/webui/",
+            "/webui/guide/current/",
+            "/webui/guide/",
+        )
+        .unwrap();
+
+        assert!(
+            html.contains(r#"<a href="https://example.com/docs">External</a>"#),
+            "absolute external link should remain unchanged: {html}"
+        );
+        assert!(
+            html.contains(r#"<a href="//cdn.example.com/docs">Network</a>"#),
+            "protocol-relative link should remain unchanged: {html}"
+        );
+        assert!(
+            html.contains(r#"<a href="/webui/guide/current/?tab=1">Query</a>"#),
+            "query-only link should target the current page: {html}"
+        );
+    }
+
+    #[test]
+    fn code_block_escapes_template_braces() {
+        // Fenced code blocks must also escape braces so example template
+        // snippets render literally instead of being parsed as bindings.
+        let h = Highlighter::new();
+        let html = render_markdown("```html\n<p>{{name}}</p>\n```\n", &h, "/", "/", "/").unwrap();
+        assert!(
+            html.contains("&#123;&#123;name&#125;&#125;"),
+            "code block braces should be escaped: {html}"
+        );
+    }
+}

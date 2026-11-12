@@ -1,0 +1,35 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+publish = false
+
+[features]
+windows-app-sdk-tools = ["dep:windows-bindgen"]
+
+[dependencies]
+console = { workspace = true }
+ctrlc = { workspace = true }
+serde_json = { workspace = true }
+windows-bindgen = { workspace = true, optional = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+which = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Console",
+    "Win32_System_JobObjects",
+    "Win32_System_StationsAndDesktops",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[lints]
+workspace = true

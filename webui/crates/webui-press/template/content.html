@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-press-theme="{{webuiPress.appearance.theme}}">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <base href="{{site.base}}" />
+  <meta name="base" content="{{site.base}}" />
+  <title>{{page.documentTitle}}</title>
+  <meta name="description" content="{{page.description}}" />
+  <meta property="og:title" content="{{page.documentTitle}}" />
+  <meta property="og:description" content="{{page.description}}" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <if condition="page.canonicalUrl">
+    <link rel="canonical" href="{{page.canonicalUrl}}" />
+    <meta property="og:url" content="{{page.canonicalUrl}}" />
+  </if>
+  <link rel="icon" href="{{site.base}}logo.svg" />
+  <style>
+    :root {
+      /*{{{tokens.light}}}*/
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        /*{{{tokens.dark}}}*/
+      }
+    }
+  </style>
+  {{{headTags}}}
+</head>
+
+<body data-layout="{{page.layout}}" data-show="content">
+  <main class="press-content" id="main-content">
+    <article class="doc-content">
+      {{{page.content}}}
+    </article>
+  </main>
+</body>
+
+</html>

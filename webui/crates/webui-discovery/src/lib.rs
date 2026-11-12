@@ -1,0 +1,310 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! External component discovery for the WebUI framework.
+//!
+//! Discovers components from npm packages and local filesystem paths.
+//! Returns [`DiscoveredComponent`] structs that callers can register
+//! into their component registry.
+//!
+//! This crate has no dependency on `webui-parser` — it is pure discovery
+//! logic reusable by CLI, FFI, and other host integrations.
+
+mod cache;
+mod catalog;
+mod npm;
+mod plugin;
+mod prepared;
+
+use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
+
+pub use npm::PackageContext;
+pub use plugin::{DiscoveryPlugin, FastDiscoveryPlugin, WebUIDiscoveryPlugin};
+pub use prepared::{ComponentFile, ComponentFileSource, PreparedPackage};
+
+/// A component discovered from an external source, ready for registration.
+#[derive(Debug, Clone)]
+pub struct DiscoveredComponent {
+    /// The custom element tag name (e.g., "reactive-button")
+    pub tag_name: String,
+    /// The HTML template content
+    pub html_content: String,
+    /// The CSS content, if any
+    pub css_content: Option<String>,
+    /// Whether authored browser code owns this custom element tag.
+    pub is_client_owned: bool,
+    /// The authored module that defines the custom element, when discovery
+    /// found one: the template's `.ts` sibling, else its `.js` sibling.
+    ///
+    /// `None` for scriptless components and for components whose ownership
+    /// comes from other evidence, such as package metadata.
+    pub script_path: Option<PathBuf>,
+    /// The original source identifier (for display/diagnostics)
+    pub source: String,
+}
+
+/// Result of discovering components from a single source.
+#[derive(Debug)]
+pub struct DiscoveryResult {
+    /// The original source string
+    pub source: String,
+    /// The discovered components
+    pub components: Vec<DiscoveredComponent>,
+}
+
+/// Classification of a `--components` source string.
+enum ComponentSource {
+    /// npm package (scoped like `@scope` or unscoped like `my-widget`)
+    NpmPackage(String),
+    /// Local filesystem path
+    Path(PathBuf),
+}
+
+/// Classify a source string as either an npm package or a local path.
+///
+/// - Starts with `.`, `/`, `\`, or contains a drive letter (Windows) → path
+/// - Everything else → npm package
+fn classify_source(source: &str) -> ComponentSource {
+    if is_local_source(source) {
+        ComponentSource::Path(PathBuf::from(source))
+    } else {
+        ComponentSource::NpmPackage(source.to_string())
+    }
+}
+
+/// Returns `true` when a `--components` source string denotes a local
+/// filesystem path rather than an npm package name or scope.
+///
+/// A source is a local path when it starts with `.`, `/`, `\`, or a Windows
+/// drive letter (e.g. `C:\...`). Everything else — bare names like
+/// `my-widget` and scopes like `@scope` / `@scope/pkg` — is an npm package.
+///
+/// This is the single source of truth for the classification; callers that
+/// pre-resolve sources before handing them to [`discover_source`] (such as
+/// `webui-press`, which must resolve local paths against its own working
+/// directory while leaving npm names bare) should use it instead of
+/// re-implementing the check.
+#[must_use]
+pub fn is_local_source(source: &str) -> bool {
+    source.starts_with('.')
+        || source.starts_with('/')
+        || source.starts_with('\\')
+        || (cfg!(windows) && source.len() >= 2 && source.as_bytes()[1] == b':')
+}
+
+/// Discover components from a single source and register them into a component registry.
+///
+/// Returns a [`DiscoveryResult`] with the discovered components.
+pub fn discover_source(source: &str, search_dir: &Path) -> Result<DiscoveryResult> {
+    discover_source_with_plugin(source, search_dir, &WebUIDiscoveryPlugin::new())
+}
+
+/// Discover components from a source using the selected package layout.
+///
+/// # Errors
+///
+/// Returns an error when the source cannot be resolved or the plugin rejects
+/// its component layout.
+pub fn discover_source_with_plugin(
+    source: &str,
+    search_dir: &Path,
+    plugin: &dyn DiscoveryPlugin,
+) -> Result<DiscoveryResult> {
+    let mut cache = cache::DiscoveryCache::open()?;
+
+    let components = match classify_source(source) {
+        ComponentSource::NpmPackage(ref name) => {
+            npm::resolve(name, search_dir, plugin, &mut cache)?
+        }
+        ComponentSource::Path(ref path) => {
+            let resolved = if path.is_relative() {
+                search_dir.join(path)
+            } else {
+                path.clone()
+            };
+            let resolved = resolved
+                .canonicalize()
+                .with_context(|| format!("Component path not found: {}", path.display()))?;
+            plugin.discover_local(&resolved)?
+        }
+    };
+
+    Ok(DiscoveryResult {
+        source: source.to_string(),
+        components,
+    })
+}
+
+/// Return a component's authored sibling module, preferring `.ts` over `.js`.
+///
+/// `candidate` is a scratch buffer holding the template path; its extension
+/// is replaced while probing.
+///
+/// Use `try_exists()` rather than `exists()`: `exists()` converts metadata
+/// errors into `false`, which could silently classify an inaccessible authored
+/// component as scriptless and bypass projection-manifest coverage.
+pub(crate) fn sibling_script(
+    candidate: &mut PathBuf,
+    package_root: Option<&Path>,
+) -> Result<Option<PathBuf>> {
+    for ext in ["ts", "js"] {
+        candidate.set_extension(ext);
+        let exists = if let Some(root) = package_root {
+            npm::package_asset_metadata(root, candidate)?.is_some()
+        } else {
+            candidate.try_exists().with_context(|| {
+                format!(
+                    "Failed to inspect component script: {}",
+                    candidate.display()
+                )
+            })?
+        };
+        if exists {
+            return Ok(Some(candidate.clone()));
+        }
+    }
+    Ok(None)
+}
+
+/// Collect the resolved local paths from source strings for file watching.
+pub fn collect_watch_paths(sources: &[String], search_dir: &Path) -> Vec<PathBuf> {
+    sources
+        .iter()
+        .filter_map(|source| {
+            if let ComponentSource::Path(ref path) = classify_source(source) {
+                let resolved = if path.is_relative() {
+                    search_dir.join(path)
+                } else {
+                    path.clone()
+                };
+                resolved.canonicalize().ok()
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_relative_path() {
+        assert!(matches!(
+            classify_source("./libs/shared"),
+            ComponentSource::Path(_)
+        ));
+        assert!(matches!(
+            classify_source("../components"),
+            ComponentSource::Path(_)
+        ));
+    }
+
+    #[test]
+    fn test_classify_absolute_path() {
+        assert!(matches!(
+            classify_source("/absolute/path"),
+            ComponentSource::Path(_)
+        ));
+    }
+
+    #[test]
+    fn test_classify_npm_package() {
+        assert!(matches!(
+            classify_source("my-widget"),
+            ComponentSource::NpmPackage(_)
+        ));
+    }
+
+    #[test]
+    fn test_classify_scoped_npm_package() {
+        assert!(matches!(
+            classify_source("@reactive-ui"),
+            ComponentSource::NpmPackage(_)
+        ));
+        assert!(matches!(
+            classify_source("@scope/button"),
+            ComponentSource::NpmPackage(_)
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_classify_windows_drive_path() {
+        assert!(matches!(
+            classify_source("C:\\components"),
+            ComponentSource::Path(_)
+        ));
+    }
+
+    #[test]
+    fn test_is_local_source() {
+        // Local paths
+        assert!(is_local_source("./libs/shared"));
+        assert!(is_local_source("../components"));
+        assert!(is_local_source("/absolute/path"));
+        assert!(is_local_source("\\unc\\path"));
+        // npm packages / scopes
+        assert!(!is_local_source("my-widget"));
+        assert!(!is_local_source("@reactive-ui"));
+        assert!(!is_local_source("@scope/button"));
+    }
+
+    #[test]
+    fn test_discover_from_path_preserves_script_ownership() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("plain-card.html"), "<p>{{title}}</p>").unwrap();
+        std::fs::write(
+            tmp.path().join("interactive-card.html"),
+            "<button>go</button>",
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("interactive-card.ts"), "export {};").unwrap();
+
+        let components = WebUIDiscoveryPlugin::new()
+            .discover_local(tmp.path())
+            .unwrap();
+        let plain = components
+            .iter()
+            .find(|component| component.tag_name == "plain-card")
+            .unwrap();
+        let interactive = components
+            .iter()
+            .find(|component| component.tag_name == "interactive-card")
+            .unwrap();
+
+        assert!(!plain.is_client_owned);
+        assert!(plain.script_path.is_none());
+        assert!(interactive.is_client_owned);
+        assert_eq!(
+            interactive.script_path.as_deref(),
+            Some(tmp.path().join("interactive-card.ts").as_path())
+        );
+    }
+
+    #[test]
+    fn local_discovery_records_the_sibling_module_and_prefers_typescript() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let folder = tmp.path().join("settings-panel");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("settings-panel.html"), "<p>Settings</p>").unwrap();
+        std::fs::write(folder.join("settings-panel.js"), "export {};").unwrap();
+
+        let script = |plugin: &dyn DiscoveryPlugin| {
+            plugin.discover_local(tmp.path()).unwrap()[0]
+                .script_path
+                .clone()
+        };
+        let plugins: [&dyn DiscoveryPlugin; 2] =
+            [&WebUIDiscoveryPlugin::new(), &FastDiscoveryPlugin::new()];
+        for plugin in plugins {
+            assert_eq!(script(plugin), Some(folder.join("settings-panel.js")));
+        }
+        std::fs::write(folder.join("settings-panel.ts"), "export {};").unwrap();
+        for plugin in plugins {
+            assert_eq!(script(plugin), Some(folder.join("settings-panel.ts")));
+        }
+    }
+}
