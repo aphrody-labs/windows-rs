@@ -12,3 +12,16 @@
 *.woff2 binary
 *.dll   binary
 *.pri   binary
+
+# Imported subtrees (MERGED.toml): undo the forced text/eol above so each project keeps
+# Git defaults, as upstream; a project's own .gitattributes still applies on top.
+/windows-drivers-rs/** !text !eol
+/windows-rust-driver-samples/** !text !eol
+/litebox/** !text !eol
+/openvmm/** !text !eol
+/nvx/** !text !eol
+/mxc/** !text !eol
+/edit/** !text !eol
+/sudo/** !text !eol
+/webui/** !text !eol
+/diskann/** !text !eol
