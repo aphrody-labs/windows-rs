@@ -112,7 +112,7 @@ impl Default for NAME_BUFFER {
 }
 pub const NAME_FLAGS_MASK: i32 = 135;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct NCB {
@@ -132,7 +132,7 @@ pub struct NCB {
     pub ncb_reserve: [super::UCHAR; 10],
     pub ncb_event: super::HANDLE,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 impl Default for NCB {
     fn default() -> Self {

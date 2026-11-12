@@ -197,19 +197,19 @@ pub struct DUMP_POINTERS_EX {
     pub DumpDevicePowerOn: PDUMP_DEVICE_POWERON_ROUTINE,
     pub DumpDevicePowerOnContext: super::PVOID,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const DUMP_POINTERS_EX_V2_SIZE: super::ULONG = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub const DUMP_POINTERS_EX_V2_SIZE: super::ULONG = 48;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const DUMP_POINTERS_EX_V3_SIZE: super::ULONG = 60;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub const DUMP_POINTERS_EX_V3_SIZE: super::ULONG = 88;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DUMP_POINTERS_EX_V4_SIZE: u32 = 68;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DUMP_POINTERS_EX_V4_SIZE: u64 = 104;

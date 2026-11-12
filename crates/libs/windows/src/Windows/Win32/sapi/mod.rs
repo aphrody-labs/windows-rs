@@ -16895,11 +16895,11 @@ pub const SP_MAX_LANGIDS: i32 = 20;
 pub const SP_MAX_PRON_LENGTH: i32 = 384;
 pub const SP_MAX_WORD_LENGTH: i32 = 128;
 pub const SP_NORMAL_CONFIDENCE: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SP_SPPHRASESIZE_500: u32 = 120;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SP_SPPHRASESIZE_500: u64 = 160;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SP_SPPHRASESIZE_530: u32 = 128;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SP_SPPHRASESIZE_530: u64 = 176;

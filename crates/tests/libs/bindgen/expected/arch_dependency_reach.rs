@@ -1,4 +1,4 @@
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 windows_link::link!("test.dll" "system" fn GetReached(index : Shared, record : *const Record) -> Shared);
 #[cfg(any(
     target_arch = "aarch64",
@@ -7,7 +7,7 @@ windows_link::link!("test.dll" "system" fn GetReached(index : Shared, record : *
 ))]
 windows_link::link!("test.dll" "system" fn GetReached(index : Shared) -> Wide);
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct Record {
     pub value: i32,

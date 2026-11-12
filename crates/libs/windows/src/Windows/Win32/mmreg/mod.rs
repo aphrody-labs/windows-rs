@@ -1977,7 +1977,7 @@ pub struct MSAUDIO1WAVEFORMAT {
 }
 pub const MSAUDIO1_BITS_PER_SAMPLE: i32 = 16;
 pub const MSAUDIO1_MAX_CHANNELS: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MSAUDIO1_WFX_EXTRA_BYTES: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MSAUDIO1_WFX_EXTRA_BYTES: u64 = 4;
@@ -2626,7 +2626,7 @@ pub struct WMAUDIO2WAVEFORMAT {
 }
 pub const WMAUDIO2_BITS_PER_SAMPLE: i32 = 16;
 pub const WMAUDIO2_MAX_CHANNELS: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const WMAUDIO2_WFX_EXTRA_BYTES: u32 = 10;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const WMAUDIO2_WFX_EXTRA_BYTES: u64 = 10;
@@ -2642,7 +2642,7 @@ pub struct WMAUDIO3WAVEFORMAT {
     pub wEncodeOptions: super::WORD,
     pub wReserved3: super::WORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const WMAUDIO3_WFX_EXTRA_BYTES: u32 = 18;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const WMAUDIO3_WFX_EXTRA_BYTES: u64 = 18;

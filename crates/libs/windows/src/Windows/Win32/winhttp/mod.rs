@@ -493,7 +493,7 @@ pub const ERROR_WINHTTP_UNHANDLED_SCRIPT_TYPE: i32 = 12176;
 pub const ERROR_WINHTTP_UNRECOGNIZED_SCHEME: i32 = 12006;
 pub const HTTP_STATUS_WEBDAV_MULTI_STATUS: i32 = 207;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct HTTP_VERSION_INFO {
@@ -589,7 +589,7 @@ pub const TAG_WINHTTP_CONNECTION_POLICY_TAG_CONNECTION_MANAGER: WINHTTP_CONNECTI
 pub const TAG_WINHTTP_CONNECTION_POLICY_TAG_DEFAULT: WINHTTP_CONNECTION_POLICY_TAG = 0;
 pub const TAG_WINHTTP_CONNECTION_POLICY_TAG_WWWPT: WINHTTP_CONNECTION_POLICY_TAG = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct URL_COMPONENTS {
@@ -645,7 +645,7 @@ pub const WINHTTP_ADDREQ_FLAG_COALESCE_WITH_SEMICOLON: i32 = 16777216;
 pub const WINHTTP_ADDREQ_FLAG_REPLACE: u32 = 2147483648;
 pub const WINHTTP_ADDREQ_INDEX_MASK: i32 = 65535;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_ASYNC_RESULT {
@@ -684,7 +684,7 @@ pub const WINHTTP_AUTOPROXY_NO_CACHE_CLIENT: i32 = 524288;
 pub const WINHTTP_AUTOPROXY_NO_CACHE_SVC: i32 = 1048576;
 pub const WINHTTP_AUTOPROXY_NO_DIRECTACCESS: i32 = 262144;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_AUTOPROXY_OPTIONS {
@@ -770,7 +770,7 @@ pub const WINHTTP_CALLBACK_STATUS_SETTINGS_WRITE_COMPLETE: i32 = 268435456;
 pub const WINHTTP_CALLBACK_STATUS_SHUTDOWN_COMPLETE: i32 = 67108864;
 pub const WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE: i32 = 1048576;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CERTIFICATE_INFO {
@@ -798,7 +798,7 @@ pub struct WINHTTP_CERTIFICATE_INFO {
     pub dwKeySize: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_GROUP {
@@ -814,7 +814,7 @@ pub struct WINHTTP_CONNECTION_GROUP {
     pub guidGroup: windows_core::GUID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_IFINDEX_ENTRY {
@@ -830,7 +830,7 @@ pub struct WINHTTP_CONNECTION_IFINDEX_ENTRY {
     pub dwIfIndex: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_IFINDEX_LIST {
@@ -846,7 +846,7 @@ pub struct WINHTTP_CONNECTION_IFINDEX_LIST {
     pub nEntries: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "ws2"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_INFO {
@@ -866,7 +866,7 @@ pub struct WINHTTP_CONNECTION_INFO {
 pub const WINHTTP_CONNECTION_NAME_MAX_LENGTH: i32 = 64;
 pub const WINHTTP_CONNECTION_POLICY_ALLOW_DEFAULT_INTERFACE_SELECTION: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_POLICY_ENTRY {
@@ -892,7 +892,7 @@ pub struct WINHTTP_CONNECTION_POLICY_ENTRY {
     pub dwPolicyEntryFlags: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_POLICY_ENTRY_LIST {
@@ -909,7 +909,7 @@ pub struct WINHTTP_CONNECTION_POLICY_ENTRY_LIST {
 }
 pub type WINHTTP_CONNECTION_POLICY_TAG = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct WINHTTP_CONNECTION_PROXY_INFO {
@@ -919,7 +919,7 @@ pub struct WINHTTP_CONNECTION_PROXY_INFO {
     pub Switch: WINHTTP_CONNECTION_PROXY_INFO_SWITCH,
     pub Anonymous: WINHTTP_CONNECTION_PROXY_INFO_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for WINHTTP_CONNECTION_PROXY_INFO {
     fn default() -> Self {
@@ -927,14 +927,14 @@ impl Default for WINHTTP_CONNECTION_PROXY_INFO {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub union WINHTTP_CONNECTION_PROXY_INFO_0 {
     pub Config: WINHTTP_CONNECTION_PROXY_INFO_0__WINHTTP_CONNECTION_PROXY_INFO_CONFIG,
     pub Script: WINHTTP_CONNECTION_PROXY_INFO_0__WINHTTP_CONNECTION_PROXY_INFO_SCRIPT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for WINHTTP_CONNECTION_PROXY_INFO_0 {
     fn default() -> Self {
@@ -942,7 +942,7 @@ impl Default for WINHTTP_CONNECTION_PROXY_INFO_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_PROXY_INFO_0__WINHTTP_CONNECTION_PROXY_INFO_CONFIG {
@@ -954,7 +954,7 @@ pub struct WINHTTP_CONNECTION_PROXY_INFO_0__WINHTTP_CONNECTION_PROXY_INFO_CONFIG
     pub Port: super::WORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CONNECTION_PROXY_INFO_0__WINHTTP_CONNECTION_PROXY_INFO_SCRIPT {
@@ -1039,7 +1039,7 @@ pub const WINHTTP_CONNECTION_RETRY_CONDITION_SSL_HANDSHAKE: i32 = 2;
 pub const WINHTTP_CONNECTION_RETRY_CONDITION_STALE_CONNECTION: i32 = 4;
 pub const WINHTTP_CONNS_PER_SERVER_UNLIMITED: u32 = 4294967295;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CREDS {
@@ -1063,7 +1063,7 @@ pub struct WINHTTP_CREDS {
     pub dwPort: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CREDS_EX {
@@ -1089,7 +1089,7 @@ pub struct WINHTTP_CREDS_EX {
     pub lpszUrl: windows_core::PSTR,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_CURRENT_USER_IE_PROXY_CONFIG {
     pub fAutoDetect: windows_core::BOOL,
@@ -1125,39 +1125,39 @@ pub const WINHTTP_ENABLE_SSL_REVOCATION: i32 = 1;
 pub const WINHTTP_ERROR_BASE: i32 = 12000;
 pub const WINHTTP_ERROR_LAST: i32 = 12193;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct WINHTTP_EXTENDED_HEADER {
     pub Anonymous: WINHTTP_EXTENDED_HEADER_0,
     pub Anonymous2: WINHTTP_EXTENDED_HEADER_1,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for WINHTTP_EXTENDED_HEADER {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union WINHTTP_EXTENDED_HEADER_0 {
     pub pwszName: windows_core::PCWSTR,
     pub pszName: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for WINHTTP_EXTENDED_HEADER_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union WINHTTP_EXTENDED_HEADER_1 {
     pub pwszValue: windows_core::PCWSTR,
     pub pszValue: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for WINHTTP_EXTENDED_HEADER_1 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -1204,7 +1204,7 @@ impl Default for WINHTTP_EXTENDED_HEADER_1 {
 }
 pub const WINHTTP_EXTENDED_HEADER_FLAG_UNICODE: i32 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_FAILED_CONNECTION_RETRIES {
@@ -1221,7 +1221,7 @@ pub struct WINHTTP_FAILED_CONNECTION_RETRIES {
 }
 pub type WINHTTP_FAST_FORWARDING_STATE = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_FAST_FORWARDING_STATUS {
@@ -1345,13 +1345,13 @@ pub const WINHTTP_HANDLE_TYPE_REQUEST: i32 = 3;
 pub const WINHTTP_HANDLE_TYPE_SESSION: i32 = 1;
 pub const WINHTTP_HANDLE_TYPE_WEBSOCKET: i32 = 5;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union WINHTTP_HEADER_NAME {
     pub pwszName: windows_core::PCWSTR,
     pub pszName: windows_core::PCSTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for WINHTTP_HEADER_NAME {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -1372,7 +1372,7 @@ impl Default for WINHTTP_HEADER_NAME {
 }
 pub const WINHTTP_HEADER_NAME_BY_INDEX: i32 = 0;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_HOST_CONNECTION_GROUP {
@@ -1390,7 +1390,7 @@ pub struct WINHTTP_HOST_CONNECTION_GROUP {
     pub pConnectionGroups: PWINHTTP_CONNECTION_GROUP,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_HTTP2_RECEIVE_WINDOW {
@@ -1408,7 +1408,7 @@ pub struct WINHTTP_HTTP2_RECEIVE_WINDOW {
 pub const WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH: i32 = 0;
 pub const WINHTTP_LAST_OPTION: i32 = 212;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_MATCH_CONNECTION_GUID {
@@ -1576,7 +1576,7 @@ pub const WINHTTP_OPTION_WEB_SOCKET_SEND_BUFFER_SIZE: i32 = 123;
 pub const WINHTTP_OPTION_WORKER_THREAD_COUNT: i32 = 80;
 pub const WINHTTP_OPTION_WRITE_BUFFER_SIZE: i32 = 13;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROTOCOL_ASYNC_RESULT {
@@ -1607,7 +1607,7 @@ pub const WINHTTP_PROXY_DISABLE_SCHEME_KERBEROS: i32 = 8;
 pub const WINHTTP_PROXY_DISABLE_SCHEME_NEGOTIATE: i32 = 16;
 pub const WINHTTP_PROXY_DISABLE_SCHEME_NTLM: i32 = 4;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_INFO {
@@ -1627,12 +1627,12 @@ pub struct WINHTTP_PROXY_INFO {
 #[cfg(feature = "shared")]
 pub type WINHTTP_PROXY_INFOW = WINHTTP_PROXY_INFO;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct WINHTTP_PROXY_NETWORKING_KEY {
     pub pbBuffer: [u8; 128],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for WINHTTP_PROXY_NETWORKING_KEY {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -1652,7 +1652,7 @@ impl Default for WINHTTP_PROXY_NETWORKING_KEY {
 }
 pub const WINHTTP_PROXY_NOTIFY_CHANGE: i32 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_RESULT {
@@ -1668,7 +1668,7 @@ pub struct WINHTTP_PROXY_RESULT {
     pub pEntries: *mut WINHTTP_PROXY_RESULT_ENTRY,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_RESULT_ENTRY {
@@ -1690,7 +1690,7 @@ pub struct WINHTTP_PROXY_RESULT_ENTRY {
     pub ProxyPort: super::INTERNET_PORT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_RESULT_EX {
@@ -1710,7 +1710,7 @@ pub struct WINHTTP_PROXY_RESULT_EX {
     pub dwProxyInterfaceAffinity: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "shared"))]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_SETTINGS {
@@ -1754,7 +1754,7 @@ pub struct WINHTTP_PROXY_SETTINGS {
     pub pNetworkKeys: PWINHTTP_PROXY_NETWORKING_KEY,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_SETTINGS_EX {
@@ -1784,7 +1784,7 @@ pub struct WINHTTP_PROXY_SETTINGS_EX {
     pub pcwszConnectionName: windows_core::PCWSTR,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_PROXY_SETTINGS_PARAM {
@@ -1819,7 +1819,7 @@ pub const WINHTTP_QUERY_CACHE_CONTROL: i32 = 49;
 pub const WINHTTP_QUERY_CONNECTION: i32 = 23;
 pub const WINHTTP_QUERY_CONNECTION_GROUP_FLAG_INSECURE: u64 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_QUERY_CONNECTION_GROUP_RESULT {
@@ -1909,7 +1909,7 @@ pub const WINHTTP_QUERY_WARNING: i32 = 67;
 pub const WINHTTP_QUERY_WWW_AUTHENTICATE: i32 = 40;
 pub const WINHTTP_READ_DATA_EX_FLAG_FILL_BUFFER: u64 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct WINHTTP_REQUEST_STATS {
@@ -1918,7 +1918,7 @@ pub struct WINHTTP_REQUEST_STATS {
     pub cStats: super::ULONG,
     pub rgullStats: [super::ULONGLONG; 32],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for WINHTTP_REQUEST_STATS {
     fn default() -> Self {
@@ -1950,14 +1950,14 @@ pub const WINHTTP_REQUEST_STAT_FLAG_TCP_FAST_OPEN: i32 = 1;
 pub const WINHTTP_REQUEST_STAT_FLAG_TLS_FALSE_START: i32 = 4;
 pub const WINHTTP_REQUEST_STAT_FLAG_TLS_SESSION_RESUMPTION: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct WINHTTP_REQUEST_TIMES {
     pub cTimes: super::ULONG,
     pub rgullTimes: [super::ULONGLONG; 64],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for WINHTTP_REQUEST_TIMES {
     fn default() -> Self {
@@ -1989,7 +1989,7 @@ pub const WINHTTP_RESET_STATE: i32 = 1;
 pub const WINHTTP_RESET_SWPAD_ALL: i32 = 4;
 pub const WINHTTP_RESET_SWPAD_CURRENT_NETWORK: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_RESOLVER_CACHE_CONFIG {
@@ -2025,7 +2025,7 @@ pub type WINHTTP_STATUS_CALLBACK = Option<unsafe extern "system" fn(hinternet: s
 pub const WINHTTP_TIME_FORMAT_BUFSIZE: i32 = 62;
 pub const WINHTTP_WEB_SOCKET_ABORTED_CLOSE_STATUS: WINHTTP_WEB_SOCKET_CLOSE_STATUS = 1006;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_WEB_SOCKET_ASYNC_RESULT {
@@ -2062,7 +2062,7 @@ pub const WINHTTP_WEB_SOCKET_SEND_OPERATION: WINHTTP_WEB_SOCKET_OPERATION = 0;
 pub const WINHTTP_WEB_SOCKET_SERVER_ERROR_CLOSE_STATUS: WINHTTP_WEB_SOCKET_CLOSE_STATUS = 1011;
 pub const WINHTTP_WEB_SOCKET_SHUTDOWN_OPERATION: WINHTTP_WEB_SOCKET_OPERATION = 3;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct WINHTTP_WEB_SOCKET_STATUS {

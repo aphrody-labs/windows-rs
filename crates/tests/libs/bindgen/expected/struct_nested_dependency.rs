@@ -33,7 +33,7 @@ pub mod Producer {
         pub value: u16,
     }
     #[repr(C)]
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct Owner {
         pub tag: u32,
@@ -42,26 +42,26 @@ pub mod Producer {
         pub tail: *mut Owner_1,
     }
     #[repr(C)]
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct Owner_0 {
         pub value: u16,
     }
     #[repr(C)]
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct Owner_1 {
         pub value: u32,
     }
     #[repr(C)]
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct Owner_Inner {
         pub value: u32,
         pub owner: *mut Owner,
     }
     #[repr(C)]
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
     pub struct Owner_Owner_0 {
         pub value: u16,

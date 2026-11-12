@@ -29,7 +29,7 @@ pub type DWORD = u32;
 pub const E_INVALIDARG: windows_core::HRESULT = windows_core::HRESULT(0x80070057_u32 as _);
 pub const E_NOINTERFACE: windows_core::HRESULT = windows_core::HRESULT(0x80004002_u32 as _);
 pub const E_POINTER: windows_core::HRESULT = windows_core::HRESULT(0x80004003_u32 as _);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type FARPROC = Option<unsafe extern "system" fn() -> i32>;
 #[cfg(any(
     target_arch = "aarch64",

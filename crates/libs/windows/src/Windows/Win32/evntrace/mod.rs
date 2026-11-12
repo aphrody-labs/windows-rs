@@ -1128,7 +1128,7 @@ pub const EventTraceGuid: windows_core::GUID = windows_core::GUID::from_u128(0x6
 pub const GLOBAL_LOGGER_NAME: windows_core::PCSTR = windows_core::s!("GlobalLogger");
 pub const GLOBAL_LOGGER_NAMEA: windows_core::PCSTR = windows_core::s!("GlobalLogger");
 pub const GLOBAL_LOGGER_NAMEW: windows_core::PCWSTR = windows_core::w!("GlobalLogger");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const INVALID_PROCESSTRACE_HANDLE: PROCESSTRACE_HANDLE = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const INVALID_PROCESSTRACE_HANDLE: PROCESSTRACE_HANDLE = 18446744073709551615;

@@ -1,5 +1,5 @@
 windows_core::link!("test.dll" "system" fn GetProc() -> Proc);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type Proc = Option<unsafe extern "system" fn() -> i32>;
 #[cfg(any(
     target_arch = "aarch64",

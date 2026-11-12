@@ -326,7 +326,7 @@ pub unsafe fn RtlIsStateSeparationEnabled() -> super::BOOLEAN {
     windows_core::link!("ntdll.dll" "system" fn RtlIsStateSeparationEnabled() -> super::BOOLEAN);
     unsafe { RtlIsStateSeparationEnabled() }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[inline]
 pub unsafe fn RtlLargeIntegerDivide(dividend: super::LARGE_INTEGER, divisor: super::LARGE_INTEGER, remainder: Option<super::PLARGE_INTEGER>) -> super::LARGE_INTEGER {
@@ -2689,7 +2689,7 @@ pub const INJECT_ERRTYPE_PROCESSOR_CORRECTABLE: i32 = 1;
 pub const INJECT_ERRTYPE_PROCESSOR_UNCORRECTABLEFATAL: i32 = 4;
 pub const INJECT_ERRTYPE_PROCESSOR_UNCORRECTABLENONFATAL: i32 = 2;
 pub const INTEL_ADDRESS_TRANSLATION_PRM_HANDLER_GUID: windows_core::GUID = windows_core::GUID::from_u128(0x1de4055d_d2f3_4e11_b7d9_7d6c19173fee);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type INTERLOCKED_RESULT = i32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub type INTERLOCKED_RESULT = i32;
@@ -2863,13 +2863,13 @@ impl Default for KARM64_VFP_STATE {
 }
 pub type KD_CALLBACK_ACTION = i32;
 pub type KD_NAMESPACE_ENUM = i32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KERNEL_LARGE_STACK_COMMIT: i32 = 12288;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KERNEL_LARGE_STACK_COMMIT: i32 = 24576;
 #[cfg(target_arch = "aarch64")]
 pub const KERNEL_LARGE_STACK_COMMIT: i32 = 32768;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KERNEL_LARGE_STACK_SIZE: i32 = 61440;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KERNEL_LARGE_STACK_SIZE: i32 = 73728;
@@ -2877,7 +2877,7 @@ pub const KERNEL_LARGE_STACK_SIZE: i32 = 73728;
 pub const KERNEL_MCA_EXCEPTION_STACK_SIZE: i32 = 8192;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KERNEL_SHADOW_STACK_SIZE: i32 = 4096;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const KERNEL_STACK_SIZE: i32 = 12288;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const KERNEL_STACK_SIZE: i32 = 24576;
@@ -3694,7 +3694,7 @@ pub struct MAP_REGISTER_ENTRY {
     pub WriteToDevice: super::BOOLEAN,
 }
 pub const MAXIMUM_DEBUG_BARS: i32 = 6;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXIMUM_EXPANSION_SIZE: i32 = 59392;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAXIMUM_EXPANSION_SIZE: i32 = 71680;
@@ -4221,7 +4221,7 @@ pub const MM_SECURE_NO_CHANGE: i32 = 2;
 pub const MM_SECURE_NO_INHERIT: i32 = 8;
 pub const MM_SECURE_USER_MODE_ONLY: i32 = 4;
 pub const MM_SYSTEM_PARTITION_OBJECT: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MM_SYSTEM_SPACE_END: u32 = 4294967295;
 pub const MM_SYSTEM_VIEW_EXCEPTIONS_FOR_INPAGE_ERRORS: i32 = 1;
 pub const MPIConfiguration: BUS_DATA_TYPE = 8;
@@ -5261,7 +5261,7 @@ pub struct PCI_BUS_INTERFACE_STANDARD {
     pub PrepareMultistageResume: PPCI_PREPARE_MULTISTAGE_RESUME,
 }
 pub const PCI_BUS_INTERFACE_STANDARD_VERSION: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const PCI_BUS_INTERFACE_STANDARD_VERSION_1_LENGTH: super::LONG = 0x28_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -10862,7 +10862,7 @@ pub type PDEBUG_EFI_IOMMU_DATA = *mut DEBUG_EFI_IOMMU_DATA;
 pub type PDEBUG_MEMORY_REQUIREMENTS = *mut DEBUG_MEMORY_REQUIREMENTS;
 #[cfg(feature = "shared")]
 pub type PDEBUG_TRANSPORT_DATA = *mut DEBUG_TRANSPORT_DATA;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PDE_PER_PAGE: i32 = 512;
 #[cfg(feature = "shared")]
 pub type PDIMM_ADDRESS = *mut DIMM_ADDRESS;
@@ -10876,7 +10876,7 @@ pub type PDIMM_ADDR_VALID_BITS_DDR5 = *mut DIMM_ADDR_VALID_BITS_DDR5;
 pub type PDIMM_INFO = *mut DIMM_INFO;
 #[cfg(feature = "shared")]
 pub type PDISK_SIGNATURE = *mut DISK_SIGNATURE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PDI_SHIFT: i32 = 21;
 #[cfg(feature = "shared")]
 pub type PDOE_DISCOVERY_REQUEST = *mut DOE_DISCOVERY_REQUEST;
@@ -10892,7 +10892,7 @@ pub type PDOE_OBJECT_HEADER = *mut DOE_OBJECT_HEADER;
 pub type PDRIVER_CMC_EXCEPTION_CALLBACK = Option<unsafe extern "system" fn(context: super::PVOID, cmclog: super::PCMC_EXCEPTION)>;
 #[cfg(all(feature = "mce", feature = "shared", feature = "winnt"))]
 pub type PDRIVER_CPE_EXCEPTION_CALLBACK = Option<unsafe extern "system" fn(context: super::PVOID, cmclog: super::PCPE_EXCEPTION)>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "mce", feature = "shared", feature = "winnt"))]
 pub type PDRIVER_EXCPTN_CALLBACK = Option<unsafe extern "system" fn(context: super::PVOID, banklog: super::PMCA_EXCEPTION)>;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -10901,7 +10901,7 @@ pub type PDRIVER_EXCPTN_CALLBACK = Option<unsafe extern "C" fn(context: super::P
 #[cfg(target_arch = "aarch64")]
 #[cfg(all(feature = "ntdef", feature = "shared", feature = "wdm", feature = "winnt"))]
 pub type PDRIVER_EXCPTN_CALLBACK = Option<unsafe extern "C" fn(context: super::PVOID, trapframe: *const KTRAP_FRAME, exceptionframe: *const KEXCEPTION_FRAME, exception: super::PVOID)>;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "mce", feature = "shared", feature = "winnt"))]
 pub type PDRIVER_MCA_EXCEPTION_CALLBACK = Option<unsafe extern "system" fn(context: super::PVOID, banklog: super::PMCA_EXCEPTION)>;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -11493,7 +11493,7 @@ pub type PPHYSICAL_COUNTER_RESOURCE_DESCRIPTOR = *mut PHYSICAL_COUNTER_RESOURCE_
 pub type PPHYSICAL_COUNTER_RESOURCE_LIST = *mut PHYSICAL_COUNTER_RESOURCE_LIST;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PPHYSICAL_MEMORY_RANGE = *mut PHYSICAL_MEMORY_RANGE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PPI_SHIFT: i32 = 30;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PPM_DISPATCH_TABLE = *mut PM_DISPATCH_TABLE;
@@ -11925,13 +11925,13 @@ pub type PSYSTEM_FIRMWARE_TABLE_HANDLER = *mut SYSTEM_FIRMWARE_TABLE_HANDLER;
 pub type PSYSTEM_FIRMWARE_TABLE_INFORMATION = *mut SYSTEM_FIRMWARE_TABLE_INFORMATION;
 pub const PS_IMAGE_NOTIFY_CONFLICTING_ARCHITECTURE: i32 = 1;
 pub const PS_INVALID_SILO_CONTEXT_SLOT: u32 = 4294967295;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PTE_PER_PAGE: i32 = 512;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PTIMER_APC_ROUTINE = Option<unsafe extern "system" fn(timercontext: super::PVOID, timerlowvalue: super::ULONG, timerhighvalue: super::LONG)>;
 #[cfg(all(feature = "shared", feature = "wdm", feature = "winnt", feature = "winternl"))]
 pub type PTIMER_SET_COALESCABLE_TIMER_INFO = *mut TIMER_SET_COALESCABLE_TIMER_INFO;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PTI_SHIFT: i32 = 12;
 #[cfg(all(feature = "basetsd", feature = "ntdef", feature = "ntifs", feature = "shared", feature = "usb", feature = "wdm", feature = "winnt", feature = "winternl"))]
 pub type PTRANSLATE_RESOURCE_HANDLER = Option<unsafe extern "system" fn(context: super::PVOID, source: super::PCM_PARTIAL_RESOURCE_DESCRIPTOR, direction: RESOURCE_TRANSLATION_DIRECTION, alternativescount: super::ULONG, alternatives: *const super::IO_RESOURCE_DESCRIPTOR, physicaldeviceobject: super::PDEVICE_OBJECT, target: super::PCM_PARTIAL_RESOURCE_DESCRIPTOR) -> windows_core::NTSTATUS>;
@@ -12807,15 +12807,15 @@ pub const ResourceTypeMax: PHYSICAL_COUNTER_RESOURCE_DESCRIPTOR_TYPE = 6;
 pub const ResourceTypeOverflow: PHYSICAL_COUNTER_RESOURCE_DESCRIPTOR_TYPE = 3;
 pub const ResourceTypeRange: PHYSICAL_COUNTER_RESOURCE_DESCRIPTOR_TYPE = 1;
 pub const ResourceTypeSingle: PHYSICAL_COUNTER_RESOURCE_DESCRIPTOR_TYPE = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ResultNegative: INTERLOCKED_RESULT = 32768;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ResultNegative: INTERLOCKED_RESULT = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ResultPositive: INTERLOCKED_RESULT = 0;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ResultPositive: INTERLOCKED_RESULT = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ResultZero: INTERLOCKED_RESULT = 16384;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ResultZero: INTERLOCKED_RESULT = 0;
@@ -21403,19 +21403,19 @@ pub struct _FFA_RUN_TARGET_INPUT_PARAMETERS(pub u8);
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct _FFA_RUN_TARGET_OUTPUT_PARAMETERS(pub u8);
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct _KGDTENTRY(pub u8);
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct _KIDTENTRY(pub u8);
 #[repr(C)]
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct _KPRCB(pub u8);
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct _KTSS(pub u8);
 #[repr(C)]

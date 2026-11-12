@@ -16,7 +16,7 @@ pub unsafe fn SQLAllocHandleStd(fhandletype: super::SQLSMALLINT, hinput: super::
     windows_core::link!("odbc32.dll" "system" fn SQLAllocHandleStd(fhandletype : super::SQLSMALLINT, hinput : super::SQLHANDLE, phoutput : *mut super::SQLHANDLE) -> super::SQLRETURN);
     unsafe { SQLAllocHandleStd(fhandletype, hinput as _, phoutput as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLBindParameter(hstmt: super::SQLHSTMT, ipar: super::SQLUSMALLINT, fparamtype: super::SQLSMALLINT, fctype: super::SQLSMALLINT, fsqltype: super::SQLSMALLINT, cbcoldef: super::SQLUINTEGER, ibscale: super::SQLSMALLINT, rgbvalue: super::SQLPOINTER, cbvaluemax: super::SQLINTEGER, pcbvalue: *mut super::SQLINTEGER) -> super::SQLRETURN {
@@ -42,7 +42,7 @@ pub unsafe fn SQLBulkOperations(statementhandle: super::SQLHSTMT, operation: sup
     windows_core::link!("odbc32.dll" "system" fn SQLBulkOperations(statementhandle : super::SQLHSTMT, operation : super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLBulkOperations(statementhandle as _, operation) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLColAttributes(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, fdesctype: super::SQLUSMALLINT, rgbdesc: super::SQLPOINTER, cbdescmax: super::SQLSMALLINT, pcbdesc: *mut super::SQLSMALLINT, pfdesc: *mut super::SQLINTEGER) -> super::SQLRETURN {
@@ -62,7 +62,7 @@ pub unsafe fn SQLColumnPrivileges(hstmt: super::SQLHSTMT, szcatalogname: Option<
     windows_core::link!("odbc32.dll" "system" fn SQLColumnPrivileges(hstmt : super::SQLHSTMT, szcatalogname : *const super::SQLCHAR, cchcatalogname : super::SQLSMALLINT, szschemaname : *const super::SQLCHAR, cchschemaname : super::SQLSMALLINT, sztablename : *const super::SQLCHAR, cchtablename : super::SQLSMALLINT, szcolumnname : *const super::SQLCHAR, cchcolumnname : super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLColumnPrivileges(hstmt as _, szcatalogname.unwrap_or(core::mem::zeroed()) as _, cchcatalogname, szschemaname.unwrap_or(core::mem::zeroed()) as _, cchschemaname, sztablename.unwrap_or(core::mem::zeroed()) as _, cchtablename, szcolumnname.unwrap_or(core::mem::zeroed()) as _, cchcolumnname) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLDescribeParam(hstmt: super::SQLHSTMT, ipar: super::SQLUSMALLINT, pfsqltype: Option<*mut super::SQLSMALLINT>, pcbparamdef: Option<*mut super::SQLUINTEGER>, pibscale: Option<*mut super::SQLSMALLINT>, pfnullable: Option<*mut super::SQLSMALLINT>) -> super::SQLRETURN {
@@ -88,7 +88,7 @@ pub unsafe fn SQLDrivers(henv: super::SQLHENV, fdirection: super::SQLUSMALLINT, 
     windows_core::link!("odbc32.dll" "system" fn SQLDrivers(henv : super::SQLHENV, fdirection : super::SQLUSMALLINT, szdriverdesc : *mut super::SQLCHAR, cchdriverdescmax : super::SQLSMALLINT, pcchdriverdesc : *mut super::SQLSMALLINT, szdriverattributes : *mut super::SQLCHAR, cchdrvrattrmax : super::SQLSMALLINT, pcchdrvrattr : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLDrivers(henv as _, fdirection, szdriverdesc.unwrap_or(core::mem::zeroed()) as _, cchdriverdescmax, pcchdriverdesc.unwrap_or(core::mem::zeroed()) as _, szdriverattributes.unwrap_or(core::mem::zeroed()) as _, cchdrvrattrmax, pcchdrvrattr.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLExtendedFetch(hstmt: super::SQLHSTMT, ffetchtype: super::SQLUSMALLINT, irow: super::SQLINTEGER, pcrow: Option<*mut super::SQLUINTEGER>, rgfrowstatus: Option<*mut super::SQLUSMALLINT>) -> super::SQLRETURN {
@@ -126,7 +126,7 @@ pub unsafe fn SQLNumParams(hstmt: super::SQLHSTMT, pcpar: Option<*mut super::SQL
     windows_core::link!("odbc32.dll" "system" fn SQLNumParams(hstmt : super::SQLHSTMT, pcpar : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLNumParams(hstmt as _, pcpar.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLParamOptions(hstmt: super::SQLHSTMT, crow: super::SQLUINTEGER, pirow: *mut super::SQLUINTEGER) -> super::SQLRETURN {
@@ -158,7 +158,7 @@ pub unsafe fn SQLProcedures(hstmt: super::SQLHSTMT, szcatalogname: Option<*const
     windows_core::link!("odbc32.dll" "system" fn SQLProcedures(hstmt : super::SQLHSTMT, szcatalogname : *const super::SQLCHAR, cchcatalogname : super::SQLSMALLINT, szschemaname : *const super::SQLCHAR, cchschemaname : super::SQLSMALLINT, szprocname : *const super::SQLCHAR, cchprocname : super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLProcedures(hstmt as _, szcatalogname.unwrap_or(core::mem::zeroed()) as _, cchcatalogname, szschemaname.unwrap_or(core::mem::zeroed()) as _, cchschemaname, szprocname.unwrap_or(core::mem::zeroed()) as _, cchprocname) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLSetPos(hstmt: super::SQLHSTMT, irow: super::SQLUSMALLINT, foption: super::SQLUSMALLINT, flock: super::SQLUSMALLINT) -> super::SQLRETURN {
@@ -172,7 +172,7 @@ pub unsafe fn SQLSetPos(hstmt: super::SQLHSTMT, irow: super::SQLSETPOSIROW, fopt
     windows_core::link!("odbc32.dll" "system" fn SQLSetPos(hstmt : super::SQLHSTMT, irow : super::SQLSETPOSIROW, foption : super::SQLUSMALLINT, flock : super::SQLUSMALLINT) -> super::SQLRETURN);
     unsafe { SQLSetPos(hstmt as _, irow, foption, flock) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLSetScrollOptions(hstmt: super::SQLHSTMT, fconcurrency: super::SQLUSMALLINT, crowkeyset: super::SQLINTEGER, crowrowset: super::SQLUSMALLINT) -> super::SQLRETURN {
@@ -641,7 +641,7 @@ pub const SQL_CV_CREATE_VIEW: i32 = 1;
 pub const SQL_CV_LOCAL: i32 = 8;
 pub const SQL_C_BINARY: i32 = -2;
 pub const SQL_C_BIT: i32 = -7;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SQL_C_BOOKMARK: i32 = -18;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SQL_C_BOOKMARK: i32 = -27;

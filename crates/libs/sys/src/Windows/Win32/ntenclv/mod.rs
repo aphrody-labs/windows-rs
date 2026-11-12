@@ -76,13 +76,13 @@ pub type PENCLAVE_VBS_BASIC_KEY_REQUEST = *mut ENCLAVE_VBS_BASIC_KEY_REQUEST;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type PVBS_BASIC_ENCLAVE_EXCEPTION = *mut VBS_BASIC_ENCLAVE_EXCEPTION_AMD64;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub type PVBS_BASIC_ENCLAVE_EXCEPTION = *mut core::ffi::c_void;
 #[cfg(feature = "shared")]
 pub type PVBS_BASIC_ENCLAVE_EXCEPTION_AMD64 = *mut VBS_BASIC_ENCLAVE_EXCEPTION_AMD64;
 #[cfg(all(feature = "minwindef", feature = "shared", feature = "winnt"))]
 pub type PVBS_BASIC_ENCLAVE_SYSCALL_PAGE = *mut VBS_BASIC_ENCLAVE_SYSCALL_PAGE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type PVBS_BASIC_ENCLAVE_THREAD_DESCRIPTOR = *mut VBS_BASIC_ENCLAVE_THREAD_DESCRIPTOR32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -121,7 +121,7 @@ pub type VBS_BASIC_ENCLAVE_BASIC_CALL_VERIFY_REPORT = Option<unsafe extern "C" f
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 #[cfg(feature = "shared")]
 pub type VBS_BASIC_ENCLAVE_EXCEPTION = VBS_BASIC_ENCLAVE_EXCEPTION_AMD64;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub type VBS_BASIC_ENCLAVE_EXCEPTION = core::ffi::c_void;
 #[repr(C)]
 #[cfg(feature = "shared")]
@@ -160,7 +160,7 @@ pub struct VBS_BASIC_ENCLAVE_SYSCALL_PAGE {
     pub VerifyReport: VBS_BASIC_ENCLAVE_BASIC_CALL_VERIFY_REPORT,
     pub GenerateRandomData: VBS_BASIC_ENCLAVE_BASIC_CALL_GENERATE_RANDOM_DATA,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub type VBS_BASIC_ENCLAVE_THREAD_DESCRIPTOR = VBS_BASIC_ENCLAVE_THREAD_DESCRIPTOR32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

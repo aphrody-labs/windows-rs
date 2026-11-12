@@ -31,7 +31,7 @@ pub type RIO_BUFFERID = *mut RIO_BUFFERID_t;
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct RIO_BUFFERID_t(pub u8);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RIO_CMSG_BASE_SIZE: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RIO_CMSG_BASE_SIZE: u64 = 8;
@@ -46,7 +46,7 @@ pub type RIO_CQ = *mut RIO_CQ_t;
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct RIO_CQ_t(pub u8);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RIO_INVALID_BUFFERID: RIO_BUFFERID = -1 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RIO_INVALID_BUFFERID: RIO_BUFFERID = 4294967295i64 as _;

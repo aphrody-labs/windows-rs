@@ -22,7 +22,7 @@ pub const D3D9_RESOURCE_PRIORITY_NORMAL: i32 = 2013265920;
 pub const D3D9b_SDK_VERSION: i32 = 31;
 pub const D3DADAPTER_DEFAULT: i32 = 0;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct D3DADAPTER_IDENTIFIER9 {
@@ -37,7 +37,7 @@ pub struct D3DADAPTER_IDENTIFIER9 {
     pub DeviceIdentifier: windows_sys::core::GUID,
     pub WHQLLevel: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for D3DADAPTER_IDENTIFIER9 {
     fn default() -> Self {
@@ -68,7 +68,7 @@ impl Default for D3DADAPTER_IDENTIFIER9 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAES_CTR_IV {
@@ -85,7 +85,7 @@ pub struct D3DAES_CTR_IV {
 }
 pub type D3DAUTHENTICATEDCHANNELTYPE = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURECRYPTOSESSION {
@@ -105,7 +105,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURECRYPTOSESSION {
     pub DeviceHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGUREINITIALIZE {
@@ -123,14 +123,14 @@ pub struct D3DAUTHENTICATEDCHANNEL_CONFIGUREINITIALIZE {
     pub StartSequenceConfigure: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGUREPROTECTION {
     pub Parameters: D3DAUTHENTICATEDCHANNEL_CONFIGURE_INPUT,
     pub Protections: D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for D3DAUTHENTICATEDCHANNEL_CONFIGUREPROTECTION {
     fn default() -> Self {
@@ -153,7 +153,7 @@ impl Default for D3DAUTHENTICATEDCHANNEL_CONFIGUREPROTECTION {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURESHAREDRESOURCE {
@@ -173,7 +173,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURESHAREDRESOURCE {
     pub AllowAccess: windows_sys::core::BOOL,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGUREUNCOMPRESSEDENCRYPTION {
@@ -189,7 +189,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_CONFIGUREUNCOMPRESSEDENCRYPTION {
     pub EncryptionGuid: windows_sys::core::GUID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURE_INPUT {
@@ -209,7 +209,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURE_INPUT {
     pub SequenceNumber: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_CONFIGURE_OUTPUT {
@@ -235,13 +235,13 @@ pub const D3DAUTHENTICATEDCHANNEL_DRIVER_HARDWARE: D3DAUTHENTICATEDCHANNELTYPE =
 pub const D3DAUTHENTICATEDCHANNEL_DRIVER_SOFTWARE: D3DAUTHENTICATEDCHANNELTYPE = 2;
 pub type D3DAUTHENTICATEDCHANNEL_PROCESSIDENTIFIERTYPE = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS {
     pub Anonymous: D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS {
     fn default() -> Self {
@@ -249,14 +249,14 @@ impl Default for D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0 {
     pub Anonymous: D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0_0,
     pub Value: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0 {
     fn default() -> Self {
@@ -264,7 +264,7 @@ impl Default for D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0 {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0_0 {
@@ -307,7 +307,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS_0_0 {
     pub _bitfield: u32,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYCHANNELTYPE_OUTPUT {
@@ -323,7 +323,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYCHANNELTYPE_OUTPUT {
     pub ChannelType: D3DAUTHENTICATEDCHANNELTYPE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYCRYPTOSESSION_INPUT {
@@ -339,7 +339,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYCRYPTOSESSION_INPUT {
     pub DXVA2DecodeHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYCRYPTOSESSION_OUTPUT {
@@ -359,7 +359,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYCRYPTOSESSION_OUTPUT {
     pub DeviceHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYDEVICEHANDLE_OUTPUT {
@@ -375,7 +375,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYDEVICEHANDLE_OUTPUT {
     pub DeviceHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUIDCOUNT_OUTPUT {
@@ -391,7 +391,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUIDCOUNT_OUTPUT {
     pub NumEncryptionGuids: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUID_INPUT {
@@ -407,7 +407,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUID_INPUT {
     pub EncryptionGuidIndex: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUID_OUTPUT {
@@ -425,7 +425,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYEVICTIONENCRYPTIONGUID_OUTPUT {
     pub EncryptionGuid: windows_sys::core::GUID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYINFOBUSTYPE_OUTPUT {
@@ -445,7 +445,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYINFOBUSTYPE_OUTPUT {
     pub bAccessibleInNonContiguousBlocks: windows_sys::core::BOOL,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTIDCOUNT_INPUT {
@@ -463,7 +463,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTIDCOUNT_INPUT {
     pub CryptoSessionHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTIDCOUNT_OUTPUT {
@@ -483,7 +483,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTIDCOUNT_OUTPUT {
     pub NumOutputIDs: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTID_INPUT {
@@ -503,7 +503,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTID_INPUT {
     pub OutputIDIndex: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTID_OUTPUT {
@@ -525,14 +525,14 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYOUTPUTID_OUTPUT {
     pub OutputID: super::UINT64,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYPROTECTION_OUTPUT {
     pub Output: D3DAUTHENTICATEDCHANNEL_QUERY_OUTPUT,
     pub ProtectionFlags: D3DAUTHENTICATEDCHANNEL_PROTECTION_FLAGS,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for D3DAUTHENTICATEDCHANNEL_QUERYPROTECTION_OUTPUT {
     fn default() -> Self {
@@ -555,7 +555,7 @@ impl Default for D3DAUTHENTICATEDCHANNEL_QUERYPROTECTION_OUTPUT {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESSCOUNT_OUTPUT {
@@ -571,7 +571,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESSCOUNT_OUT
     pub NumRestrictedSharedResourceProcesses: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESS_INPUT {
@@ -587,7 +587,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESS_INPUT {
     pub ProcessIndex: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESS_OUTPUT {
@@ -607,7 +607,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYRESTRICTEDSHAREDRESOURCEPROCESS_OUTPUT {
     pub ProcessHandle: super::HANDLE,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYUNCOMPRESSEDENCRYPTIONLEVEL_OUTPUT {
@@ -623,7 +623,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYUNCOMPRESSEDENCRYPTIONLEVEL_OUTPUT {
     pub EncryptionGuid: windows_sys::core::GUID,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERYUNRESTRICTEDPROTECTEDSHAREDRESOURCECOUNT_OUTPUT {
@@ -639,7 +639,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERYUNRESTRICTEDPROTECTEDSHAREDRESOURCECOUNT
     pub NumUnrestrictedProtectedSharedResources: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERY_INPUT {
@@ -657,7 +657,7 @@ pub struct D3DAUTHENTICATEDCHANNEL_QUERY_INPUT {
     pub SequenceNumber: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DAUTHENTICATEDCHANNEL_QUERY_OUTPUT {
@@ -733,7 +733,7 @@ pub const D3DBLEND_SRCCOLOR: D3DBLEND = 3;
 pub const D3DBLEND_SRCCOLOR2: D3DBLEND = 16;
 pub const D3DBLEND_ZERO: D3DBLEND = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DBOX {
@@ -783,7 +783,7 @@ pub const D3DCAPS3_DXVAHD_LIMITED: i32 = 2048;
 pub const D3DCAPS3_LINEAR_TO_SRGB_PRESENTATION: i32 = 128;
 pub const D3DCAPS3_RESERVED: u32 = 2147483679;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DCAPS9 {
@@ -944,7 +944,7 @@ pub const D3DCLIPPLANE3: i32 = 8;
 pub const D3DCLIPPLANE4: i32 = 16;
 pub const D3DCLIPPLANE5: i32 = 32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DCLIPSTATUS9 {
@@ -974,7 +974,7 @@ pub const D3DCOLORWRITEENABLE_BLUE: i32 = 4;
 pub const D3DCOLORWRITEENABLE_GREEN: i32 = 2;
 pub const D3DCOLORWRITEENABLE_RED: i32 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DCOMPOSERECTDESC {
@@ -994,7 +994,7 @@ pub struct D3DCOMPOSERECTDESC {
     pub Height: super::USHORT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DCOMPOSERECTDESTINATION {
@@ -1021,7 +1021,7 @@ pub const D3DCOMPOSERECTS_MAXNUMRECTS: i32 = 65535;
 pub const D3DCOMPOSERECTS_NEG: D3DCOMPOSERECTSOP = 4;
 pub const D3DCOMPOSERECTS_OR: D3DCOMPOSERECTSOP = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DCONTENTPROTECTIONCAPS {
@@ -1176,7 +1176,7 @@ pub const D3DDEVCAPS_TEXTUREVIDEOMEMORY: i32 = 512;
 pub const D3DDEVCAPS_TLVERTEXSYSTEMMEMORY: i32 = 64;
 pub const D3DDEVCAPS_TLVERTEXVIDEOMEMORY: i32 = 128;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVICE_CREATION_PARAMETERS {
@@ -1196,7 +1196,7 @@ pub struct D3DDEVICE_CREATION_PARAMETERS {
     pub BehaviorFlags: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "minwindef")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3D9BANDWIDTHTIMINGS {
@@ -1218,7 +1218,7 @@ pub struct D3DDEVINFO_D3D9BANDWIDTHTIMINGS {
     pub FillRateUtilizedPercent: super::FLOAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "minwindef")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3D9CACHEUTILIZATION {
@@ -1234,7 +1234,7 @@ pub struct D3DDEVINFO_D3D9CACHEUTILIZATION {
     pub PostTransformVertexCacheHitRate: super::FLOAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "minwindef")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3D9INTERFACETIMINGS {
@@ -1256,7 +1256,7 @@ pub struct D3DDEVINFO_D3D9INTERFACETIMINGS {
     pub WaitingForGPUOtherTimePercent: super::FLOAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "minwindef")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3D9PIPELINETIMINGS {
@@ -1276,7 +1276,7 @@ pub struct D3DDEVINFO_D3D9PIPELINETIMINGS {
     pub GPUIdleTimePercent: super::FLOAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "minwindef")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3D9STAGETIMINGS {
@@ -1292,7 +1292,7 @@ pub struct D3DDEVINFO_D3D9STAGETIMINGS {
     pub ComputationProcessingPercent: super::FLOAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_D3DVERTEXSTATS {
@@ -1308,13 +1308,13 @@ pub struct D3DDEVINFO_D3DVERTEXSTATS {
     pub NumExtraClippingTriangles: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct D3DDEVINFO_RESOURCEMANAGER {
     pub stats: [D3DRESOURCESTATS; 8],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for D3DDEVINFO_RESOURCEMANAGER {
     fn default() -> Self {
@@ -1336,7 +1336,7 @@ impl Default for D3DDEVINFO_RESOURCEMANAGER {
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDEVINFO_VCACHE {
@@ -1362,7 +1362,7 @@ pub const D3DDEVTYPE_NULLREF: D3DDEVTYPE = 4;
 pub const D3DDEVTYPE_REF: D3DDEVTYPE = 2;
 pub const D3DDEVTYPE_SW: D3DDEVTYPE = 3;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDISPLAYMODE {
@@ -1382,7 +1382,7 @@ pub struct D3DDISPLAYMODE {
     pub Format: D3DFORMAT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDISPLAYMODEEX {
@@ -1406,7 +1406,7 @@ pub struct D3DDISPLAYMODEEX {
     pub ScanLineOrdering: D3DSCANLINEORDERING,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DDISPLAYMODEFILTER {
@@ -1444,7 +1444,7 @@ pub const D3DDTCAPS_UDEC3: i32 = 64;
 pub const D3DDTCAPS_USHORT2N: i32 = 16;
 pub const D3DDTCAPS_USHORT4N: i32 = 32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DENCRYPTED_BLOCK_INFO {
@@ -1608,7 +1608,7 @@ pub const D3DFVF_XYZB5: i32 = 14;
 pub const D3DFVF_XYZRHW: i32 = 4;
 pub const D3DFVF_XYZW: i32 = 16386;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct D3DGAMMARAMP {
@@ -1616,7 +1616,7 @@ pub struct D3DGAMMARAMP {
     pub green: [super::WORD; 256],
     pub blue: [super::WORD; 256],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for D3DGAMMARAMP {
     fn default() -> Self {
@@ -1641,7 +1641,7 @@ impl Default for D3DGAMMARAMP {
 }
 pub const D3DGETDATA_FLUSH: i32 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DINDEXBUFFER_DESC {
@@ -1667,7 +1667,7 @@ pub const D3DISSUE_END: i32 = 1;
 pub const D3DKEYEXCHANGE_DXVA: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0x43d3775c_38e5_4924_8d86_d3fccf153e9b);
 pub const D3DKEYEXCHANGE_RSAES_OAEP: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0xc1949895_d72a_4a1d_8e5d_ed857d171520);
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "dsound", feature = "dxgi"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DLIGHT9 {
@@ -1716,7 +1716,7 @@ pub const D3DLINECAPS_FOG: i32 = 16;
 pub const D3DLINECAPS_TEXTURE: i32 = 1;
 pub const D3DLINECAPS_ZTEST: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DLOCKED_BOX {
@@ -1734,7 +1734,7 @@ pub struct D3DLOCKED_BOX {
     pub pBits: *mut core::ffi::c_void,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DLOCKED_RECT {
@@ -1756,7 +1756,7 @@ pub const D3DLOCK_NOSYSLOCK: i32 = 2048;
 pub const D3DLOCK_NO_DIRTY_UPDATE: i32 = 32768;
 pub const D3DLOCK_READONLY: i32 = 16;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "dxgi")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DMATERIAL9 {
@@ -1779,32 +1779,32 @@ pub struct D3DMATERIAL9 {
 }
 pub type D3DMATERIALCOLORSOURCE = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct D3DMATRIX {
     pub Anonymous: D3DMATRIX_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for D3DMATRIX {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union D3DMATRIX_0 {
     pub Anonymous: D3DMATRIX_0_0,
     pub m: [[f32; 4]; 4],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for D3DMATRIX_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DMATRIX_0_0 {
     pub _11: f32,
@@ -1877,7 +1877,7 @@ pub const D3DMCS_COLOR2: D3DMATERIALCOLORSOURCE = 2;
 pub const D3DMCS_FORCE_DWORD: D3DMATERIALCOLORSOURCE = 2147483647;
 pub const D3DMCS_MATERIAL: D3DMATERIALCOLORSOURCE = 0;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DMEMORYPRESSURE {
@@ -1919,7 +1919,7 @@ pub const D3DMULTISAMPLE_NONMASKABLE: D3DMULTISAMPLE_TYPE = 1;
 pub type D3DMULTISAMPLE_TYPE = i32;
 pub const D3DOK_NOAUTOGEN: windows_sys::core::HRESULT = 0x876086F_u32 as _;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DOVERLAYCAPS {
@@ -2024,7 +2024,7 @@ pub const D3DPRESENTFLAG_RESTRICT_SHARED_RESOURCE_DRIVER: i32 = 2048;
 pub const D3DPRESENTFLAG_UNPRUNEDMODE: i32 = 64;
 pub const D3DPRESENTFLAG_VIDEO: i32 = 16;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct D3DPRESENTSTATS {
@@ -2034,7 +2034,7 @@ pub struct D3DPRESENTSTATS {
     pub SyncQPCTime: super::LARGE_INTEGER,
     pub SyncGPUTime: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for D3DPRESENTSTATS {
     fn default() -> Self {
@@ -2074,7 +2074,7 @@ pub const D3DPRESENT_INTERVAL_THREE: i32 = 4;
 pub const D3DPRESENT_INTERVAL_TWO: i32 = 2;
 pub const D3DPRESENT_LINEAR_CONTENT: i32 = 2;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[derive(Clone, Copy, Default)]
 pub struct D3DPRESENT_PARAMETERS {
@@ -2136,7 +2136,7 @@ pub const D3DPSHADECAPS_COLORGOURAUDRGB: i32 = 8;
 pub const D3DPSHADECAPS_FOGGOURAUD: i32 = 524288;
 pub const D3DPSHADECAPS_SPECULARGOURAUDRGB: i32 = 512;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DPSHADERCAPS2_0 {
@@ -2217,7 +2217,7 @@ pub const D3DQUERYTYPE_VCACHE: D3DQUERYTYPE = 4;
 pub const D3DQUERYTYPE_VERTEXSTATS: D3DQUERYTYPE = 6;
 pub const D3DQUERYTYPE_VERTEXTIMINGS: D3DQUERYTYPE = 15;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DRANGE {
@@ -2233,7 +2233,7 @@ pub struct D3DRANGE {
     pub Size: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DRASTER_STATUS {
@@ -2249,7 +2249,7 @@ pub struct D3DRASTER_STATUS {
     pub ScanLine: super::UINT,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DRECT {
@@ -2269,7 +2269,7 @@ pub struct D3DRECT {
     pub y2: super::LONG,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DRECTPATCH_INFO {
@@ -2297,7 +2297,7 @@ pub struct D3DRECTPATCH_INFO {
 pub type D3DRENDERSTATETYPE = i32;
 pub const D3DRENDERSTATE_WRAPBIAS: u32 = 128;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DRESOURCESTATS {
@@ -2702,7 +2702,7 @@ pub const D3DSTT_FORCE_DWORD: D3DSAMPLER_TEXTURE_TYPE = 2147483647;
 pub const D3DSTT_UNKNOWN: D3DSAMPLER_TEXTURE_TYPE = 0;
 pub const D3DSTT_VOLUME: D3DSAMPLER_TEXTURE_TYPE = 536870912;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DSURFACE_DESC {
@@ -2820,7 +2820,7 @@ pub const D3DTOP_SELECTARG2: D3DTEXTUREOP = 3;
 pub const D3DTOP_SUBTRACT: D3DTEXTUREOP = 10;
 pub type D3DTRANSFORMSTATETYPE = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DTRIPATCH_INFO {
@@ -2917,7 +2917,7 @@ pub const D3DVBF_FORCE_DWORD: D3DVERTEXBLENDFLAGS = 2147483647;
 pub const D3DVBF_TWEENING: D3DVERTEXBLENDFLAGS = 255;
 pub type D3DVERTEXBLENDFLAGS = i32;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DVERTEXBUFFER_DESC {
@@ -2941,7 +2941,7 @@ pub struct D3DVERTEXBUFFER_DESC {
     pub FVF: super::DWORD,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DVERTEXELEMENT9 {
@@ -2969,7 +2969,7 @@ pub const D3DVERTEXTEXTURESAMPLER1: i32 = 258;
 pub const D3DVERTEXTEXTURESAMPLER2: i32 = 259;
 pub const D3DVERTEXTEXTURESAMPLER3: i32 = 260;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DVIEWPORT9 {
@@ -2993,7 +2993,7 @@ pub struct D3DVIEWPORT9 {
     pub MaxZ: f32,
 }
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DVOLUME_DESC {
@@ -3026,7 +3026,7 @@ pub const D3DVS20_MIN_DYNAMICFLOWCONTROLDEPTH: i32 = 0;
 pub const D3DVS20_MIN_NUMTEMPS: i32 = 12;
 pub const D3DVS20_MIN_STATICFLOWCONTROLDEPTH: i32 = 1;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct D3DVSHADERCAPS2_0 {
@@ -3094,13 +3094,13 @@ pub const D3DZB_USEW: D3DZBUFFERTYPE = 2;
 pub const D3D_MAX_SIMULTANEOUS_RENDERTARGETS: i32 = 4;
 pub const D3D_OK: windows_sys::core::HRESULT = 0x0_u32 as _;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct D3D_OMAC {
     pub Omac: [super::BYTE; 16],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for D3D_OMAC {
     fn default() -> Self {

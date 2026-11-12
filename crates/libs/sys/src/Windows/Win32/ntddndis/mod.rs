@@ -993,119 +993,119 @@ pub const NDIS_RSS_PARAM_FLAG_DISABLE_RSS: i32 = 16;
 pub const NDIS_RSS_PARAM_FLAG_HASH_INFO_UNCHANGED: i32 = 2;
 pub const NDIS_RSS_PARAM_FLAG_HASH_KEY_UNCHANGED: i32 = 8;
 pub const NDIS_RSS_PARAM_FLAG_ITABLE_UNCHANGED: i32 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_HARDWARE_CROSSTIMESTAMP_REVISION_1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_HARDWARE_CROSSTIMESTAMP_REVISION_1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1: u64 = 12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_IP_OPER_STATE_REVISION_1: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_IP_OPER_STATE_REVISION_1: u64 = 20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_IP_OPER_STATUS_INFO_REVISION_1: u32 = 396;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_IP_OPER_STATUS_INFO_REVISION_1: u64 = 396;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_LINK_PARAMETERS_REVISION_1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_LINK_PARAMETERS_REVISION_1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_LINK_STATE_REVISION_1: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_LINK_STATE_REVISION_1: u64 = 40;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1: u32 = 112;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_1: u64 = 112;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_NDIS_WMI_OFFLOAD_REVISION_1: u32 = 224;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_NDIS_WMI_OFFLOAD_REVISION_1: u64 = 224;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_OFFLOAD_PARAMETERS_REVISION_1: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_OFFLOAD_PARAMETERS_REVISION_1: u64 = 20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_OPER_STATE_REVISION_1: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_OPER_STATE_REVISION_1: u64 = 12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PCI_DEVICE_CUSTOM_PROPERTIES_REVISION_1: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PCI_DEVICE_CUSTOM_PROPERTIES_REVISION_1: u64 = 40;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PCI_DEVICE_CUSTOM_PROPERTIES_REVISION_2: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PCI_DEVICE_CUSTOM_PROPERTIES_REVISION_2: u64 = 52;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PORT_ARRAY_REVISION_1: u32 = 80;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PORT_ARRAY_REVISION_1: u64 = 80;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PORT_AUTHENTICATION_PARAMETERS_REVISION_1: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PORT_AUTHENTICATION_PARAMETERS_REVISION_1: u64 = 20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PORT_CHARACTERISTICS_REVISION_1: u32 = 60;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PORT_CHARACTERISTICS_REVISION_1: u64 = 60;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_PORT_STATE_REVISION_1: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_PORT_STATE_REVISION_1: u64 = 48;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_RECEIVE_HASH_PARAMETERS_REVISION_1: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_RECEIVE_HASH_PARAMETERS_REVISION_1: u64 = 20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_RECEIVE_SCALE_CAPABILITIES_REVISION_1: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_RECEIVE_SCALE_CAPABILITIES_REVISION_1: u64 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_RECEIVE_SCALE_PARAMETERS_REVISION_1: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_RECEIVE_SCALE_PARAMETERS_REVISION_1: u64 = 28;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_STATISTICS_INFO_REVISION_1: u32 = 152;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_STATISTICS_INFO_REVISION_1: u64 = 152;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_TCP_CONNECTION_OFFLOAD_REVISION_1: u32 = 20;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_TCP_CONNECTION_OFFLOAD_REVISION_1: u64 = 20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_TIMEOUT_DPC_REQUEST_CAPABILITIES_REVISION_1: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_TIMEOUT_DPC_REQUEST_CAPABILITIES_REVISION_1: u64 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_TIMESTAMP_CAPABILITIES_REVISION_1: u32 = 54;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_TIMESTAMP_CAPABILITIES_REVISION_1: u64 = 54;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_ENUM_ADAPTER_REVISION_1: u32 = 19;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_ENUM_ADAPTER_REVISION_1: u64 = 19;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_EVENT_HEADER_REVISION_1: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_EVENT_HEADER_REVISION_1: u64 = 40;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_METHOD_HEADER_REVISION_1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_METHOD_HEADER_REVISION_1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_OUTPUT_INFO_REVISION_1: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_OUTPUT_INFO_REVISION_1: u64 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_SET_HEADER_REVISION_1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_SET_HEADER_REVISION_1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NDIS_SIZEOF_WMI_TCP_CONNECTION_OFFLOAD_REVISION_1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NDIS_SIZEOF_WMI_TCP_CONNECTION_OFFLOAD_REVISION_1: u64 = 32;
@@ -1683,15 +1683,15 @@ impl Default for NETWORK_ADDRESS_IPX {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NETWORK_ADDRESS_LENGTH_IP: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NETWORK_ADDRESS_LENGTH_IP: u64 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NETWORK_ADDRESS_LENGTH_IP6: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NETWORK_ADDRESS_LENGTH_IP6: u64 = 28;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NETWORK_ADDRESS_LENGTH_IPX: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NETWORK_ADDRESS_LENGTH_IPX: u64 = 12;

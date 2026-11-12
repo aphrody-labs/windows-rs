@@ -846,7 +846,7 @@ pub const MSIDBOPEN_CREATE: super::LPCTSTR = 3 as _;
 pub const MSIDBOPEN_CREATEDIRECT: super::LPCTSTR = 4 as _;
 #[cfg(feature = "winnt")]
 pub const MSIDBOPEN_DIRECT: super::LPCTSTR = 2 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MSIDBOPEN_PATCHFILE: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MSIDBOPEN_PATCHFILE: u64 = 32;

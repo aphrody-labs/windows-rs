@@ -2115,11 +2115,11 @@ pub type MSV1_0_LOGON_SUBMIT_TYPE = i32;
 pub const MSV1_0_MAX_AVL_SIZE: i32 = 64000;
 pub const MSV1_0_MAX_NTLM3_LIFE: i32 = 129600;
 pub const MSV1_0_MNS_LOGON: i32 = 16777216;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MSV1_0_NTLM3_INPUT_LENGTH: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MSV1_0_NTLM3_INPUT_LENGTH: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MSV1_0_NTLM3_MIN_NT_RESPONSE_LENGTH: u32 = 44;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MSV1_0_NTLM3_MIN_NT_RESPONSE_LENGTH: u64 = 44;
@@ -2148,7 +2148,7 @@ pub const MSV1_0_NTLM3_RESPONSE_LENGTH: i32 = 16;
 pub const MSV1_0_OWF_PASSWORD_LENGTH: i32 = 16;
 pub const MSV1_0_PACKAGE_NAME: windows_core::PCSTR = windows_core::s!("MICROSOFT_AUTHENTICATION_PACKAGE_V1_0");
 pub const MSV1_0_PACKAGE_NAMEW: windows_core::PCWSTR = windows_core::w!("MICROSOFT_AUTHENTICATION_PACKAGE_V1_0");
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MSV1_0_PACKAGE_NAMEW_LENGTH: u32 = 74;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MSV1_0_PACKAGE_NAMEW_LENGTH: u64 = 74;

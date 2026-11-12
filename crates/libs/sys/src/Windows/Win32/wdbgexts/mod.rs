@@ -14,7 +14,7 @@ pub const CANNOT_ALLOCATE_MEMORY: i32 = 9;
 pub const CROSS_PLATFORM_MAXIMUM_PROCESSORS: i32 = 2048;
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CURRENT_KD_SECONDARY_VERSION: i32 = 2;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32", target_arch = "x86"))]
 pub const CURRENT_KD_SECONDARY_VERSION: i32 = 0;
 #[repr(C)]
 #[cfg(all(feature = "shared", feature = "winnt"))]
@@ -1160,7 +1160,7 @@ impl Default for WDBGEXTS_DISASSEMBLE_BUFFER {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const WDBGEXTS_MAXSIZE_T: super::SIZE_T = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

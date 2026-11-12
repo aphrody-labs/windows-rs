@@ -4961,7 +4961,7 @@ impl SHELLSTATEW {
 pub const SHELLSTATE_SIZE_IE4: super::LONG = 0x18_u32 as _;
 #[cfg(feature = "shared")]
 pub const SHELLSTATE_SIZE_NT4: super::LONG = 0x14_u32 as _;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SHELLSTATE_SIZE_WIN2K: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SHELLSTATE_SIZE_WIN2K: u64 = 32;

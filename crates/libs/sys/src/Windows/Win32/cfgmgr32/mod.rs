@@ -566,7 +566,7 @@ impl Default for BUSNUMBER_RESOURCE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const BusNumberType_Range: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const BusNumberType_Range: u64 = 16;
@@ -1145,7 +1145,7 @@ impl Default for DMA_RESOURCE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DType_Range: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DType_Range: u64 = 12;
@@ -1189,7 +1189,7 @@ impl Default for HWPROFILEINFO_W {
     }
 }
 pub const IOA_Local: i32 = 255;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IOType_Range: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IOType_Range: u64 = 40;
@@ -1231,11 +1231,11 @@ impl Default for IO_RESOURCE {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IRQType_Range: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IRQType_Range: u64 = 12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
 pub type IRQ_DES = IRQ_DES_32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -1269,7 +1269,7 @@ pub struct IRQ_RANGE {
     pub IRQR_Max: super::ULONG,
     pub IRQR_Flags: super::ULONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
 pub type IRQ_RESOURCE = IRQ_RESOURCE_32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -1407,11 +1407,11 @@ impl Default for MFCARD_DES {
 pub struct MFCARD_RESOURCE {
     pub MfCard_Header: MFCARD_DES,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MLType_Range: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MLType_Range: u64 = 40;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MType_Range: u32 = 36;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MType_Range: u64 = 36;
@@ -1505,7 +1505,7 @@ pub type PIO_DES = *mut IO_DES;
 pub type PIO_RANGE = *mut IO_RANGE;
 #[cfg(feature = "shared")]
 pub type PIO_RESOURCE = *mut IO_RESOURCE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
 pub type PIRQ_DES = *mut IRQ_DES_32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -1517,7 +1517,7 @@ pub type PIRQ_DES_32 = *mut IRQ_DES_32;
 pub type PIRQ_DES_64 = *mut IRQ_DES_64;
 #[cfg(feature = "shared")]
 pub type PIRQ_RANGE = *mut IRQ_RANGE;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "basetsd", feature = "shared"))]
 pub type PIRQ_RESOURCE = *mut IRQ_RESOURCE_32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -1557,7 +1557,7 @@ pub type PRIORITY = u32;
 pub const PRIORITY_BIT: i32 = 8;
 pub const PRIORITY_EQUAL_FIRST: i32 = 8;
 pub const PRIORITY_EQUAL_LAST: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PType_Range: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const PType_Range: u64 = 12;

@@ -10,7 +10,7 @@ pub unsafe fn SQLBrowseConnectW(hdbc: super::SQLHDBC, szconnstrin: *const super:
     windows_core::link!("odbc32.dll" "system" fn SQLBrowseConnectW(hdbc : super::SQLHDBC, szconnstrin : *const super::SQLWCHAR, cchconnstrin : super::SQLSMALLINT, szconnstrout : *mut super::SQLWCHAR, cchconnstroutmax : super::SQLSMALLINT, pcchconnstrout : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLBrowseConnectW(hdbc as _, szconnstrin, cchconnstrin, szconnstrout.unwrap_or(core::mem::zeroed()) as _, cchconnstroutmax, pcchconnstrout.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLColAttributeA(hstmt: super::SQLHSTMT, icol: super::SQLSMALLINT, ifield: super::SQLSMALLINT, pcharattr: Option<super::SQLPOINTER>, cbcharattrmax: super::SQLSMALLINT, pcbcharattr: Option<*mut super::SQLSMALLINT>, pnumattr: Option<super::SQLPOINTER>) -> super::SQLRETURN {
@@ -24,7 +24,7 @@ pub unsafe fn SQLColAttributeA(hstmt: super::SQLHSTMT, icol: super::SQLSMALLINT,
     windows_core::link!("odbc32.dll" "system" fn SQLColAttributeA(hstmt : super::SQLHSTMT, icol : super::SQLSMALLINT, ifield : super::SQLSMALLINT, pcharattr : super::SQLPOINTER, cbcharattrmax : super::SQLSMALLINT, pcbcharattr : *mut super::SQLSMALLINT, pnumattr : *mut super::SQLLEN) -> super::SQLRETURN);
     unsafe { SQLColAttributeA(hstmt as _, icol, ifield, pcharattr.unwrap_or(core::mem::zeroed()) as _, cbcharattrmax, pcbcharattr.unwrap_or(core::mem::zeroed()) as _, pnumattr.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLColAttributeW(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, ifield: super::SQLUSMALLINT, pcharattr: Option<super::SQLPOINTER>, cbdescmax: super::SQLSMALLINT, pcbcharattr: Option<*mut super::SQLSMALLINT>, pnumattr: Option<super::SQLPOINTER>) -> super::SQLRETURN {
@@ -38,7 +38,7 @@ pub unsafe fn SQLColAttributeW(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT
     windows_core::link!("odbc32.dll" "system" fn SQLColAttributeW(hstmt : super::SQLHSTMT, icol : super::SQLUSMALLINT, ifield : super::SQLUSMALLINT, pcharattr : super::SQLPOINTER, cbdescmax : super::SQLSMALLINT, pcbcharattr : *mut super::SQLSMALLINT, pnumattr : *mut super::SQLLEN) -> super::SQLRETURN);
     unsafe { SQLColAttributeW(hstmt as _, icol, ifield, pcharattr.unwrap_or(core::mem::zeroed()) as _, cbdescmax, pcbcharattr.unwrap_or(core::mem::zeroed()) as _, pnumattr.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLColAttributesA(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, fdesctype: super::SQLUSMALLINT, rgbdesc: Option<super::SQLPOINTER>, cbdescmax: super::SQLSMALLINT, pcbdesc: Option<*mut super::SQLSMALLINT>, pfdesc: Option<*mut super::SQLINTEGER>) -> super::SQLRETURN {
@@ -52,7 +52,7 @@ pub unsafe fn SQLColAttributesA(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLIN
     windows_core::link!("odbc32.dll" "system" fn SQLColAttributesA(hstmt : super::SQLHSTMT, icol : super::SQLUSMALLINT, fdesctype : super::SQLUSMALLINT, rgbdesc : super::SQLPOINTER, cbdescmax : super::SQLSMALLINT, pcbdesc : *mut super::SQLSMALLINT, pfdesc : *mut super::SQLLEN) -> super::SQLRETURN);
     unsafe { SQLColAttributesA(hstmt as _, icol, fdesctype, rgbdesc.unwrap_or(core::mem::zeroed()) as _, cbdescmax, pcbdesc.unwrap_or(core::mem::zeroed()) as _, pfdesc.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLColAttributesW(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, fdesctype: super::SQLUSMALLINT, rgbdesc: Option<super::SQLPOINTER>, cbdescmax: super::SQLSMALLINT, pcbdesc: Option<*mut super::SQLSMALLINT>, pfdesc: Option<*mut super::SQLINTEGER>) -> super::SQLRETURN {
@@ -114,7 +114,7 @@ pub unsafe fn SQLDataSourcesW(henv: super::SQLHENV, fdirection: super::SQLUSMALL
     windows_core::link!("odbc32.dll" "system" fn SQLDataSourcesW(henv : super::SQLHENV, fdirection : super::SQLUSMALLINT, szdsn : *mut super::SQLWCHAR, cchdsnmax : super::SQLSMALLINT, pcchdsn : *mut super::SQLSMALLINT, wszdescription : *mut super::SQLWCHAR, cchdescriptionmax : super::SQLSMALLINT, pcchdescription : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLDataSourcesW(henv as _, fdirection, szdsn.unwrap_or(core::mem::zeroed()) as _, cchdsnmax, pcchdsn.unwrap_or(core::mem::zeroed()) as _, wszdescription.unwrap_or(core::mem::zeroed()) as _, cchdescriptionmax, pcchdescription.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLDescribeColA(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, szcolname: Option<*mut super::SQLCHAR>, cbcolnamemax: super::SQLSMALLINT, pcbcolname: Option<*mut super::SQLSMALLINT>, pfsqltype: Option<*mut super::SQLSMALLINT>, pcbcoldef: Option<*mut super::SQLUINTEGER>, pibscale: Option<*mut super::SQLSMALLINT>, pfnullable: Option<*mut super::SQLSMALLINT>) -> super::SQLRETURN {
@@ -128,7 +128,7 @@ pub unsafe fn SQLDescribeColA(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT,
     windows_core::link!("odbc32.dll" "system" fn SQLDescribeColA(hstmt : super::SQLHSTMT, icol : super::SQLUSMALLINT, szcolname : *mut super::SQLCHAR, cbcolnamemax : super::SQLSMALLINT, pcbcolname : *mut super::SQLSMALLINT, pfsqltype : *mut super::SQLSMALLINT, pcbcoldef : *mut super::SQLULEN, pibscale : *mut super::SQLSMALLINT, pfnullable : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLDescribeColA(hstmt as _, icol, szcolname.unwrap_or(core::mem::zeroed()) as _, cbcolnamemax, pcbcolname.unwrap_or(core::mem::zeroed()) as _, pfsqltype.unwrap_or(core::mem::zeroed()) as _, pcbcoldef.unwrap_or(core::mem::zeroed()) as _, pibscale.unwrap_or(core::mem::zeroed()) as _, pfnullable.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLDescribeColW(hstmt: super::SQLHSTMT, icol: super::SQLUSMALLINT, szcolname: Option<*mut super::SQLWCHAR>, cchcolnamemax: super::SQLSMALLINT, pcchcolname: Option<*mut super::SQLSMALLINT>, pfsqltype: Option<*mut super::SQLSMALLINT>, pcbcoldef: Option<*mut super::SQLUINTEGER>, pibscale: Option<*mut super::SQLSMALLINT>, pfnullable: Option<*mut super::SQLSMALLINT>) -> super::SQLRETURN {
@@ -250,7 +250,7 @@ pub unsafe fn SQLGetDescFieldW(hdesc: super::SQLHDESC, irecord: super::SQLSMALLI
     windows_core::link!("odbc32.dll" "system" fn SQLGetDescFieldW(hdesc : super::SQLHDESC, irecord : super::SQLSMALLINT, ifield : super::SQLSMALLINT, rgbvalue : super::SQLPOINTER, cbbufferlength : super::SQLINTEGER, stringlength : *mut super::SQLINTEGER) -> super::SQLRETURN);
     unsafe { SQLGetDescFieldW(hdesc as _, irecord, ifield, rgbvalue.unwrap_or(core::mem::zeroed()) as _, cbbufferlength, stringlength.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLGetDescRecA(hdesc: super::SQLHDESC, irecord: super::SQLSMALLINT, szname: Option<*mut super::SQLCHAR>, cbnamemax: super::SQLSMALLINT, pcbname: Option<*mut super::SQLSMALLINT>, pftype: Option<*mut super::SQLSMALLINT>, pfsubtype: Option<*mut super::SQLSMALLINT>, plength: Option<*mut super::SQLINTEGER>, pprecision: Option<*mut super::SQLSMALLINT>, pscale: Option<*mut super::SQLSMALLINT>, pnullable: Option<*mut super::SQLSMALLINT>) -> super::SQLRETURN {
@@ -264,7 +264,7 @@ pub unsafe fn SQLGetDescRecA(hdesc: super::SQLHDESC, irecord: super::SQLSMALLINT
     windows_core::link!("odbc32.dll" "system" fn SQLGetDescRecA(hdesc : super::SQLHDESC, irecord : super::SQLSMALLINT, szname : *mut super::SQLCHAR, cbnamemax : super::SQLSMALLINT, pcbname : *mut super::SQLSMALLINT, pftype : *mut super::SQLSMALLINT, pfsubtype : *mut super::SQLSMALLINT, plength : *mut super::SQLLEN, pprecision : *mut super::SQLSMALLINT, pscale : *mut super::SQLSMALLINT, pnullable : *mut super::SQLSMALLINT) -> super::SQLRETURN);
     unsafe { SQLGetDescRecA(hdesc as _, irecord, szname.unwrap_or(core::mem::zeroed()) as _, cbnamemax, pcbname.unwrap_or(core::mem::zeroed()) as _, pftype.unwrap_or(core::mem::zeroed()) as _, pfsubtype.unwrap_or(core::mem::zeroed()) as _, plength.unwrap_or(core::mem::zeroed()) as _, pprecision.unwrap_or(core::mem::zeroed()) as _, pscale.unwrap_or(core::mem::zeroed()) as _, pnullable.unwrap_or(core::mem::zeroed()) as _) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLGetDescRecW(hdesc: super::SQLHDESC, irecord: super::SQLSMALLINT, szname: Option<*mut super::SQLWCHAR>, cchnamemax: super::SQLSMALLINT, pcchname: Option<*mut super::SQLSMALLINT>, pftype: Option<*mut super::SQLSMALLINT>, pfsubtype: Option<*mut super::SQLSMALLINT>, plength: Option<*mut super::SQLINTEGER>, pprecision: Option<*mut super::SQLSMALLINT>, pscale: Option<*mut super::SQLSMALLINT>, pnullable: Option<*mut super::SQLSMALLINT>) -> super::SQLRETURN {
@@ -410,7 +410,7 @@ pub unsafe fn SQLSetConnectAttrW(hdbc: super::SQLHDBC, fattribute: super::SQLINT
     windows_core::link!("odbc32.dll" "system" fn SQLSetConnectAttrW(hdbc : super::SQLHDBC, fattribute : super::SQLINTEGER, rgbvalue : super::SQLPOINTER, cbvalue : super::SQLINTEGER) -> super::SQLRETURN);
     unsafe { SQLSetConnectAttrW(hdbc as _, fattribute, rgbvalue.unwrap_or(core::mem::zeroed()) as _, cbvalue) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLSetConnectOptionA(hdbc: super::SQLHDBC, foption: super::SQLUSMALLINT, vparam: super::SQLUINTEGER) -> super::SQLRETURN {
@@ -424,7 +424,7 @@ pub unsafe fn SQLSetConnectOptionA(hdbc: super::SQLHDBC, foption: super::SQLUSMA
     windows_core::link!("odbc32.dll" "system" fn SQLSetConnectOptionA(hdbc : super::SQLHDBC, foption : super::SQLUSMALLINT, vparam : super::SQLULEN) -> super::SQLRETURN);
     unsafe { SQLSetConnectOptionA(hdbc as _, foption, vparam) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "sqltypes")]
 #[inline]
 pub unsafe fn SQLSetConnectOptionW(hdbc: super::SQLHDBC, foption: super::SQLUSMALLINT, vparam: super::SQLUINTEGER) -> super::SQLRETURN {

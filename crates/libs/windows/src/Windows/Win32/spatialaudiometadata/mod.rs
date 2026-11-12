@@ -746,7 +746,7 @@ impl ISpatialAudioObjectRenderStreamForMetadata_Vtbl {
 #[cfg(all(feature = "guiddef", feature = "shared", feature = "spatialaudioclient"))]
 impl windows_core::RuntimeName for ISpatialAudioObjectRenderStreamForMetadata {}
 pub const SPATIAL_AUDIO_POSITION: i32 = 200;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SPATIAL_AUDIO_POSITION_BYTE_COUNT: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SPATIAL_AUDIO_POSITION_BYTE_COUNT: u64 = 12;

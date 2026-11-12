@@ -17,7 +17,7 @@ pub struct PERF_COUNTER_BLOCK {
 pub const PERF_COUNTER_BULK_COUNT: i32 = 272696576;
 pub const PERF_COUNTER_COUNTER: i32 = 272696320;
 #[repr(C, packed(8))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct PERF_COUNTER_DEFINITION {
@@ -135,7 +135,7 @@ pub const PERF_NUMBER_DEC_1000: i32 = 131072;
 pub const PERF_NUMBER_HEX: i32 = 0;
 pub const PERF_OBJECT_TIMER: i32 = 2097152;
 #[repr(C, packed(8))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 #[derive(Clone, Copy)]
 pub struct PERF_OBJECT_TYPE {
@@ -154,7 +154,7 @@ pub struct PERF_OBJECT_TYPE {
     pub PerfTime: super::LARGE_INTEGER,
     pub PerfFreq: super::LARGE_INTEGER,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 impl Default for PERF_OBJECT_TYPE {
     fn default() -> Self {

@@ -1475,7 +1475,7 @@ pub unsafe fn GetClassLongA(hwnd: super::HWND, nindex: i32) -> super::DWORD {
     windows_core::link!("user32.dll" "system" fn GetClassLongA(hwnd : super::HWND, nindex : i32) -> super::DWORD);
     unsafe { GetClassLongA(hwnd, nindex) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn GetClassLongPtrA(hwnd: super::HWND, nindex: i32) -> super::DWORD {
@@ -1489,7 +1489,7 @@ pub unsafe fn GetClassLongPtrA(hwnd: super::HWND, nindex: i32) -> super::ULONG_P
     windows_core::link!("user32.dll" "system" fn GetClassLongPtrA(hwnd : super::HWND, nindex : i32) -> super::ULONG_PTR);
     unsafe { GetClassLongPtrA(hwnd, nindex) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn GetClassLongPtrW(hwnd: super::HWND, nindex: i32) -> super::DWORD {
@@ -2467,7 +2467,7 @@ pub unsafe fn GetWindowLongA(hwnd: super::HWND, nindex: i32) -> super::LONG {
     windows_core::link!("user32.dll" "system" fn GetWindowLongA(hwnd : super::HWND, nindex : i32) -> super::LONG);
     unsafe { GetWindowLongA(hwnd, nindex) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn GetWindowLongPtrA(hwnd: super::HWND, nindex: i32) -> super::LONG {
@@ -2481,7 +2481,7 @@ pub unsafe fn GetWindowLongPtrA(hwnd: super::HWND, nindex: i32) -> super::LONG_P
     windows_core::link!("user32.dll" "system" fn GetWindowLongPtrA(hwnd : super::HWND, nindex : i32) -> super::LONG_PTR);
     unsafe { GetWindowLongPtrA(hwnd, nindex) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn GetWindowLongPtrW(hwnd: super::HWND, nindex: i32) -> super::LONG {
@@ -3823,7 +3823,7 @@ pub unsafe fn SetClassLongA(hwnd: super::HWND, nindex: i32, dwnewlong: super::LO
     windows_core::link!("user32.dll" "system" fn SetClassLongA(hwnd : super::HWND, nindex : i32, dwnewlong : super::LONG) -> super::DWORD);
     unsafe { SetClassLongA(hwnd, nindex, dwnewlong) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn SetClassLongPtrA(hwnd: super::HWND, nindex: i32, dwnewlong: super::LONG) -> super::DWORD {
@@ -3837,7 +3837,7 @@ pub unsafe fn SetClassLongPtrA(hwnd: super::HWND, nindex: i32, dwnewlong: super:
     windows_core::link!("user32.dll" "system" fn SetClassLongPtrA(hwnd : super::HWND, nindex : i32, dwnewlong : super::LONG_PTR) -> super::ULONG_PTR);
     unsafe { SetClassLongPtrA(hwnd, nindex, dwnewlong) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn SetClassLongPtrW(hwnd: super::HWND, nindex: i32, dwnewlong: super::LONG) -> super::DWORD {
@@ -4216,7 +4216,7 @@ pub unsafe fn SetWindowLongA(hwnd: super::HWND, nindex: i32, dwnewlong: super::L
     windows_core::link!("user32.dll" "system" fn SetWindowLongA(hwnd : super::HWND, nindex : i32, dwnewlong : super::LONG) -> super::LONG);
     unsafe { SetWindowLongA(hwnd, nindex, dwnewlong) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn SetWindowLongPtrA(hwnd: super::HWND, nindex: i32, dwnewlong: super::LONG) -> super::LONG {
@@ -4230,7 +4230,7 @@ pub unsafe fn SetWindowLongPtrA(hwnd: super::HWND, nindex: i32, dwnewlong: super
     windows_core::link!("user32.dll" "system" fn SetWindowLongPtrA(hwnd : super::HWND, nindex : i32, dwnewlong : super::LONG_PTR) -> super::LONG_PTR);
     unsafe { SetWindowLongPtrA(hwnd, nindex, dwnewlong) }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "windef"))]
 #[inline]
 pub unsafe fn SetWindowLongPtrW(hwnd: super::HWND, nindex: i32, dwnewlong: super::LONG) -> super::LONG {
@@ -5181,7 +5181,7 @@ pub struct COMPAREITEMSTRUCT {
     pub itemData2: super::ULONG_PTR,
     pub dwLocaleId: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CONSOLE_APPLICATION_16BIT: i32 = 1;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CONSOLE_APPLICATION_16BIT: i32 = 0;
@@ -5573,20 +5573,20 @@ pub const DT_TOP: i32 = 0;
 pub const DT_VCENTER: i32 = 4;
 pub const DT_WORDBREAK: i32 = 16;
 pub const DT_WORD_ELLIPSIS: i32 = 262144;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DWLP_DLGPROC: u32 = 4;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DWLP_DLGPROC: u64 = 8;
 pub const DWLP_MSGRESULT: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DWLP_USER: u32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DWLP_USER: u64 = 16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DWL_DLGPROC: i32 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DWL_MSGRESULT: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DWL_USER: i32 = 8;
 pub const EC_LEFTMARGIN: i32 = 1;
 pub const EC_RIGHTMARGIN: i32 = 2;
@@ -5879,20 +5879,20 @@ pub const GCLP_MENUNAME: i32 = -8;
 pub const GCLP_WNDPROC: i32 = -24;
 pub const GCL_CBCLSEXTRA: i32 = -20;
 pub const GCL_CBWNDEXTRA: i32 = -18;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_HBRBACKGROUND: i32 = -10;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_HCURSOR: i32 = -12;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_HICON: i32 = -14;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_HICONSM: i32 = -34;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_HMODULE: i32 = -16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_MENUNAME: i32 = -8;
 pub const GCL_STYLE: i32 = -26;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GCL_WNDPROC: i32 = -24;
 pub const GCW_ATOM: i32 = -32;
 pub const GC_ALLGESTURES: i32 = 1;
@@ -5993,7 +5993,7 @@ pub struct GUITHREADINFO {
     pub hwndCaret: super::HWND,
     pub rcCaret: super::RECT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GUI_16BITTASK: i32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const GUI_16BITTASK: i32 = 0;
@@ -6009,15 +6009,15 @@ pub const GWLP_ID: i32 = -12;
 pub const GWLP_USERDATA: i32 = -21;
 pub const GWLP_WNDPROC: i32 = -4;
 pub const GWL_EXSTYLE: i32 = -20;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GWL_HINSTANCE: i32 = -6;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GWL_HWNDPARENT: i32 = -8;
 pub const GWL_ID: i32 = -12;
 pub const GWL_STYLE: i32 = -16;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GWL_USERDATA: i32 = -21;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const GWL_WNDPROC: i32 = -4;
 pub const GW_CHILD: i32 = 5;
 pub const GW_ENABLEDPOPUP: i32 = 6;

@@ -213,14 +213,14 @@ pub struct PROCESS_MEMORY_COUNTERS_EX2 {
 }
 pub const PSAPI_VERSION: i32 = 2;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union PSAPI_WORKING_SET_BLOCK {
     pub Flags: super::ULONG_PTR,
     pub Anonymous: PSAPI_WORKING_SET_BLOCK_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for PSAPI_WORKING_SET_BLOCK {
     fn default() -> Self {
@@ -228,7 +228,7 @@ impl Default for PSAPI_WORKING_SET_BLOCK {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct PSAPI_WORKING_SET_BLOCK_0 {
@@ -257,14 +257,14 @@ pub struct PSAPI_WORKING_SET_BLOCK_0 {
     pub _bitfield: u64,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union PSAPI_WORKING_SET_EX_BLOCK {
     pub Flags: super::ULONG_PTR,
     pub Anonymous: PSAPI_WORKING_SET_EX_BLOCK_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for PSAPI_WORKING_SET_EX_BLOCK {
     fn default() -> Self {
@@ -272,14 +272,14 @@ impl Default for PSAPI_WORKING_SET_EX_BLOCK {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union PSAPI_WORKING_SET_EX_BLOCK_0 {
     pub Anonymous: PSAPI_WORKING_SET_EX_BLOCK_0_0,
     pub Invalid: PSAPI_WORKING_SET_EX_BLOCK_0_1,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for PSAPI_WORKING_SET_EX_BLOCK_0 {
     fn default() -> Self {
@@ -287,14 +287,14 @@ impl Default for PSAPI_WORKING_SET_EX_BLOCK_0 {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct PSAPI_WORKING_SET_EX_BLOCK_0_0 {
     pub _bitfield: u32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Default)]
 pub struct PSAPI_WORKING_SET_EX_BLOCK_0_1 {

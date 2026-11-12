@@ -767,7 +767,7 @@ pub const IRTIR_TASK_RUNNING: i32 = 1;
 pub const IRTIR_TASK_SUSPENDED: i32 = 2;
 pub const ISIOI_ICONFILE: i32 = 1;
 pub const ISIOI_ICONINDEX: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const ITSAT_DEFAULT_LPARAM: super::DWORD_PTR = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

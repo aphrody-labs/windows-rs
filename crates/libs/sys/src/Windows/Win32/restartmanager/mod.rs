@@ -22,7 +22,7 @@ windows_link::link!("rstrtmgr.dll" "system" fn RmShutdown(dwsessionhandle : supe
 windows_link::link!("rstrtmgr.dll" "system" fn RmStartSession(psessionhandle : *mut super::DWORD, dwsessionflags : super::DWORD, strsessionkey : *mut super::WCHAR) -> super::DWORD);
 pub const CCH_RM_MAX_APP_NAME: i32 = 255;
 pub const CCH_RM_MAX_SVC_NAME: i32 = 63;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CCH_RM_SESSION_KEY: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CCH_RM_SESSION_KEY: u64 = 32;
@@ -86,7 +86,7 @@ impl Default for RM_PROCESS_INFO {
     }
 }
 pub type RM_REBOOT_REASON = i32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RM_SESSION_KEY_LEN: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RM_SESSION_KEY_LEN: u64 = 16;

@@ -771,7 +771,7 @@ impl Default for DNS_NXT_DATAW {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DNS_OFFSET_TO_QUESTION_NAME: u32 = 12;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DNS_OFFSET_TO_QUESTION_NAME: u64 = 12;
@@ -1291,7 +1291,7 @@ impl Default for DNS_RECORDW_1 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const DNS_RECORD_FIXED_SIZE: super::LONG = 0x18_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -2119,7 +2119,7 @@ impl Default for IP4_ARRAY {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub union IP6_ADDRESS {
@@ -2127,7 +2127,7 @@ pub union IP6_ADDRESS {
     pub IP6Word: [super::WORD; 8],
     pub IP6Byte: [super::BYTE; 16],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for IP6_ADDRESS {
     fn default() -> Self {
@@ -2368,7 +2368,7 @@ pub type PMDNS_QUERY_HANDLE = *mut MDNS_QUERY_HANDLE;
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type PMDNS_QUERY_REQUEST = *mut MDNS_QUERY_REQUEST;
 pub type PQWORD = *mut u64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 pub const SIZEOF_DNS_RECORD_HEADER: super::LONG = 0x18_u32 as _;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]

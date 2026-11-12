@@ -47,7 +47,7 @@ pub const NIM_SETVERSION: i32 = 4;
 pub const NIN_KEYSELECT: i32 = 1025;
 pub const NIN_SELECT: i32 = 1024;
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct NOTIFYICONDATAW {
     pub cbSize: DWORD,
@@ -66,20 +66,20 @@ pub struct NOTIFYICONDATAW {
     pub guidItem: windows_core::GUID,
     pub hBalloonIcon: HICON,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for NOTIFYICONDATAW {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 #[repr(C, packed(1))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub union NOTIFYICONDATAW_0 {
     pub uTimeout: UINT,
     pub uVersion: UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for NOTIFYICONDATAW_0 {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }

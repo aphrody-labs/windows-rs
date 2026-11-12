@@ -678,7 +678,7 @@ pub const IMPLINK_IP: i32 = 155;
 pub const IMPLINK_LOWEXPER: i32 = 156;
 pub const INCL_WINSOCK_API_PROTOTYPES: i32 = 1;
 pub const INCL_WINSOCK_API_TYPEDEFS: i32 = 0;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const INVALID_SOCKET: SOCKET = 4294967295;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const INVALID_SOCKET: SOCKET = 18446744073709551615u64 as usize;
@@ -1144,7 +1144,7 @@ pub struct WSACOMPLETION_0_3 {
 }
 pub type WSACOMPLETIONTYPE = i32;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WSADATA {
@@ -1156,7 +1156,7 @@ pub struct WSADATA {
     pub iMaxUdpDg: u16,
     pub lpVendorInfo: *mut i8,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for WSADATA {
     fn default() -> Self {
@@ -1547,7 +1547,7 @@ pub struct protoent {
     pub p_proto: i16,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct servent {
     pub s_name: *mut i8,

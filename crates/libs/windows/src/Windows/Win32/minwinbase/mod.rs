@@ -180,7 +180,7 @@ pub struct LOAD_DLL_DEBUG_INFO {
 }
 pub const LOCKFILE_EXCLUSIVE_LOCK: i32 = 2;
 pub const LOCKFILE_FAIL_IMMEDIATELY: i32 = 1;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type LPCONTEXT = *mut super::CONTEXT;
 #[cfg(target_arch = "aarch64")]

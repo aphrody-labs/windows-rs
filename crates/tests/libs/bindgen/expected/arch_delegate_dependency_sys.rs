@@ -1,4 +1,4 @@
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type ArchCallback = Option<unsafe extern "system" fn(code: i16) -> i16>;
 #[cfg(any(
     target_arch = "aarch64",

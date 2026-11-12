@@ -5,7 +5,7 @@ pub mod Windows {
             pub const ARM64: u32 = 4;
             #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
             pub const X64: u32 = 2;
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             pub const X86: u32 = 1;
         }
         pub mod complete {
@@ -14,7 +14,7 @@ pub mod Windows {
                 windows_core::link!("user32.dll" "system" fn GetWindowLongPtrW() -> CompleteValue);
                 unsafe { GetWindowLongPtrW() }
             }
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             pub type CompleteValue = i32;
             #[cfg(any(
                 target_arch = "aarch64",
@@ -28,7 +28,7 @@ pub mod Windows {
             pub const ARM: u32 = 3;
         }
         pub mod legacy {
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn GetWindowLongA() -> i32 {
                 windows_core::link!("user32.dll" "system" fn GetWindowLongA() -> i32);
@@ -55,14 +55,14 @@ pub mod Windows {
         }
         pub mod narrow {
             #[repr(C)]
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
             pub struct Narrow {
                 pub value: u32,
             }
         }
         pub mod native {
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn GetWindowLongPtrA() -> i32 {
                 windows_core::link!("user32.dll" "system" "GetWindowLongA" fn GetWindowLongPtrA() -> i32);
@@ -78,7 +78,7 @@ pub mod Windows {
                 windows_core::link!("user32.dll" "system" fn GetWindowLongPtrA() -> isize);
                 unsafe { GetWindowLongPtrA() }
             }
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn GetWindowLongPtrW() -> i32 {
                 windows_core::link!("user32.dll" "system" "GetWindowLongW" fn GetWindowLongPtrW() -> i32);
@@ -94,7 +94,7 @@ pub mod Windows {
                 windows_core::link!("user32.dll" "system" fn GetWindowLongPtrW() -> isize);
                 unsafe { GetWindowLongPtrW() }
             }
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn SetWindowLongPtrA() -> i32 {
                 windows_core::link!("user32.dll" "system" "SetWindowLongA" fn SetWindowLongPtrA() -> i32);
@@ -110,7 +110,7 @@ pub mod Windows {
                 windows_core::link!("user32.dll" "system" fn SetWindowLongPtrA() -> isize);
                 unsafe { SetWindowLongPtrA() }
             }
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn SetWindowLongPtrW() -> i32 {
                 windows_core::link!("user32.dll" "system" "SetWindowLongW" fn SetWindowLongPtrW() -> i32);
@@ -142,7 +142,7 @@ pub mod Windows {
                 windows_core::link!("user32.dll" "system" fn SetWindowLongPtrW() -> isize);
                 unsafe { SetWindowLongPtrW() }
             }
-            #[cfg(target_arch = "x86")]
+            #[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
             #[inline]
             pub unsafe fn SetWindowLongW() -> i32 {
                 windows_core::link!("user32.dll" "system" fn SetWindowLongW() -> i32);

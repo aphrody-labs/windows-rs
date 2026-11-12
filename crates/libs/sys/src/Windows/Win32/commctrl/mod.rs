@@ -26,7 +26,7 @@ windows_link::link!("comctl32.dll" "system" fn FlatSB_GetScrollInfo(param0 : sup
 windows_link::link!("comctl32.dll" "system" fn FlatSB_GetScrollPos(param0 : super::HWND, code : i32) -> i32);
 #[cfg(all(feature = "minwindef", feature = "windef"))]
 windows_link::link!("comctl32.dll" "system" fn FlatSB_GetScrollProp(param0 : super::HWND, propindex : i32, param2 : super::LPINT) -> windows_sys::core::BOOL);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "minwindef", feature = "windef"))]
 windows_link::link!("comctl32.dll" "system" "FlatSB_GetScrollProp" fn FlatSB_GetScrollPropPtr(param0 : super::HWND, propindex : i32, param2 : super::LPINT) -> windows_sys::core::BOOL);
 #[cfg(all(feature = "minwindef", feature = "windef"))]
@@ -567,7 +567,7 @@ pub struct HDITEMA {
     pub pvFilter: *mut core::ffi::c_void,
     pub state: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const HDITEMA_V1_SIZE: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const HDITEMA_V1_SIZE: u64 = 40;
@@ -588,11 +588,11 @@ pub struct HDITEMW {
     pub pvFilter: *mut core::ffi::c_void,
     pub state: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const HDITEMW_V1_SIZE: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const HDITEMW_V1_SIZE: u64 = 40;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const HDITEM_V1_SIZE: u32 = 28;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const HDITEM_V1_SIZE: u64 = 40;
@@ -861,7 +861,7 @@ pub struct IMAGELISTDRAWPARAMS {
     pub Frame: super::DWORD,
     pub crEffect: super::COLORREF,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const IMAGELISTDRAWPARAMS_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const IMAGELISTDRAWPARAMS_V3_SIZE: u64 = 72;
@@ -1300,7 +1300,7 @@ pub struct LVCOLUMNA {
     pub cxDefault: i32,
     pub cxIdeal: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVCOLUMNA_V1_SIZE: u32 = 24;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVCOLUMNA_V1_SIZE: u64 = 32;
@@ -1320,11 +1320,11 @@ pub struct LVCOLUMNW {
     pub cxDefault: i32,
     pub cxIdeal: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVCOLUMNW_V1_SIZE: u32 = 24;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVCOLUMNW_V1_SIZE: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVCOLUMN_V1_SIZE: u32 = 24;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVCOLUMN_V1_SIZE: u64 = 32;
@@ -1454,7 +1454,7 @@ pub struct LVGROUPMETRICS {
     pub crHeader: super::COLORREF,
     pub crFooter: super::COLORREF,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVGROUP_V5_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVGROUP_V5_SIZE: u64 = 52;
@@ -1477,7 +1477,7 @@ pub struct LVHITTESTINFO {
     pub iSubItem: i32,
     pub iGroup: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVHITTESTINFO_V1_SIZE: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVHITTESTINFO_V1_SIZE: u64 = 16;
@@ -1559,11 +1559,11 @@ pub struct LVITEMA {
     pub piColFmt: *mut i32,
     pub iGroup: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEMA_V1_SIZE: u32 = 36;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEMA_V1_SIZE: u64 = 48;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEMA_V5_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEMA_V5_SIZE: u64 = 72;
@@ -1593,19 +1593,19 @@ pub struct LVITEMW {
     pub piColFmt: *mut i32,
     pub iGroup: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEMW_V1_SIZE: u32 = 36;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEMW_V1_SIZE: u64 = 48;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEMW_V5_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEMW_V5_SIZE: u64 = 72;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEM_V1_SIZE: u32 = 36;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEM_V1_SIZE: u64 = 48;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVITEM_V5_SIZE: u32 = 52;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVITEM_V5_SIZE: u64 = 72;
@@ -1908,7 +1908,7 @@ pub struct LVTILEINFO {
     pub puColumns: super::PUINT,
     pub piColFmt: *mut i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const LVTILEINFO_V5_SIZE: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const LVTILEINFO_V5_SIZE: u64 = 24;
@@ -1944,7 +1944,7 @@ pub const LWS_RIGHT: i32 = 32;
 pub const LWS_TRANSPARENT: i32 = 1;
 pub const LWS_USECUSTOMTEXT: i32 = 16;
 pub const LWS_USEVISUALSTYLE: i32 = 8;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const L_MAX_URL_LENGTH: u32 = 2084;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const L_MAX_URL_LENGTH: u64 = 2084;
@@ -1991,7 +1991,7 @@ pub struct MCHITTESTINFO {
     pub iRow: i32,
     pub iCol: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MCHITTESTINFO_V1_SIZE: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MCHITTESTINFO_V1_SIZE: u64 = 32;
@@ -2446,7 +2446,7 @@ pub struct NMLVCUSTOMDRAW {
     pub rcText: super::RECT,
     pub uAlign: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NMLVCUSTOMDRAW_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NMLVCUSTOMDRAW_V3_SIZE: u64 = 88;
@@ -2869,7 +2869,7 @@ impl Default for NMTTDISPINFOA {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NMTTDISPINFOA_V1_SIZE: u32 = 104;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NMTTDISPINFOA_V1_SIZE: u64 = 124;
@@ -2890,11 +2890,11 @@ impl Default for NMTTDISPINFOW {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NMTTDISPINFOW_V1_SIZE: u32 = 184;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NMTTDISPINFOW_V1_SIZE: u64 = 204;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NMTTDISPINFO_V1_SIZE: u32 = 104;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NMTTDISPINFO_V1_SIZE: u64 = 124;
@@ -2919,7 +2919,7 @@ pub struct NMTVCUSTOMDRAW {
     pub clrTextBk: super::COLORREF,
     pub iLevel: i32,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const NMTVCUSTOMDRAW_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const NMTVCUSTOMDRAW_V3_SIZE: u64 = 88;
@@ -3327,11 +3327,11 @@ pub struct REBARBANDINFOA {
     pub rcChevronLocation: super::RECT,
     pub uChevronState: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFOA_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFOA_V3_SIZE: u64 = 76;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFOA_V6_SIZE: u32 = 80;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFOA_V6_SIZE: u64 = 108;
@@ -3362,19 +3362,19 @@ pub struct REBARBANDINFOW {
     pub rcChevronLocation: super::RECT,
     pub uChevronState: super::UINT,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFOW_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFOW_V3_SIZE: u64 = 76;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFOW_V6_SIZE: u32 = 80;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFOW_V6_SIZE: u64 = 108;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFO_V3_SIZE: u32 = 56;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFO_V3_SIZE: u64 = 76;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const REBARBANDINFO_V6_SIZE: u32 = 80;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const REBARBANDINFO_V6_SIZE: u64 = 108;
@@ -3530,7 +3530,7 @@ pub struct TBADDBITMAP {
 }
 pub const TBBF_LARGE: i32 = 1;
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 #[derive(Clone, Copy)]
 pub struct TBBUTTON {
@@ -3542,7 +3542,7 @@ pub struct TBBUTTON {
     pub dwData: super::DWORD_PTR,
     pub iString: super::INT_PTR,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "shared")]
 impl Default for TBBUTTON {
     fn default() -> Self {
@@ -4251,15 +4251,15 @@ pub struct TTTOOLINFOA {
     pub lParam: super::LPARAM,
     pub lpReserved: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOA_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOA_V1_SIZE: u64 = 56;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOA_V2_SIZE: u32 = 44;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOA_V2_SIZE: u64 = 64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOA_V3_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOA_V3_SIZE: u64 = 72;
@@ -4277,19 +4277,19 @@ pub struct TTTOOLINFOW {
     pub lParam: super::LPARAM,
     pub lpReserved: *mut core::ffi::c_void,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOW_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOW_V1_SIZE: u64 = 56;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOW_V2_SIZE: u32 = 44;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOW_V2_SIZE: u64 = 64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFOW_V3_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFOW_V3_SIZE: u64 = 72;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TTTOOLINFO_V1_SIZE: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TTTOOLINFO_V1_SIZE: u64 = 56;
@@ -4381,7 +4381,7 @@ impl Default for TVINSERTSTRUCTA_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TVINSERTSTRUCTA_V1_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TVINSERTSTRUCTA_V1_SIZE: u64 = 72;
@@ -4412,11 +4412,11 @@ impl Default for TVINSERTSTRUCTW_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TVINSERTSTRUCTW_V1_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TVINSERTSTRUCTW_V1_SIZE: u64 = 72;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const TVINSERTSTRUCT_V1_SIZE: u32 = 48;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const TVINSERTSTRUCT_V1_SIZE: u64 = 72;

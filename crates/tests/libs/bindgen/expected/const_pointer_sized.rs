@@ -6,7 +6,7 @@ pub struct ITEM {
     pub value: i32,
 }
 pub const MUT_PTR: *mut ITEM = core::ptr::without_provenance_mut::<ITEM>(1usize);
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const PTR_MAX: usize = 4294967295;
 #[cfg(any(
     target_arch = "aarch64",
@@ -17,7 +17,7 @@ pub const PTR_MAX: usize = 18446744073709551615u64 as usize;
 pub const PTR_SENTINEL: usize = 18446744073709551615u64 as usize;
 pub const SIGNED_FROM_U32: isize = 4294967295u32 as isize;
 pub const SIGNED_FROM_U64: isize = 18446744073709551615u64 as isize;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SIGNED_MAX: isize = 2147483647;
 #[cfg(any(
     target_arch = "aarch64",

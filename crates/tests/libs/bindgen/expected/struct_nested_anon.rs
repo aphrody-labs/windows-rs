@@ -1,11 +1,11 @@
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ArchNest {
     pub Anonymous: ArchNest_0,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ArchNest_0 {
     pub value: u32,

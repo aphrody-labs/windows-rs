@@ -5,13 +5,13 @@ pub struct HSTRING_BUFFER__ {
     pub unused: i32,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy)]
 pub struct HSTRING_HEADER {
     pub Reserved: HSTRING_HEADER_0,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 impl Default for HSTRING_HEADER {
     fn default() -> Self {
@@ -19,14 +19,14 @@ impl Default for HSTRING_HEADER {
     }
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 #[derive(Clone, Copy)]
 pub union HSTRING_HEADER_0 {
     pub Reserved1: super::PVOID,
     pub Reserved2: [i8; 20],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(feature = "winnt")]
 impl Default for HSTRING_HEADER_0 {
     fn default() -> Self {

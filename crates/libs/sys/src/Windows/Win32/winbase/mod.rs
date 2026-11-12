@@ -2076,7 +2076,7 @@ pub type LPJIT_DEBUG_INFO = *mut JIT_DEBUG_INFO;
 pub type LPJIT_DEBUG_INFO32 = *mut JIT_DEBUG_INFO;
 #[cfg(feature = "shared")]
 pub type LPJIT_DEBUG_INFO64 = *mut JIT_DEBUG_INFO;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[cfg(all(feature = "shared", feature = "winnt"))]
 pub type LPLDT_ENTRY = *mut super::LDT_ENTRY;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -2727,7 +2727,7 @@ pub const SCS_DOS_BINARY: i32 = 1;
 pub const SCS_OS216_BINARY: i32 = 5;
 pub const SCS_PIF_BINARY: i32 = 3;
 pub const SCS_POSIX_BINARY: i32 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const SCS_THIS_PLATFORM_BINARY: i32 = 0;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const SCS_THIS_PLATFORM_BINARY: i32 = 6;

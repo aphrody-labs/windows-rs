@@ -17,7 +17,7 @@ pub struct ASYNC_DUPLICATE_EXTENTS_STATUS {
     pub ByteCount: super::DWORDLONG,
     pub BytesDuplicated: super::DWORDLONG,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const ASYNC_DUPLICATE_EXTENTS_STATUS_V1: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const ASYNC_DUPLICATE_EXTENTS_STATUS_V1: u64 = 40;
@@ -473,7 +473,7 @@ impl Default for CSV_NAMESPACE_INFO {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const CSV_NAMESPACE_INFO_V1: u32 = 24;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const CSV_NAMESPACE_INFO_V1: u64 = 24;
@@ -818,11 +818,11 @@ pub const DEVICE_DATA_SET_LBP_STATE_PARAMETERS_VERSION_V1: i32 = 1;
 pub type DEVICE_DATA_SET_LB_PROVISIONING_STATE = _DEVICE_DATA_SET_LB_PROVISIONING_STATE;
 #[cfg(feature = "shared")]
 pub type DEVICE_DATA_SET_LB_PROVISIONING_STATE_V2 = _DEVICE_DATA_SET_LB_PROVISIONING_STATE_V2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DEVICE_DATA_SET_LB_PROVISIONING_STATE_VERSION_V1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DEVICE_DATA_SET_LB_PROVISIONING_STATE_VERSION_V1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DEVICE_DATA_SET_LB_PROVISIONING_STATE_VERSION_V2: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DEVICE_DATA_SET_LB_PROVISIONING_STATE_VERSION_V2: u64 = 40;
@@ -843,11 +843,11 @@ pub type DEVICE_DSM_ACTION = u32;
 pub type DEVICE_DSM_ALLOCATION_OUTPUT = _DEVICE_DATA_SET_LB_PROVISIONING_STATE;
 #[cfg(feature = "shared")]
 pub type DEVICE_DSM_ALLOCATION_OUTPUT2 = _DEVICE_DATA_SET_LB_PROVISIONING_STATE_V2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DEVICE_DSM_ALLOCATION_OUTPUT_V1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DEVICE_DSM_ALLOCATION_OUTPUT_V1: u64 = 32;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DEVICE_DSM_ALLOCATION_OUTPUT_V2: u32 = 40;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DEVICE_DSM_ALLOCATION_OUTPUT_V2: u64 = 40;
@@ -1146,7 +1146,7 @@ impl Default for DEVICE_LB_PROVISIONING_DESCRIPTOR {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DEVICE_LB_PROVISIONING_DESCRIPTOR_V1_SIZE: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DEVICE_LB_PROVISIONING_DESCRIPTOR_V1_SIZE: u64 = 32;
@@ -1573,7 +1573,7 @@ impl Default for DISK_HISTOGRAM {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const DISK_HISTOGRAM_SIZE: u32 = 72;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const DISK_HISTOGRAM_SIZE: u64 = 72;
@@ -2569,7 +2569,7 @@ impl Default for FILE_REGION_OUTPUT {
 pub const FILE_REGION_USAGE_HUGE_PAGE_ALIGNMENT: i32 = 16;
 pub const FILE_REGION_USAGE_LARGE_PAGE_ALIGNMENT: i32 = 8;
 pub const FILE_REGION_USAGE_OTHER_PAGE_ALIGNMENT: i32 = 4;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FILE_REGION_USAGE_QUERY_ALIGNMENT: i32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FILE_REGION_USAGE_QUERY_ALIGNMENT: i32 = 24;
@@ -2951,7 +2951,7 @@ impl Default for FSCTL_QUERY_REGION_INFO_INPUT {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FSCTL_QUERY_REGION_INFO_INPUT_VERSION: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FSCTL_QUERY_REGION_INFO_INPUT_VERSION: u64 = 32;
@@ -2974,7 +2974,7 @@ impl Default for FSCTL_QUERY_REGION_INFO_OUTPUT {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FSCTL_QUERY_REGION_INFO_OUTPUT_VERSION: u32 = 64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FSCTL_QUERY_REGION_INFO_OUTPUT_VERSION: u64 = 64;
@@ -2999,7 +2999,7 @@ impl Default for FSCTL_QUERY_STORAGE_CLASSES_OUTPUT {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FSCTL_QUERY_STORAGE_CLASSES_OUTPUT_VERSION: u32 = 1088;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FSCTL_QUERY_STORAGE_CLASSES_OUTPUT_VERSION: u64 = 1088;
@@ -3209,27 +3209,27 @@ impl Default for FS_BPIO_OUTPUT_0 {
 }
 #[cfg(feature = "shared")]
 pub const FS_BPIO_OUTPUT_DISABLE_SIZE: super::size_t = 24;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FS_BPIO_OUTPUT_ENABLE_SIZE: u32 = 352;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FS_BPIO_OUTPUT_ENABLE_SIZE: u64 = 352;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FS_BPIO_OUTPUT_GET_INFO_SIZE: u32 = 96;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FS_BPIO_OUTPUT_GET_INFO_SIZE: u64 = 96;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FS_BPIO_OUTPUT_QUERY_SIZE: u32 = 352;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FS_BPIO_OUTPUT_QUERY_SIZE: u64 = 352;
 #[cfg(feature = "shared")]
 pub const FS_BPIO_OUTPUT_STREAM_PAUSE_SIZE: super::size_t = 24;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FS_BPIO_OUTPUT_STREAM_RESUME_SIZE: u32 = 352;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FS_BPIO_OUTPUT_STREAM_RESUME_SIZE: u64 = 352;
 #[cfg(feature = "shared")]
 pub const FS_BPIO_OUTPUT_VOLUME_STACK_PAUSE_SIZE: super::size_t = 24;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const FS_BPIO_OUTPUT_VOLUME_STACK_RESUME_SIZE: u32 = 352;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const FS_BPIO_OUTPUT_VOLUME_STACK_RESUME_SIZE: u64 = 352;
@@ -3429,7 +3429,7 @@ pub struct HISTOGRAM_BUCKET {
     pub Reads: super::DWORD,
     pub Writes: super::DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const HISTOGRAM_BUCKET_SIZE: u32 = 8;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const HISTOGRAM_BUCKET_SIZE: u64 = 8;
@@ -6984,11 +6984,11 @@ impl Default for STORAGE_ADAPTER_SERIAL_NUMBER {
     }
 }
 pub const STORAGE_ADAPTER_SERIAL_NUMBER_V1_MAX_LENGTH: i32 = 128;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const STORAGE_ADAPTER_SERIAL_NUMBER_V1_SIZE: u32 = 264;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const STORAGE_ADAPTER_SERIAL_NUMBER_V1_SIZE: u64 = 264;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const STORAGE_ADAPTER_SERIAL_NUMBER_V1_VERSION: u32 = 264;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const STORAGE_ADAPTER_SERIAL_NUMBER_V1_VERSION: u64 = 264;
@@ -7105,7 +7105,7 @@ impl Default for STORAGE_COUNTERS {
         unsafe { core::mem::zeroed() }
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const STORAGE_COUNTERS_VERSION_V1: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const STORAGE_COUNTERS_VERSION_V1: u64 = 32;
@@ -8093,7 +8093,7 @@ impl STORAGE_MINIPORT_DESCRIPTOR_0_0 {
         self._bitfield = (self._bitfield & !(63 << 2)) | ((value & 63) << 2);
     }
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const STORAGE_MINIPORT_DESCRIPTOR_V1_SIZE: u32 = 16;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const STORAGE_MINIPORT_DESCRIPTOR_V1_SIZE: u64 = 16;

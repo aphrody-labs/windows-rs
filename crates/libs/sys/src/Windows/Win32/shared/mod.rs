@@ -452,13 +452,13 @@ pub type PBUS_HANDLER = *mut super::_BUS_HANDLER;
 pub type PBYTE = *mut u8;
 #[cfg(feature = "wdm")]
 pub type PCALLBACK_OBJECT = *mut super::_CALLBACK_OBJECT;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "mce", feature = "winnt"))]
 pub type PCMC_EXCEPTION = *mut super::MCA_EXCEPTION;
 #[cfg(target_arch = "aarch64")]
 #[cfg(feature = "winnt")]
 pub type PCMC_EXCEPTION = super::PVOID;
-#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "wasm32", target_arch = "x86", target_arch = "x86_64"))]
 #[cfg(all(feature = "mce", feature = "winnt"))]
 pub type PCPE_EXCEPTION = *mut super::MCA_EXCEPTION;
 #[cfg(target_arch = "aarch64")]
@@ -500,7 +500,7 @@ pub type PROPERTYID = i32;
 pub type PS_AVAILABLE_CPUS_CHANGE_CALLBACK = Option<unsafe extern "system" fn(parameter: super::PVOID)>;
 #[cfg(feature = "winnt")]
 pub type PS_AVAILABLE_CPUS_CHANGE_REGISTRATION = super::PVOID;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub type PULONG_PTR = *mut u32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub type PULONG_PTR = *mut u64;
@@ -509,15 +509,15 @@ pub type PWAVEFORMATEXTENSIBLE = *mut WAVEFORMATEXTENSIBLE;
 pub type QWORD = u64;
 pub type REFERENCE_TIME = i64;
 pub type REFTIME = f64;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RESULT_NEGATIVE: i32 = 32768;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RESULT_NEGATIVE: i32 = 1;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RESULT_POSITIVE: i32 = 0;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RESULT_POSITIVE: i32 = 2;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const RESULT_ZERO: i32 = 16384;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const RESULT_ZERO: i32 = 0;

@@ -26,7 +26,7 @@ pub const LM20_UNCLEN: i32 = 17;
 pub const LM20_UNLEN: i32 = 20;
 pub const LM_DNS_MAX_NAME_LENGTH: i32 = 255;
 pub const MAXCOMMENTSZ: i32 = 256;
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 pub const MAXDEVENTRIES: u32 = 32;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm64ec", target_arch = "x86_64"))]
 pub const MAXDEVENTRIES: u64 = 32;

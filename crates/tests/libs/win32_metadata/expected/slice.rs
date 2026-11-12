@@ -103,7 +103,7 @@ pub type BOOL = i32;
 pub type BYTE = u8;
 pub type CHAR = i8;
 #[repr(C, packed(4))]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct CONTEXT {
     pub ContextFlags: DWORD,
@@ -132,7 +132,7 @@ pub struct CONTEXT {
     pub SegSs: DWORD,
     pub ExtendedRegisters: [BYTE; 512],
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for CONTEXT {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
@@ -256,7 +256,7 @@ pub struct DispatcherQueueOptions {
     pub apartmentType: DISPATCHERQUEUE_THREAD_APARTMENTTYPE,
 }
 #[repr(C)]
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 #[derive(Clone, Copy)]
 pub struct FLOATING_SAVE_AREA {
     pub ControlWord: DWORD,
@@ -269,7 +269,7 @@ pub struct FLOATING_SAVE_AREA {
     pub RegisterArea: [BYTE; 80],
     pub Spare0: DWORD,
 }
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "wasm32", target_arch = "x86"))]
 impl Default for FLOATING_SAVE_AREA {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
