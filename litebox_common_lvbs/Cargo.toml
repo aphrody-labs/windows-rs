@@ -1,0 +1,20 @@
+[package]
+name = "litebox_common_lvbs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/microsoft/litebox"
+description = "Shared VSM/HEKI wire types and constants for the LiteBox LVBS platform, service, and runner"
+
+[dependencies]
+bitflags = "2.9.0"
+litebox = { path = "../litebox/", version = "0.1.0" }
+num_enum = { version = "0.7.3", default-features = false }
+thiserror = { version = "2.0.6", default-features = false }
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+x86_64 = { version = "0.15.2", default-features = false, features = ["instructions"] }
+
+[lints]
+workspace = true
