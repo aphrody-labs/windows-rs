@@ -1,0 +1,148 @@
+extend = "./crates/wdk-build/rust-driver-makefile.toml"
+
+[config]
+additional_profiles = ["all-default-tasks"]
+min_version = "0.37.16"
+
+[env]
+CARGO_MAKE_CARGO_BUILD_TEST_FLAGS = "${CARGO_MAKE_CARGO_ALL_FEATURES}"
+CARGO_MAKE_CLIPPY_ARGS = "--all-targets --all-features"
+CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN = "stable"
+CARGO_MAKE_SKIP_SLOW_SECONDARY_FLOWS = false
+RUSTDOCFLAGS = "-D warnings"
+RUSTFLAGS = "-D warnings"
+
+[tasks.wdk-pre-commit-flow]
+category = "Development"
+dependencies = [
+  "fmt-toml",
+  "format-flow",
+  "format-toml-conditioned-flow",
+  "build",
+  "package-driver-workspace-flow",
+  "test-flow",
+  "clippy-flow",
+  "audit-flow",
+  "unused-dependencies-flow",
+  "docs",
+  "nightly-test-flow",
+  "nightly-clippy-flow",
+  "nightly-docs",
+  "beta-test-flow",
+  "beta-clippy-flow",
+  "beta-docs",
+]
+description = "Run pre-commit tasks and checks"
+workspace = false
+
+[tasks.format]
+toolchain = "nightly"
+
+[tasks.package-driver-workspace-flow]
+# by forking, a new cargo make invocation starts and by default detects it is a workspace and runs the package-driver task for each member crate
+run_task = { fork = true, name = "package-driver-flow" }
+
+[tasks.pre-test]
+# macrotest and trybuild tests will fail when switching between nightly and stable toolchains due to trybuild/macrotest caching artifacts built with the other toolchain. Deleting the tests directory is enough to purge all test artifacts created by trybuild/macrotest.
+script = '''
+#!@duckscript
+success = rm -r ${CARGO_MAKE_CRATE_CUSTOM_TRIPLE_TARGET_DIRECTORY}/tests
+assert ${success} "Failed to delete tests directory"
+'''
+
+[tasks.test]
+install_crate = { binary = "cargo", crate_name = "cargo-expand", test_arg = [
+  "expand",
+  "--version",
+], version = "1.0.85" }
+
+[tasks.audit]
+args = ["audit", "--deny", "warnings"]
+
+[tasks.unused-dependencies]
+args = ["machete", "--skip-target-dir"]
+condition = { env_true = ["CARGO_MAKE_CRATE_HAS_DEPENDENCIES"] }
+workspace = false
+
+[tasks.nightly-test-flow]
+dependencies = ["pre-nightly-test", "nightly-test", "post-nightly-test"]
+extend = "test-flow"
+
+[tasks.pre-nightly-test]
+alias = "pre-test"
+
+[tasks.nightly-test]
+extend = "test"
+toolchain = "nightly"
+
+[tasks.post-nightly-test]
+extend = "post-test"
+
+[tasks.nightly-clippy-flow]
+dependencies = [
+  "pre-nightly-clippy",
+  "nightly-clippy-router",
+  "post-nightly-clippy",
+]
+extend = "clippy-flow"
+
+[tasks.pre-nightly-clippy]
+extend = "pre-clippy"
+# Proc-macro crates fail to trigger recompilation when switching toolchains due to bug in rustc resulting in "found invalid metadata files for crate" errors.
+run_task = "clean"
+
+[tasks.nightly-clippy-router]
+env = { CARGO_MAKE_CLIPPY_ARGS = "--features nightly ${CARGO_MAKE_CLIPPY_ARGS}", CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN = "nightly" }
+extend = "clippy-router"
+
+[tasks.post-nightly-clippy]
+env = { CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}" }
+extend = "post-clippy"
+
+[tasks.nightly-docs]
+args = ["doc", "--no-deps", "--features", "nightly"]
+extend = "docs"
+toolchain = "nightly"
+
+[tasks.beta-test-flow]
+dependencies = ["pre-beta-test", "beta-test", "post-beta-test"]
+extend = "test-flow"
+
+[tasks.pre-beta-test]
+alias = "pre-test"
+
+[tasks.beta-test]
+extend = "test"
+toolchain = "beta"
+
+[tasks.post-beta-test]
+alias = "post-test"
+
+[tasks.beta-clippy-flow]
+dependencies = ["pre-beta-clippy", "beta-clippy-router", "post-beta-clippy"]
+extend = "clippy-flow"
+
+[tasks.pre-beta-clippy]
+extend = "pre-clippy"
+# Proc-macro crates fail to trigger recompilation when switching toolchains due to bug in rustc resulting in "found invalid metadata files for crate" errors.
+run_task = "clean"
+
+[tasks.beta-clippy-router]
+env = { CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN = "beta" }
+extend = "clippy-router"
+
+[tasks.post-beta-clippy]
+env = { CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}" }
+extend = "post-clippy"
+
+[tasks.beta-docs]
+extend = "docs"
+toolchain = "beta"
+
+[tasks.fmt-toml]
+# Run only at workspace level
+args = ["fmt"]
+command = "taplo"
+description = "Format all TOML files in the repository using taplo"
+install_script = "set RUSTFLAGS= && cargo install --git https://github.com/tamasfe/taplo --rev b673b44d taplo-cli --locked --force"
+workspace = false

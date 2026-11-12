@@ -1,0 +1,18 @@
+[package]
+description = "Package to provides wdk configuration-specific tests for the wdk-macros crate."
+edition = "2024"
+license = "MIT OR Apache-2.0"
+name = "wdk-macros-tests"
+publish = false
+version = "0.1.0"
+
+[lib]
+
+[dependencies]
+fs4 = { features = ["sync"], version = "1.1.0" }
+macrotest = "1.2.0"
+owo-colors = "4.2.0"
+paste = "1.0.15"
+pathdiff = "0.2.3"
+rustversion = "1.0.20"
+trybuild = "1.0.104"
