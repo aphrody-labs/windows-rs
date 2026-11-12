@@ -1,5 +1,5 @@
 #![doc = include_str!("../readme.md")]
-#![cfg(windows)]
+#![cfg(any(windows, target_family = "wasm"))]
 #![no_std]
 
 #[macro_use]

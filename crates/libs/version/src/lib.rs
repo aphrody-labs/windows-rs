@@ -1,5 +1,5 @@
 #![doc = include_str!("../readme.md")]
-#![cfg(windows)]
+#![cfg(any(windows, target_family = "wasm"))]
 #![cfg_attr(not(test), no_std)]
 
 #[expect(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]

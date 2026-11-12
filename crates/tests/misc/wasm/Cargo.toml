@@ -1,0 +1,44 @@
+[package]
+name = "test_wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+doc = false
+doctest = false
+
+[dependencies.windows-link]
+workspace = true
+
+[dependencies.windows-sys]
+workspace = true
+features = ["sysinfoapi", "winternl"]
+
+[dependencies.windows-result]
+workspace = true
+
+[dependencies.windows-strings]
+workspace = true
+
+[dependencies.windows-core]
+workspace = true
+features = ["proc-macros"]
+
+[dependencies.windows-collections]
+workspace = true
+
+[dependencies.windows-numerics]
+workspace = true
+
+[dependencies.windows-registry]
+workspace = true
+
+[dependencies.windows-threading]
+workspace = true
+
+[dependencies.windows-version]
+workspace = true
+
+[lints]
+workspace = true

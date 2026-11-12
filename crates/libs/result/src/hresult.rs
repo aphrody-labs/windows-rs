@@ -123,12 +123,14 @@ impl HRESULT {
     }
 
     /// Creates a new `HRESULT` from the Win32 error code returned by `GetLastError()`.
+    ///
+    /// On WebAssembly the code comes from the host's `kernel32.dll` `GetLastError` import.
     pub fn from_thread() -> Self {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_family = "wasm"))]
         {
             WIN32_ERROR::from_thread().into()
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_family = "wasm")))]
         {
             unimplemented!()
         }

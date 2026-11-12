@@ -51,3 +51,19 @@ pointers. The type alias does not validate an address obtained through dynamic l
 
 Add platform and feature gates in the calling crate. Declaring a Windows function on another
 platform does not make the export available there.
+
+## WebAssembly
+
+On `target_family = "wasm"`, `link!` declares a WebAssembly import instead of a DLL import. The
+import module is the DLL name exactly as written and the import field is the export name, so the
+`GetTickCount64` example above imports:
+
+```text
+(import "kernel32.dll" "GetTickCount64" (func (result i64)))
+```
+
+The host (JavaScript, or another module implementing the NT personality) must provide every
+import the final module references. `"system"` is `"C"` on WebAssembly: pointers and handles are
+`i32` offsets or values in the module's 32-bit linear memory, 64-bit integers are `i64`, and
+structs that hold more than one scalar are passed through linear memory. Ordinal imports are
+imported by name. See `docs/wasm.md` in the repository for the full host contract.

@@ -70,7 +70,43 @@ macro_rules! link {
 /// as the function, lives in the type namespace, and is useful for storing or
 /// passing around the function pointer (for example, after resolving the
 /// symbol at runtime via `GetProcAddress`).
-#[cfg(not(windows))]
+///
+/// On WebAssembly targets the function becomes a host import: the import module is the DLL
+/// name exactly as written (for example `"kernel32.dll"`) and the import field is the export
+/// name (the optional link-name literal, otherwise the Rust identifier). Ordinal imports are
+/// imported by name because WebAssembly imports have no ordinals. `"system"` is `"C"` on
+/// WebAssembly, so arguments follow the WebAssembly C ABI; see `docs/wasm.md`.
+#[cfg(target_family = "wasm")]
+#[macro_export]
+macro_rules! link {
+    ($library:literal $abi:literal ordinal($ordinal:literal) fn $name:ident($($params:tt)*) $(-> $ret:ty)?) => (
+        const _: () = assert!($ordinal >= 1 && $ordinal <= 65535, "import ordinal must be between 1 and 65535");
+        #[link(wasm_import_module = $library)]
+        unsafe extern $abi {
+            pub fn $name($($params)*) $(-> $ret)?;
+        }
+        #[allow(non_camel_case_types)]
+        pub type $name = unsafe extern $abi fn($($params)*) $(-> $ret)?;
+    );
+    ($library:literal $abi:literal $($link_name:literal)? fn $name:ident($($params:tt)*) $(-> $ret:ty)?) => (
+        #[link(wasm_import_module = $library)]
+        unsafe extern $abi {
+            $(#[link_name=$link_name])?
+            pub fn $name($($params)*) $(-> $ret)?;
+        }
+        #[allow(non_camel_case_types)]
+        pub type $name = unsafe extern $abi fn($($params)*) $(-> $ret)?;
+    )
+}
+
+/// Defines an external function to import.
+///
+/// Expands to an `extern` block declaring the function as well as a `pub type`
+/// alias matching the function's signature. The type alias has the same name
+/// as the function, lives in the type namespace, and is useful for storing or
+/// passing around the function pointer (for example, after resolving the
+/// symbol at runtime via `GetProcAddress`).
+#[cfg(not(any(windows, target_family = "wasm")))]
 #[macro_export]
 macro_rules! link {
     ($library:literal $abi:literal ordinal($ordinal:literal) fn $name:ident($($params:tt)*) $(-> $ret:ty)?) => (
