@@ -1,0 +1,3096 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! `BubblewrapScriptRunner` — executes scripts inside a Bubblewrap
+//! namespace sandbox via the `bwrap` CLI.
+//!
+//! Bubblewrap uses Linux user namespaces to create an unprivileged sandbox.
+//! The runner translates `ExecutionRequest` policy fields into `bwrap` CLI
+//! arguments via [`crate::bwrap_common::bwrap_command::build_args`], then spawns `bwrap`
+//! with stdout/stderr capture and optional timeout enforcement.
+//!
+//! Directional network rules are programmed inside a private namespace;
+//! ruleless deny uses `--unshare-net` without additional network tooling.
+//! A runtime proxy uses the private namespace and a caller-managed endpoint.
+
+use std::collections::HashSet;
+use std::fmt::Write as FmtWrite;
+use std::os::fd::{AsFd, AsRawFd};
+use std::os::unix::process::CommandExt;
+use std::path::{Component, Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
+
+use crate::mxc_common::filesystem_object::FilesystemPolicyError;
+use crate::mxc_common::filesystem_symlink::{is_policy_path_error, resolve_through_symlinks};
+use crate::mxc_common::interruptible_reader::{wrap_pipe, InterruptibleReader, ReadCanceller};
+use crate::mxc_common::logger::Logger;
+use crate::mxc_common::models::{ContainerPolicy, ExecutionRequest, FailurePhase, ScriptResponse};
+use crate::mxc_common::sandbox_process::{
+    boxed_closer, cancel_and_join_discard, duplicate_and_take_native_stdio, group_kill,
+    spawn_discard, take_boxed_read, take_boxed_write, wait_with_timeout, NativeStdio, PtySize,
+    SandboxBackend, SandboxProcess, StdioMode, StreamCloser, WaitError,
+};
+use crate::mxc_common::validator::{
+    validate_common, validate_network_policy_support, NetworkPolicySupport,
+};
+use crate::mxc_pty::{LivePty, PtySize as UnixPtySize};
+
+use crate::bwrap_common::{
+    bwrap_command::{self, ResolvedNetworkMode},
+    bwrap_version, lifetime_spawner, network_rules,
+    provider_monitor::ProviderMonitor,
+    proxy_network,
+    resolver_file::{self, ResolverFile},
+    seccomp_filter,
+};
+
+const DNS_PORT: u16 = 53;
+
+// SDK v2: Rejected -> rejected (policy_validation), Lookup -> failed(LaunchFailed).
+// See docs/development/plans/sdk-v2-error-codes.md.
+fn proxy_resolve_failure_response(error: proxy_network::ProxyResolveError) -> ScriptResponse {
+    match error {
+        proxy_network::ProxyResolveError::Rejected(message)
+        | proxy_network::ProxyResolveError::Lookup(message) => ScriptResponse::error(&message),
+    }
+}
+
+/// Bubblewrap sandbox runner. Uses only shared `ContainerPolicy` fields —
+/// no backend-specific config struct required.
+#[derive(Default)]
+pub struct BubblewrapScriptRunner;
+
+impl BubblewrapScriptRunner {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SandboxBackend for BubblewrapScriptRunner {
+    /// Bubblewrap programs directional policy into iptables chains in
+    /// the sandbox's own network namespace, so it enforces the outbound default,
+    /// the allow/deny rules, and both inbound fields.
+    ///
+    /// `INGRESS_DEFAULT` and `HOST_LOOPBACK` declare that the backend
+    /// *understands* those fields, not that it honors both of their values:
+    /// only the deny posture is reachable, and the allow posture is refused by
+    /// `bwrap_command::directional_network_rejection` below. Declaring them
+    /// without that refusal would be a fail-open, so the two belong together.
+    ///
+    /// `RUNTIME_PROXY` is declared because `runtimeConfig.networkProxy` is
+    /// normalized into `policy.network_proxy` and enforced in a private
+    /// namespace with only its pinned endpoint reachable.
+    ///
+    /// `PROXY_PEER_IDENTITY` stays undeclared: it is a ProcessContainer concept
+    /// with no Bubblewrap equivalent, so shared validation refuses it here.
+    fn network_policy_support(&self) -> NetworkPolicySupport {
+        NetworkPolicySupport::EGRESS_DEFAULT
+            | NetworkPolicySupport::EGRESS_RULES
+            | NetworkPolicySupport::INGRESS_DEFAULT
+            | NetworkPolicySupport::HOST_LOOPBACK
+            | NetworkPolicySupport::RUNTIME_PROXY
+    }
+
+    fn validate(&self, request: &ExecutionRequest) -> Result<(), ScriptResponse> {
+        let launch = self.validate_prepared(request)?;
+        let use_case = match ResolvedNetworkMode::from_request(
+            request,
+            request.policy.network_proxy.is_enabled(),
+        ) {
+            ResolvedNetworkMode::ProxyOnly => {
+                Some(proxy_network::PrivateNetworkUse::ProxyOnlyEgress)
+            }
+            ResolvedNetworkMode::FirewallEnforced => {
+                Some(proxy_network::PrivateNetworkUse::FirewallEnforcement)
+            }
+            _ => None,
+        };
+        if let Some(use_case) = use_case {
+            if let Some(tools) = launch.network_tools.as_ref() {
+                proxy_network::probe_private_namespaces(tools, use_case)
+                    .map_err(|error| ScriptResponse::error(&error))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn spawn(
+        &mut self,
+        request: &ExecutionRequest,
+        logger: &mut Logger,
+        stdio: StdioMode,
+    ) -> Result<Box<dyn SandboxProcess>, ScriptResponse> {
+        validate_common(request)?;
+        let launch = self.validate_prepared(request)?;
+        if let Some(plan) = launch.egress_plan.as_ref() {
+            warn_unreachable_v6_targets(plan, logger);
+        }
+        // Tighten aliases of the same host object to the strictest intent
+        // (deny > ro > rw). Done here, close to mount, to minimize the TOCTOU
+        // window; an unresolvable path with deniedPaths present fails closed.
+        let normalized;
+        let request = match crate::mxc_common::filesystem_object::normalize_object_conflicts(
+            &request.policy,
+            logger,
+        ) {
+            Ok(Some(policy)) => {
+                normalized = ExecutionRequest {
+                    policy,
+                    ..request.clone()
+                };
+                &normalized
+            }
+            Ok(None) => request,
+            Err(error) => return Err(error.into_response()),
+        };
+        // Reject any policy path the invoking user cannot access, so the sandbox
+        // never gains access the caller lacks. Runs after object normalization
+        // so it sees the already-tightened intents.
+        crate::mxc_common::filesystem_access::check_delegation(&request.policy)
+            .map_err(|error| error.into_response())?;
+        // Resolve denied paths that traverse a symlink to their real host path
+        // and classify each as a file/dir mask (see [`resolve_denied_paths`]).
+        // Only clones the request when a path needs rewriting (common case:
+        // none). See docs/backends/bwrap/bubblewrap-backend.md.
+        let plan = resolve_denied_paths(&request.policy, logger).map_err(|e| e.into_response())?;
+        let resolved;
+        let request = match plan.paths {
+            Some(denied_paths) => {
+                let mut policy = request.policy.clone();
+                policy.denied_paths = denied_paths;
+                resolved = ExecutionRequest {
+                    policy,
+                    ..request.clone()
+                };
+                &resolved
+            }
+            None => request,
+        };
+        let grants =
+            resolve_granted_paths(&request.policy, logger).map_err(|e| e.into_response())?;
+        // The masks are built from the list above, not from the one the caller
+        // wrote, so the pin conflict has to be judged against it too.
+        if let Err(msg) = check_pin_against_denied_hosts(request) {
+            // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+            return Err(ScriptResponse::error(&msg));
+        }
+        warn_resolver_mount_hint(request, logger);
+        warn_cwd_mount_hint(request, logger);
+
+        // The checks above compare grants as the caller spelled them, which the
+        // recreated grant links keep reachable.
+        let granted;
+        let request = match grants.policy {
+            Some(policy) => {
+                granted = ExecutionRequest {
+                    policy,
+                    ..request.clone()
+                };
+                &granted
+            }
+            None => request,
+        };
+        let baseline_links = bwrap_command::baseline_links(host_link_target).map_err(|error| {
+            ScriptResponse::failed(FailurePhase::LaunchFailed, &format!("Bubblewrap: {error}"))
+        })?;
+        let child = self.spawn_bwrap(
+            request,
+            &plan.files,
+            &baseline_links,
+            &grants.aliased,
+            !grants.replaces_private_tmp,
+            launch,
+            logger,
+            stdio,
+        )?;
+        Ok(Box::new(BubblewrapSandboxProcess::new(child)))
+    }
+}
+
+/// What validation checked, so the launch runs exactly that instead of looking
+/// it up or deriving it again.
+#[derive(Debug)]
+struct ValidatedLaunch {
+    egress_plan: Option<network_rules::EgressPlan>,
+    bwrap: PathBuf,
+    network_tools: Option<proxy_network::NetworkTools>,
+}
+
+impl BubblewrapScriptRunner {
+    /// Validate the request and prepare its egress plan and host tools.
+    fn validate_prepared(
+        &self,
+        request: &ExecutionRequest,
+    ) -> Result<ValidatedLaunch, ScriptResponse> {
+        // Execution validation deliberately bypasses the advisory success
+        // cache: a prior platform-support query must not approve a different
+        // executable after `PATH` or its contents change.
+        self.validate_prepared_with_probe(request, bwrap_version::probe_bwrap_uncached)
+    }
+
+    /// `validate_prepared` with an injectable environment probe.
+    ///
+    /// Tests use this to assert that user-input validation runs *before* the
+    /// environmental `bwrap` probe, and to drive every probe failure without
+    /// depending on what the host happens to have installed.
+    fn validate_prepared_with_probe<F>(
+        &self,
+        request: &ExecutionRequest,
+        probe: F,
+    ) -> Result<ValidatedLaunch, ScriptResponse>
+    where
+        F: FnOnce() -> Result<bwrap_version::ProbedBwrap, bwrap_version::BwrapUnavailable>,
+    {
+        validate_network_policy_support(request, self.network_policy_support())?;
+
+        // User-input validation runs before the environmental `bwrap`
+        // probe so config errors are reported deterministically even on
+        // hosts without bwrap installed.
+        if request.script_code.is_empty() {
+            // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+            return Err(ScriptResponse::error(
+                "script_code is empty — nothing to execute.",
+            ));
+        }
+
+        // Refuse a credential-bearing proxy URL here as well as at parse time.
+        // The parser guard only covers requests it built; `ExecutionRequest`
+        // and `ProxyAddress::from_url` are public, so a caller can hand this
+        // runner a policy the parser never saw. `to_url` returns that URL
+        // verbatim and `build_args` emits it as a `bwrap --setenv HTTP_PROXY
+        // VALUE` argument (bwrap_command.rs), and a process's argv is readable
+        // through /proc/<pid>/cmdline by any local user for the lifetime of the
+        // command. This mirrors the same guard on the LXC runner, which reaches
+        // argv by a different route (`lxc-attach --set-var`).
+        //
+        // It sits with the input checks, ahead of the bwrap probe, for the
+        // reason above: a host without bwrap must still be told what is wrong
+        // with the request.
+        if let Some(url) = request
+            .policy
+            .network_proxy
+            .address
+            .as_ref()
+            .map(|address| address.to_url())
+        {
+            if crate::mxc_common::proxy_env::proxy_url_has_credentials(&url) {
+                // Built from the redacted form so the rejection cannot become
+                // the leak it is rejecting.
+                // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+                return Err(ScriptResponse::error(&format!(
+                    "Bubblewrap: runtimeConfig.networkProxy must not carry credentials ('{}'). \
+                     Bubblewrap passes the proxy URL to bwrap as a --setenv command-line \
+                     argument, and process arguments are world-readable through \
+                     /proc/<pid>/cmdline, so the password would be visible to every local \
+                     user while the command runs. Use a proxy that does not require inline \
+                     credentials, or supply them to the proxy itself rather than through \
+                     the URL.",
+                    crate::mxc_common::proxy_env::redact_proxy_url(&url)
+                )));
+            }
+        }
+
+        // Programmatic requests also need the parser's proxy-only restriction:
+        // direct egress must not be accepted and then discarded at launch.
+        if let Some(reason) = bwrap_command::proxy_with_egress_rejection(request) {
+            // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+            return Err(ScriptResponse::error(reason));
+        }
+        if let Some(reason) = bwrap_command::directional_network_rejection(request) {
+            // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+            return Err(ScriptResponse::error(reason));
+        }
+
+        // Proxy-only networking derives the sandbox-visible endpoint from the
+        // configured one and then opens exactly that address in the egress
+        // chain. That step can reject an endpoint outright (an IPv6 loopback
+        // the gateway cannot reach, a routable or IPv6-only endpoint the
+        // IPv4-only rules cannot express, a zero port), and those verdicts
+        // follow from the configured address alone, so they are reported here
+        // instead of after a proxy has been started.
+        //
+        // A hostname is deliberately left to `run`: its verdict needs a lookup,
+        // and the answer is the pin the sandbox is given, so resolving here
+        // would either resolve twice or pin an address the egress chain never
+        // opened.
+        //
+        let proxy_only =
+            ResolvedNetworkMode::from_request(request, request.policy.network_proxy.is_enabled())
+                == ResolvedNetworkMode::ProxyOnly;
+        if proxy_only {
+            if let Some(address) = request.policy.network_proxy.address.as_ref() {
+                if let Err(error) = proxy_network::SandboxProxy::check_without_resolving(address) {
+                    // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+                    return Err(ScriptResponse::error(&error));
+                }
+                if let Err(error) =
+                    proxy_network::check_hosts_pin_against_policy(address, &request.policy)
+                {
+                    // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+                    return Err(ScriptResponse::error(&error));
+                }
+                // Repeated in `spawn` against the normalized policy.
+            }
+        }
+
+        // Validate direct CIDR/port rules before any environment probe or
+        // provisioning; reuse precisely this plan at spawn.
+        let firewall_enforced =
+            ResolvedNetworkMode::from_request(request, request.policy.network_proxy.is_enabled())
+                == ResolvedNetworkMode::FirewallEnforced;
+        let egress_plan = if firewall_enforced {
+            match network_rules::EgressPlan::for_request(request) {
+                Ok(plan) => Some(plan),
+                // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+                Err(error) => return Err(ScriptResponse::error(&error)),
+            }
+        } else {
+            None
+        };
+
+        // `bwrap` must be present *and* new enough for every flag the argument
+        // builder emits — an old binary would otherwise fail at spawn time with
+        // an opaque "unknown option" error.
+        let bwrap = probe().map_err(|err| {
+            // SDK v2: unavailable (backend_unavailable). See docs/development/plans/sdk-v2-error-codes.md.
+            ScriptResponse::error(&err.to_string())
+        })?;
+        let network_tools = if proxy_only || firewall_enforced {
+            // Proxy and firewall are mutually exclusive, so this names the one
+            // the caller actually asked for.
+            let use_case = if proxy_only {
+                proxy_network::PrivateNetworkUse::ProxyOnlyEgress
+            } else {
+                proxy_network::PrivateNetworkUse::FirewallEnforcement
+            };
+            Some(
+                proxy_network::probe_dependencies(use_case).map_err(|error| {
+                    // SDK v2: unavailable (backend_unavailable). See docs/development/plans/sdk-v2-error-codes.md.
+                    ScriptResponse::error(&error)
+                })?,
+            )
+        } else {
+            None
+        };
+
+        Ok(ValidatedLaunch {
+            egress_plan,
+            bwrap: bwrap.path,
+            network_tools,
+        })
+    }
+}
+
+/// Reject a hostname proxy pin that would defeat a denied `/etc/hosts`.
+///
+/// Runs in both `validate` (against the policy as written, so the caller hears
+/// about it early) and `spawn` (against the normalized policy, which is what
+/// the masks are built from). One is not enough: `resolve_denied_paths`
+/// rewrites `/etc/../etc/hosts` -- or any symlinked spelling -- to
+/// `/etc/hosts`, which the written form never matches, and the pin is spliced
+/// after every policy mount, so it hands back the file the policy masked.
+fn check_pin_against_denied_hosts(request: &ExecutionRequest) -> Result<(), String> {
+    let proxy_only =
+        ResolvedNetworkMode::from_request(request, request.policy.network_proxy.is_enabled())
+            == ResolvedNetworkMode::ProxyOnly;
+    if !proxy_only {
+        return Ok(());
+    }
+    match request.policy.network_proxy.address.as_ref() {
+        Some(address) => proxy_network::check_hosts_pin_against_policy(address, &request.policy),
+        None => Ok(()),
+    }
+}
+
+/// Warn that an IPv6 allow rule installs but cannot carry traffic.
+///
+/// It fails closed, so this warns rather than rejects: refusing would break
+/// configs the schema accepts today (see #955). Emitted from `spawn`, which has
+/// a logger and which every caller reaches, so the JSON and programmatic paths
+/// both hear it from one site.
+///
+/// Uses [`Logger::warning_line`], not `log_line`: it is the only sink both
+/// paths actually read. `log_line` lands in the console/debug buffer, which
+/// `mxc_engine::spawn_execution_request` never folds into `Output::warnings` and which
+/// `lxc-exec` prints only on an error path (and only under `--debug`, onto
+/// stdout, where it would interleave with the workload's own output).
+fn warn_unreachable_v6_targets(plan: &network_rules::EgressPlan, logger: &mut Logger) {
+    let targets = plan.allowed_v6_targets();
+    if targets.is_empty() {
+        return;
+    }
+    logger.warning_line(&format!(
+        "WARNING: Bubblewrap allows {} IPv6 destination(s) ({}), but the sandbox \
+         namespace has no IPv6 connectivity: slirp4netns is launched without \
+         '--enable-ipv6', so these rules install and are never traversed. The \
+         destination stays unreachable despite the rule. Use an IPv4 address, or \
+         runtimeConfig.networkProxy, if the workload needs to reach it.",
+        targets.len(),
+        targets.join(", ")
+    ));
+}
+
+/// Warn that the resolver pin cannot work under the installed chain.
+fn warn_resolver_blocked_by_egress(
+    plan: &network_rules::EgressPlan,
+    pinned: bool,
+    logger: &mut Logger,
+) {
+    if !pinned {
+        return;
+    }
+    let forwarder = proxy_network::SLIRP_DNS_FORWARDER_IP;
+    let udp = plan.admits("udp", forwarder, DNS_PORT);
+    let tcp = plan.admits("tcp", forwarder, DNS_PORT);
+    if udp && tcp {
+        return;
+    }
+
+    let blocked = match (udp, tcp) {
+        (false, false) => "UDP or TCP",
+        (true, false) => "TCP",
+        _ => "UDP",
+    };
+    logger.warning_line(&format!(
+        "WARNING: Bubblewrap pointed the sandbox at slirp's DNS forwarder {forwarder} because \
+         the host resolves through a loopback nameserver, but network.egress does not admit \
+         {blocked} port {DNS_PORT} to it, so queries are dropped and names will not resolve. \
+         Add an allow rule for '{forwarder}/32' on port {DNS_PORT} with protocol 'any' if the \
+         workload needs to resolve names; a resolver falls back to TCP for answers that do not \
+         fit a datagram."
+    ));
+}
+
+fn warn_resolver_mount_hint(request: &ExecutionRequest, logger: &mut Logger) {
+    warn_resolver_mount_hint_with(request, logger, |path| std::fs::read_link(path).ok());
+}
+
+fn warn_resolver_mount_hint_with(
+    request: &ExecutionRequest,
+    logger: &mut Logger,
+    read_link: impl FnOnce(&Path) -> Option<PathBuf>,
+) {
+    let Some(target) = read_link(Path::new("/etc/resolv.conf")) else {
+        return;
+    };
+    let Some(target_str) = target.to_str() else {
+        return;
+    };
+    if !bwrap_command::resolver_target_without_matching_mount(&request.policy, target_str) {
+        return;
+    }
+    logger.warning_line(&format!(
+        "WARNING: Bubblewrap: /etc/resolv.conf points to {target_str:?}, but no known \
+         mount destination overlaps that path. DNS may fail if the link does not \
+         resolve inside the sandbox; check the link and consider listing the \
+         resolver file in filesystem.readonlyPaths."
+    ));
+}
+
+fn warn_cwd_mount_hint(request: &ExecutionRequest, logger: &mut Logger) {
+    let Some(dir) = bwrap_command::cwd_without_matching_mount(request) else {
+        return;
+    };
+    logger.warning_line(&format!(
+        "WARNING: Bubblewrap: process.cwd {dir:?} has no apparent covering mount \
+         destination. It may be unavailable inside the sandbox; check \
+         filesystem.readonlyPaths or filesystem.readwritePaths for a containing \
+         directory. Bubblewrap will decide whether --chdir succeeds."
+    ));
+}
+
+impl BubblewrapScriptRunner {
+    /// Set up networking and spawn `bwrap`, returning a [`BwrapChild`] wrapped
+    /// by the [`SandboxProcess`] handle. With [`StdioMode::Pipes`] the child's
+    /// stdio is piped (the caller drives it); with [`StdioMode::Inherit`] it
+    /// inherits the binary's stdio (a TTY when the binary has one); with
+    /// [`StdioMode::Pty`] it is attached to a caller-owned Unix PTY.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_bwrap(
+        &self,
+        request: &ExecutionRequest,
+        denied_files: &HashSet<String>,
+        baseline_links: &[bwrap_command::BaselineLink],
+        aliased_grants: &[bwrap_command::AliasedGrant],
+        private_tmp: bool,
+        launch: ValidatedLaunch,
+        logger: &mut Logger,
+        stdio: StdioMode,
+    ) -> Result<BwrapChild, ScriptResponse> {
+        let ValidatedLaunch {
+            egress_plan,
+            bwrap,
+            network_tools,
+        } = launch;
+        let checked_network_tools = || {
+            network_tools.as_ref().ok_or_else(|| {
+                ScriptResponse::error(
+                    "Bubblewrap: private networking was selected without checking its host tools.",
+                )
+            })
+        };
+
+        // The caller manages the proxy; pass its address into the sandbox
+        // environment and restrict direct egress to that endpoint.
+        let configured_proxy = request.policy.network_proxy.address.as_ref();
+        if let Some(address) = configured_proxy {
+            logger.log_line(&format!(
+                "Unix network proxy active: {}",
+                crate::mxc_common::proxy_env::redact_proxy_url(&address.to_url())
+            ));
+        }
+
+        let network_mode = ResolvedNetworkMode::from_request(request, configured_proxy.is_some());
+        let resolver_file = ResolverFile::for_host(&request.policy, logger);
+        let mut mounts = bwrap_command::policy_mounts(&request.policy);
+        let resolver_args = match &resolver_file {
+            Some(resolver) => resolver
+                .mount_args(&mut mounts, denied_files)
+                .map_err(|error| ScriptResponse::error(&format!("Bubblewrap: {error}")))?,
+            None => Vec::new(),
+        };
+        let sandbox_proxy = if network_mode == ResolvedNetworkMode::ProxyOnly {
+            let address = configured_proxy.ok_or_else(|| {
+                ScriptResponse::error(
+                    "Bubblewrap: proxy mode was selected without a resolved proxy address.",
+                )
+            })?;
+            Some(
+                proxy_network::SandboxProxy::resolve(address)
+                    .map_err(proxy_resolve_failure_response)?,
+            )
+        } else {
+            None
+        };
+        let proxy_address = sandbox_proxy
+            .as_ref()
+            .map(|resolved| resolved.address())
+            .or(configured_proxy);
+
+        let mut proxy_network = match sandbox_proxy.as_ref() {
+            // The workload dials the sandbox-visible address, so that is what
+            // the egress rule must open.
+            Some(resolved) => {
+                let egress = resolved.egress();
+
+                // A proxied chain opens no port 53, so the workload resolves
+                // through the proxy rather than a nameserver of its own.
+                let resolver = None;
+                match proxy_network::ProxyNetworkNamespace::start(
+                    checked_network_tools()?,
+                    &egress.plan(),
+                    &network_rules::IngressPlan::for_policy(&request.policy),
+                    egress.pin(),
+                    resolver,
+                    logger,
+                    request.script_timeout,
+                ) {
+                    Ok(network) => Some(network),
+                    Err(error) => {
+                        return Err(ScriptResponse::failed(FailurePhase::LaunchFailed, &error))
+                    }
+                }
+            }
+            // Direct directional egress uses the same private namespace.
+            None if network_mode == ResolvedNetworkMode::FirewallEnforced => {
+                // Reuse the validated plan. It is derived from network policy
+                // only, which the filesystem normalization between the two
+                // points cannot touch. Recompute only if the resolved mode
+                // disagrees with validation's pre-spawn proxy reading.
+                let plan = match egress_plan {
+                    Some(plan) => plan,
+                    None => match network_rules::EgressPlan::for_request(request) {
+                        Ok(plan) => plan,
+                        // SDK v2: rejected (policy_validation). See docs/development/plans/sdk-v2-error-codes.md.
+                        Err(error) => return Err(ScriptResponse::error(&error)),
+                    },
+                };
+                let resolver =
+                    proxy_network::ResolverPin::for_host(&request.policy, &mounts, logger);
+                match proxy_network::ProxyNetworkNamespace::start(
+                    checked_network_tools()?,
+                    &plan,
+                    &network_rules::IngressPlan::for_policy(&request.policy),
+                    None,
+                    resolver.as_ref(),
+                    logger,
+                    request.script_timeout,
+                ) {
+                    Ok(network) => {
+                        warn_resolver_blocked_by_egress(&plan, network.resolver_pinned(), logger);
+                        Some(network)
+                    }
+                    Err(error) => {
+                        return Err(ScriptResponse::failed(FailurePhase::LaunchFailed, &error))
+                    }
+                }
+            }
+            None => None,
+        };
+
+        let seccomp_filter = match seccomp_filter::create_file() {
+            Ok(file) => file,
+            Err(error) => {
+                stop_proxy_network(&mut proxy_network, logger);
+                return Err(ScriptResponse::failed(FailurePhase::LaunchFailed, &error));
+            }
+        };
+        let mut unavailable_links = Vec::new();
+        let mut args = bwrap_command::build_args_classified_with_mode(
+            request,
+            proxy_address,
+            denied_files,
+            network_mode,
+            Some(seccomp_filter.as_raw_fd()),
+            baseline_links,
+            &resolver_args,
+            &mounts,
+            private_tmp,
+            |mount_args| {
+                let plan = bwrap_command::plan_grant_links(mount_args, aliased_grants);
+                unavailable_links = plan.unavailable;
+                plan.args
+            },
+        );
+        for link in &unavailable_links {
+            logger.warning_line(&format!(
+                "WARNING: Bubblewrap: a filesystem grant is named through {}, \
+                 which cannot be recreated inside the sandbox, so paths through it are \
+                 unavailable there. Use {} instead.",
+                link.path, link.target
+            ));
+        }
+
+        if stdio == StdioMode::Inherit {
+            args.insert(0, "--new-session".into());
+        }
+        let mut network_startup = match proxy_network.as_ref() {
+            Some(network) => match network.configure_bwrap(&mut args, logger) {
+                Ok(startup) => Some(startup),
+                Err(error) => {
+                    stop_proxy_network(&mut proxy_network, logger);
+                    return Err(ScriptResponse::failed(FailurePhase::LaunchFailed, &error));
+                }
+            },
+            None => None,
+        };
+        let _ = writeln!(
+            logger,
+            "Bubblewrap: spawning bwrap with {} args",
+            args.len()
+        );
+
+        // 3. Spawn `bwrap`.
+        let mut command = Command::new(&bwrap);
+        command.args(&args);
+        let pty = match stdio {
+            StdioMode::Pipes => {
+                command
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                None
+            }
+            StdioMode::Inherit => {
+                // The child (bwrap) inherits the binary's stdio directly — a
+                // TTY when the binary has one.
+                command
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit());
+                None
+            }
+            StdioMode::Pty(size) => match LivePty::attach(
+                &mut command,
+                UnixPtySize {
+                    rows: size.rows,
+                    cols: size.cols,
+                    pixel_width: size.pixel_width,
+                    pixel_height: size.pixel_height,
+                },
+                &[],
+            ) {
+                Ok(pty) => Some(pty),
+                Err(error) => {
+                    stop_proxy_network(&mut proxy_network, logger);
+                    return Err(ScriptResponse::failed(
+                        FailurePhase::LaunchFailed,
+                        &format!("Bubblewrap: failed to allocate PTY: {error}"),
+                    ));
+                }
+            },
+        };
+
+        let group = stdio != StdioMode::Inherit;
+
+        // Keep namespace init in the killable group before parent-death cleanup is armed.
+        // SAFETY: setsid is async-signal-safe and runs only in the forked child.
+        if stdio == StdioMode::Pipes {
+            unsafe {
+                command.pre_exec(|| {
+                    nix::unistd::setsid()
+                        .map(|_| ())
+                        .map_err(std::io::Error::from)
+                });
+            }
+        }
+        if let Some(startup) = network_startup.as_ref() {
+            startup.prepare_command(&mut command);
+        }
+        let mut descriptors = vec![seccomp_filter.as_raw_fd()];
+        if let Some(fd) = resolver_file.as_ref().and_then(ResolverFile::snapshot_fd) {
+            descriptors.push(fd);
+        }
+        proxy_network::inherit_descriptors(&mut command, descriptors);
+
+        // `--die-with-parent` binds bwrap to the forking *thread*, so fork from
+        // one that outlives every sandbox rather than from the caller's.
+        let mut child = match lifetime_spawner::spawn(command) {
+            Ok(process) => process,
+            Err(error) => {
+                stop_proxy_network(&mut proxy_network, logger);
+                return Err(ScriptResponse::failed(
+                    FailurePhase::LaunchFailed,
+                    &format!("Bubblewrap: failed to spawn bwrap: {}", error),
+                ));
+            }
+        };
+
+        if let Some(mut startup) = network_startup.take() {
+            startup.child_spawned();
+            if let Some(network) = proxy_network.as_mut() {
+                network.userns_handed_off();
+            }
+            let startup_result = startup
+                .child_pid(&mut child)
+                .map_err(|error| {
+                    format!(
+                        "{error}. If Bubblewrap cannot create a network namespace, \
+                         check user.max_net_namespaces and the host's namespace policy"
+                    )
+                })
+                .and_then(|child_pid| {
+                    let network = proxy_network.as_mut().ok_or_else(|| {
+                        "Bubblewrap: proxy network lifecycle disappeared during startup".to_string()
+                    })?;
+                    network.attach(child_pid, logger)?;
+                    network.check_alive()
+                })
+                .and_then(|()| startup.release());
+            if let Err(error) = startup_result {
+                let _ = child.kill();
+                let _ = child.wait();
+                let error = match proxy_network::startup_output(&mut child, pty.as_ref()) {
+                    Ok(detail) if !detail.is_empty() => format!("{error}: {detail}"),
+                    Ok(_) => error,
+                    Err(detail) => format!("{error}; {detail}"),
+                };
+                stop_proxy_network(&mut proxy_network, logger);
+                return Err(ScriptResponse::failed(
+                    FailurePhase::PostLaunchFailed,
+                    &error,
+                ));
+            }
+        }
+
+        let (stdin, stdout, stderr) = match stdio {
+            StdioMode::Pipes => (child.stdin.take(), child.stdout.take(), child.stderr.take()),
+            StdioMode::Inherit => (None, None, None),
+            StdioMode::Pty(_) => (None, None, None),
+        };
+        // Wrap the pipe reads so the caller can abandon a stream a backgrounded
+        // descendant is holding open (see `SandboxProcess::stdout_closer`)
+        // without killing the child. On failure, tear down the per-run network
+        // state we already set up before returning the error.
+        let (stdout, stdout_canceller, stderr, stderr_canceller) =
+            match (wrap_pipe(stdout), wrap_pipe(stderr)) {
+                (Ok((out, out_canceller)), Ok((err, err_canceller))) => {
+                    (out, out_canceller, err, err_canceller)
+                }
+                (out_result, err_result) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    stop_proxy_network(&mut proxy_network, logger);
+                    let error = out_result.err().or(err_result.err());
+                    return Err(ScriptResponse::failed(
+                        FailurePhase::PostLaunchFailed,
+                        &format!(
+                            "Bubblewrap: failed to wrap stdio pipes: {}",
+                            error.map_or_else(|| "unknown error".to_string(), |e| e.to_string()),
+                        ),
+                    ));
+                }
+            };
+        let timeout = if request.script_timeout == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(u64::from(request.script_timeout)))
+        };
+        let started = Instant::now();
+
+        let child = Arc::new(Mutex::new(child));
+        // Armed only now: until the gate was released a dead provider surfaced
+        // as a startup failure instead.
+        let monitor = proxy_network
+            .as_mut()
+            .and_then(|network| network.take_liveness_watch())
+            .map(|watch| ProviderMonitor::watch(watch, Arc::clone(&child), group));
+
+        Ok(BwrapChild {
+            child,
+            stdin,
+            stdout,
+            stderr,
+            stdout_canceller,
+            stderr_canceller,
+            pty,
+            group,
+            proxy_network,
+            monitor,
+            timeout,
+            started,
+            timed_out: false,
+            termination_error: None,
+        })
+    }
+}
+
+/// A spawned `bwrap` sandbox: the child process, its parent-side pipe ends,
+/// and the per-run private network state torn down once it exits.
+struct BwrapChild {
+    /// The lock is what keeps [`ProviderMonitor`]'s thread from signalling a
+    /// pid this side has already reaped.
+    child: Arc<Mutex<Child>>,
+    stdin: Option<ChildStdin>,
+    stdout: Option<InterruptibleReader>,
+    stderr: Option<InterruptibleReader>,
+    /// Cancellers for the stdout/stderr reads, kept so the `SandboxProcess`
+    /// closers can mint a [`StreamCloser`] even after the stream is taken.
+    stdout_canceller: Option<ReadCanceller>,
+    stderr_canceller: Option<ReadCanceller>,
+    pty: Option<LivePty>,
+    /// `true` when bwrap leads its own process group (`Pipes` or `Pty`), so
+    /// termination signals the whole group; `false` for `Inherit` mode, where
+    /// killing bwrap relies on `--die-with-parent` to take the sandbox with it.
+    group: bool,
+    proxy_network: Option<proxy_network::ProxyNetworkNamespace>,
+    monitor: Option<ProviderMonitor>,
+    timeout: Option<Duration>,
+    started: Instant,
+    timed_out: bool,
+    termination_error: Option<String>,
+}
+
+impl BwrapChild {
+    fn lock_child(&self) -> MutexGuard<'_, Child> {
+        self.child.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn cleanup(&mut self, logger: &mut Logger) {
+        // Stopping the supervisor closes the descriptor the monitor watches, so
+        // disarming first is what keeps a normal teardown from reading as a
+        // provider that died.
+        self.monitor.take();
+        if let Some(mut network) = self.proxy_network.take() {
+            network.stop(logger);
+        }
+    }
+}
+
+/// A running `bwrap` sandbox exposed as a [`SandboxProcess`]. Wraps the spawned
+/// [`BwrapChild`] (child, pipes, and per-run network state), tearing the network
+/// state down once the child exits.
+struct BubblewrapSandboxProcess {
+    inner: BwrapChild,
+    teardown_done: bool,
+}
+
+impl BubblewrapSandboxProcess {
+    fn new(child: BwrapChild) -> Self {
+        Self {
+            inner: child,
+            teardown_done: false,
+        }
+    }
+
+    fn run_teardown(&mut self) {
+        if self.teardown_done {
+            return;
+        }
+        self.teardown_done = true;
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        self.inner.cleanup(&mut logger);
+    }
+
+    fn provider_lost(&self) -> bool {
+        self.inner
+            .monitor
+            .as_ref()
+            .is_some_and(ProviderMonitor::provider_lost)
+    }
+
+    /// Wait for the sandbox to exit, its deadline to pass, or its network
+    /// provider to disappear.
+    fn await_outcome(&mut self) -> BwrapOutcome {
+        const MIN_POLL: Duration = Duration::from_millis(1);
+        const MAX_POLL: Duration = Duration::from_millis(50);
+
+        let deadline = self
+            .inner
+            .timeout
+            .map(|timeout| self.inner.started + timeout);
+        let mut interval = MIN_POLL;
+        loop {
+            let exited = match self.inner.lock_child().try_wait() {
+                Ok(exited) => exited,
+                Err(error) => return BwrapOutcome::Io(error),
+            };
+            // Checked after the exit rather than before it: the monitor kills
+            // the sandbox, so a provider death shows up here as an ordinary
+            // exit that would otherwise be reported as the workload's own.
+            if self.provider_lost() {
+                return BwrapOutcome::ProviderLost;
+            }
+            if let Some(status) = exited {
+                return BwrapOutcome::Exited(status);
+            }
+
+            let now = Instant::now();
+            let mut nap = interval;
+            if let Some(deadline) = deadline {
+                if now >= deadline {
+                    return BwrapOutcome::Timeout;
+                }
+                nap = nap.min(deadline - now);
+            }
+            std::thread::sleep(nap);
+            interval = (interval * 2).min(MAX_POLL);
+        }
+    }
+
+    fn lost_provider_message(&mut self) -> String {
+        match self.inner.proxy_network.as_mut() {
+            Some(network) => network.lost_provider_detail(),
+            None => "Bubblewrap: the sandbox lost its network provider while the workload \
+                     was running"
+                .to_string(),
+        }
+    }
+}
+
+/// How a `bwrap` run ended.
+enum BwrapOutcome {
+    Exited(ExitStatus),
+    Timeout,
+    ProviderLost,
+    Io(std::io::Error),
+}
+
+impl SandboxProcess for BubblewrapSandboxProcess {
+    fn take_native_stdio(&mut self) -> std::io::Result<Option<NativeStdio>> {
+        if let Some(pty) = self.inner.pty.as_ref() {
+            let stdio = pty.take_native_stdio()?;
+            return Ok(Some(NativeStdio {
+                stdin: Some(stdio.stdin),
+                stdout: Some(stdio.stdout),
+                stderr: None,
+            }));
+        }
+        let stdio = duplicate_and_take_native_stdio(
+            &mut self.inner.stdin,
+            &mut self.inner.stdout,
+            &mut self.inner.stderr,
+            |stream| stream.as_fd().try_clone_to_owned(),
+            InterruptibleReader::try_clone_owned_fd,
+            InterruptibleReader::try_clone_owned_fd,
+        )?;
+        if stdio.is_some() {
+            self.inner.stdout_canceller.take();
+            self.inner.stderr_canceller.take();
+        }
+        Ok(stdio)
+    }
+
+    fn take_stdin(&mut self) -> Option<Box<dyn std::io::Write + Send>> {
+        take_boxed_write(&mut self.inner.stdin)
+    }
+
+    fn is_pty(&self) -> bool {
+        self.inner.pty.is_some()
+    }
+
+    fn pty_clone_reader(&self) -> std::io::Result<Box<dyn std::io::Read + Send>> {
+        self.inner
+            .pty
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Bubblewrap process has no PTY"))?
+            .try_clone_reader()
+    }
+
+    fn pty_clone_reader_with_closer(
+        &self,
+    ) -> std::io::Result<crate::mxc_common::sandbox_process::PtyReaderWithCloser> {
+        let (reader, closer) = self
+            .inner
+            .pty
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Bubblewrap process has no PTY"))?
+            .try_clone_reader_with_canceller()?;
+        Ok((reader, Some(Box::new(closer))))
+    }
+
+    fn pty_take_writer(&self) -> std::io::Result<Box<dyn std::io::Write + Send>> {
+        self.inner
+            .pty
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Bubblewrap process has no PTY"))?
+            .take_writer()
+    }
+
+    fn pty_resize(&self, size: PtySize) -> std::io::Result<()> {
+        self.inner
+            .pty
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Bubblewrap process has no PTY"))?
+            .resize(UnixPtySize {
+                rows: size.rows,
+                cols: size.cols,
+                pixel_width: size.pixel_width,
+                pixel_height: size.pixel_height,
+            })
+    }
+
+    fn pty_size(&self) -> std::io::Result<PtySize> {
+        let size = self
+            .inner
+            .pty
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Bubblewrap process has no PTY"))?
+            .size();
+        Ok(PtySize {
+            rows: size.rows,
+            cols: size.cols,
+            pixel_width: size.pixel_width,
+            pixel_height: size.pixel_height,
+        })
+    }
+
+    fn take_stdout(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        take_boxed_read(&mut self.inner.stdout)
+    }
+
+    fn take_stderr(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        take_boxed_read(&mut self.inner.stderr)
+    }
+
+    fn stdout_closer(&self) -> Option<Box<dyn StreamCloser>> {
+        boxed_closer(&self.inner.stdout_canceller)
+    }
+
+    fn stderr_closer(&self) -> Option<Box<dyn StreamCloser>> {
+        boxed_closer(&self.inner.stderr_canceller)
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<i32>> {
+        if let Some(error) = self.inner.termination_error.as_ref() {
+            return Err(std::io::Error::other(error.clone()));
+        }
+        if self.inner.timed_out {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Bubblewrap: script timed out",
+            ));
+        }
+        if let Some(status) = self.inner.lock_child().try_wait()? {
+            return Ok(Some(status.code().unwrap_or(-1)));
+        }
+        if self
+            .inner
+            .timeout
+            .is_some_and(|timeout| self.inner.started.elapsed() >= timeout)
+        {
+            if let Err(error) = self.kill_for_timeout() {
+                let error = format!(
+                    "Bubblewrap: script timed out, and the process group could not be terminated: \
+                     {error}"
+                );
+                self.inner.termination_error = Some(error.clone());
+                return Err(std::io::Error::other(error));
+            }
+            self.inner.timed_out = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Bubblewrap: script timed out",
+            ));
+        }
+        Ok(None)
+    }
+
+    fn id(&self) -> u32 {
+        self.inner.lock_child().id()
+    }
+
+    fn kill(&mut self) -> std::io::Result<()> {
+        // No-op once the child has exited and been reaped: its pid/pgid can be
+        // recycled, so signaling it could hit an unrelated process (group). A
+        // reaped `Child` returns its cached status here without a syscall.
+        let mut child = self.inner.lock_child();
+        if child.try_wait()?.is_some() {
+            return Ok(());
+        }
+        if self.inner.group {
+            // Pipes and PTY modes give bwrap its own process group.
+            group_kill(&mut child)
+        } else {
+            // Inherit mode: bwrap shares the executor's group (no
+            // `process_group(0)`), so a group-kill would hit the executor.
+            // Killing bwrap alone suffices because `--die-with-parent` makes
+            // the sandbox die with it — bwrap is *not* pid 1 of the namespace
+            // (it forks), so without that flag descendants would survive.
+            child.kill()
+        }
+    }
+
+    fn kill_for_timeout(&mut self) -> std::io::Result<()> {
+        const REAP_TIMEOUT: Duration = Duration::from_secs(5);
+
+        self.kill()?;
+        let mut child = self.inner.lock_child();
+        match wait_with_timeout(&mut child, Some(REAP_TIMEOUT)) {
+            Ok(_) => {
+                drop(child);
+                self.inner.timed_out = true;
+                Ok(())
+            }
+            Err(WaitError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Bubblewrap: killed process did not become reapable within 5 seconds",
+            )),
+            Err(WaitError::Io(error)) => Err(error),
+        }
+    }
+
+    fn wait(&mut self) -> std::io::Result<i32> {
+        // Close our copy of any not-taken stdin so the child sees EOF.
+        self.inner.stdin.take();
+        if let Some(pty) = self.inner.pty.as_ref() {
+            pty.close_writer();
+        }
+
+        // Drain (and discard) any not-taken stdout/stderr concurrently so the
+        // child can't block on a full pipe (taken streams are the caller's
+        // responsibility).
+        let stdout_thread = spawn_discard(self.inner.stdout.take());
+        let stderr_thread = spawn_discard(self.inner.stderr.take());
+        let (pty_thread, pty_canceller, pty_setup_error) = match self.inner.pty.as_ref() {
+            Some(pty) => match pty.take_unclaimed_reader() {
+                Ok(Some((reader, canceller))) => {
+                    (spawn_discard(Some(reader)), Some(canceller), None)
+                }
+                Ok(None) => (None, None, None),
+                Err(error) => (None, None, Some(error)),
+            },
+            None => (None, None, None),
+        };
+
+        let result = if let Some(error) = pty_setup_error {
+            let _ = self.kill();
+            {
+                let mut child = self.inner.lock_child();
+                let _ = wait_with_timeout(&mut child, Some(Duration::from_secs(5)));
+            }
+            Err(std::io::Error::other(format!(
+                "Bubblewrap: failed to prepare PTY output draining: {error}"
+            )))
+        } else if let Some(error) = self.inner.termination_error.as_ref() {
+            Err(std::io::Error::other(error.clone()))
+        } else if self.inner.timed_out {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Bubblewrap: script timed out",
+            ))
+        } else {
+            match self.await_outcome() {
+                BwrapOutcome::Exited(status) => Ok(status.code().unwrap_or(-1)),
+                BwrapOutcome::ProviderLost => {
+                    let _ = self.kill();
+                    let _ = self.inner.lock_child().wait();
+                    Err(std::io::Error::other(self.lost_provider_message()))
+                }
+                BwrapOutcome::Timeout => {
+                    // Tree-kill so descendants die too and release any stdout/stderr
+                    // pipe write-ends (else the drain threads below could block).
+                    // `kill()` group-kills in Pipes mode; in Inherit mode it kills
+                    // bwrap, which `--die-with-parent` turns into a full teardown.
+                    if let Err(error) = self.kill_for_timeout() {
+                        let error =
+                            format!("Bubblewrap: script timed out, and teardown failed: {error}");
+                        self.inner.termination_error = Some(error.clone());
+                        Err(std::io::Error::other(error))
+                    } else {
+                        self.inner.timed_out = true;
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Bubblewrap: script timed out",
+                        ))
+                    }
+                }
+                BwrapOutcome::Io(error) => {
+                    // The child may still be alive; kill+reap it before
+                    // `run_teardown()` removes the iptables/proxy enforcement out
+                    // from under it.
+                    let _ = self.kill();
+                    let _ = self.inner.lock_child().wait();
+                    Err(std::io::Error::other(format!(
+                        "Bubblewrap: wait failed: {error}"
+                    )))
+                }
+            }
+        };
+
+        cancel_and_join_discard(stdout_thread, &self.inner.stdout_canceller);
+        cancel_and_join_discard(stderr_thread, &self.inner.stderr_canceller);
+        if let Some(pty) = self.inner.pty.as_ref() {
+            pty.finish_native_bridge();
+        }
+        cancel_and_join_discard(pty_thread, &pty_canceller);
+        self.run_teardown();
+        result
+    }
+}
+
+impl Drop for BubblewrapSandboxProcess {
+    fn drop(&mut self) {
+        // Disarmed first so the monitor cannot be holding the child lock while
+        // the reap below waits on it.
+        self.inner.monitor.take();
+        // Kill and reap the child *before* removing network enforcement —
+        // otherwise an abandoned-but-running sandbox would keep egressing after
+        // its iptables/proxy rules were torn down, and the child would leak as
+        // a zombie. `kill()` group-kills in `Pipes` mode and relies on
+        // `--die-with-parent` otherwise, then we reap.
+        let _ = self.kill();
+        let _ = self.inner.lock_child().wait();
+        self.run_teardown();
+    }
+}
+
+/// Tear down the proxy network namespace against the caller's logger.
+///
+/// `Drop` would also stop it, but only through a throwaway in-memory logger, so
+/// warnings about slirp needing forced termination are lost on exactly the
+/// startup paths that already failed.
+fn stop_proxy_network(
+    network: &mut Option<proxy_network::ProxyNetworkNamespace>,
+    logger: &mut Logger,
+) {
+    if let Some(mut network) = network.take() {
+        network.stop(logger);
+    }
+}
+
+/// Outcome of resolving and classifying `deniedPaths` in a single pass.
+struct DeniedPlan {
+    /// Rewritten denied-path list. `Some` only when at least one entry differs
+    /// from the input (a symlink was resolved to its real target), so the caller
+    /// can skip cloning the request in the common no-symlink case.
+    paths: Option<Vec<String>>,
+    /// Subset of the (final) denied paths that must be masked as files with
+    /// `--ro-bind /dev/null`; every other denied path is masked with `--tmpfs`.
+    files: HashSet<String>,
+}
+
+/// Resolve every `deniedPaths` entry that traverses a symlink to its real host
+/// path **and** classify each entry as a file- or directory-mask, in a single
+/// pass (one `symlink_metadata` stat per entry).
+///
+/// Resolution (via [`resolve_through_symlinks`]) is required because bwrap masks
+/// by mounting over `DEST`; if any component of `DEST` is a host symlink bound
+/// into the sandbox, bwrap aborts with an opaque `ENOENT`. Masking the resolved
+/// real path avoids that and still hides the object. Classification is folded in
+/// here because it must observe the *resolved* path (a symlink-to-dir must be
+/// `--tmpfs`, not `/dev/null`).
+///
+/// Fails closed if a resolved path is not valid UTF-8: the `String`-based bwrap
+/// arg pipeline can't represent it faithfully, and a lossy replacement would mask
+/// the wrong path and leave the target exposed.
+///
+/// Also fails closed on dangling links, loops, and other resolution errors. A
+/// later `..` could otherwise move the mask onto an unrelated path.
+fn resolve_denied_paths(
+    policy: &crate::mxc_common::models::ContainerPolicy,
+    logger: &mut Logger,
+) -> Result<DeniedPlan, FilesystemPolicyError> {
+    let mut probe = crate::mxc_common::filesystem_probe::FilesystemProbe::default();
+    let mut changed = false;
+    let mut out = Vec::with_capacity(policy.denied_paths.len());
+    let mut files = HashSet::new();
+    for p in &policy.denied_paths {
+        let (resolved, is_file) = probe
+            .run(p, resolve_denied_path)
+            .map_err(FilesystemPolicyError::Host)??;
+        if resolved != *p {
+            let _ = writeln!(
+                logger,
+                "Bubblewrap: deniedPaths entry '{p}' resolves through a symlink; masking \
+                 its real path '{resolved}' instead."
+            );
+            changed = true;
+        }
+        if is_file {
+            files.insert(resolved.clone());
+        }
+        out.push(resolved);
+    }
+    Ok(DeniedPlan {
+        paths: changed.then_some(out),
+        files,
+    })
+}
+
+fn resolve_denied_path(path: &str) -> Result<(String, bool), FilesystemPolicyError> {
+    #[cfg(test)]
+    crate::mxc_common::filesystem_probe::launch_tests::stall("bwrap-denied", path);
+
+    let resolved = match resolve_through_symlinks(Path::new(path)) {
+        Some(resolved) => {
+            if let Some(error) = resolved.error {
+                let message = format!(
+                    "Bubblewrap: deniedPaths entry '{path}' could not be resolved ({error}); \
+                     refusing to start."
+                );
+                return Err(if is_policy_path_error(&error) {
+                    FilesystemPolicyError::Policy(message)
+                } else {
+                    FilesystemPolicyError::Host(message)
+                });
+            }
+            resolved.path
+        }
+        None => PathBuf::from(path),
+    };
+    let resolved = resolved.into_os_string().into_string().map_err(|_| {
+        FilesystemPolicyError::Policy(format!(
+            "Bubblewrap: deniedPaths entry '{path}' resolves to a non-UTF-8 host path that \
+             cannot be safely masked; refusing to start."
+        ))
+    })?;
+    let is_file = is_file_mask_target(&resolved);
+    Ok((resolved, is_file))
+}
+
+/// Classify a denied path for masking: `true` = `--ro-bind /dev/null` (file),
+/// `false` = `--tmpfs` (directory). A real directory and any path that cannot be
+/// stat'd are directory-masked; regular files and symlink nodes are file-masked.
+fn is_file_mask_target(path: &str) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|md| !md.file_type().is_dir())
+        .unwrap_or(false)
+}
+
+struct GrantPlan {
+    /// The policy with every grant at its real path, or `None` when none moved.
+    policy: Option<ContainerPolicy>,
+
+    aliased: Vec<bwrap_command::AliasedGrant>,
+    replaces_private_tmp: bool,
+}
+
+/// Move each `readwritePaths` and `readonlyPaths` entry to its real path, so a
+/// rule inside a grant lands in the directory the grant mounts.
+fn resolve_granted_paths(
+    policy: &ContainerPolicy,
+    logger: &mut Logger,
+) -> Result<GrantPlan, FilesystemPolicyError> {
+    let mut probe = crate::mxc_common::filesystem_probe::FilesystemProbe::default();
+    let mut aliased = Vec::new();
+    let mut moved = false;
+    let mut replaces_private_tmp = false;
+    let mut resolve = |paths: &[String], list: &'static str| {
+        let mut real_paths: Vec<String> = Vec::with_capacity(paths.len());
+        for path in paths {
+            let grant = probe
+                .run(path, move |path| resolve_granted_path(path, list))
+                .map_err(FilesystemPolicyError::Host)??;
+            if grant.real_path != *path {
+                let _ = writeln!(
+                    logger,
+                    "Bubblewrap: {list} entry '{path}' is mounted at its real path '{}'.",
+                    grant.real_path
+                );
+                moved = true;
+            }
+            replaces_private_tmp |= grant
+                .links
+                .iter()
+                .any(|link| link.path == "/tmp" && link.target == grant.real_path);
+            if !real_paths.contains(&grant.real_path) {
+                real_paths.push(grant.real_path.clone());
+            }
+            if !grant.links.is_empty() || !grant.climbs_out_of.is_empty() {
+                aliased.push(grant);
+            }
+        }
+        Ok::<_, FilesystemPolicyError>(real_paths)
+    };
+    let readwrite_paths = resolve(&policy.readwrite_paths, "readwritePaths")?;
+    let readonly_paths = resolve(&policy.readonly_paths, "readonlyPaths")?;
+    Ok(GrantPlan {
+        policy: moved.then(|| ContainerPolicy {
+            readwrite_paths,
+            readonly_paths,
+            ..policy.clone()
+        }),
+        aliased,
+        replaces_private_tmp,
+    })
+}
+
+fn resolve_granted_path(
+    path: &str,
+    list: &'static str,
+) -> Result<bwrap_command::AliasedGrant, FilesystemPolicyError> {
+    #[cfg(test)]
+    crate::mxc_common::filesystem_probe::launch_tests::stall("bwrap-granted", path);
+
+    let refuse = |error: std::io::Error| {
+        let message = format!(
+            "Bubblewrap: {list} entry '{path}' could not be resolved ({error}); refusing to start."
+        );
+        if is_policy_path_error(&error) {
+            FilesystemPolicyError::Policy(message)
+        } else {
+            FilesystemPolicyError::Host(message)
+        }
+    };
+    let Some(resolved) = resolve_through_symlinks(Path::new(path)) else {
+        return Ok(bwrap_command::AliasedGrant {
+            real_path: path.to_owned(),
+            ..Default::default()
+        });
+    };
+    if let Some(error) = resolved.error {
+        return Err(refuse(error));
+    }
+    let inner = inner_link(Path::new(path), &resolved.links).map_err(refuse)?;
+
+    let text = |host_path: PathBuf| {
+        host_path.into_os_string().into_string().map_err(|_| {
+            FilesystemPolicyError::Policy(format!(
+                "Bubblewrap: {list} entry '{path}' resolves through a non-UTF-8 host path that \
+                 cannot be mounted; refusing to start."
+            ))
+        })
+    };
+    let links = resolved
+        .links
+        .into_iter()
+        .map(|(location, target)| host_link(location, target, 0, &refuse, &text))
+        .collect::<Result<_, _>>()?;
+    let inner = inner
+        .map(|(location, target)| {
+            Ok::<_, FilesystemPolicyError>(bwrap_command::GrantLink {
+                path: text(location)?,
+                target: text(target)?,
+                ..Default::default()
+            })
+        })
+        .transpose()?;
+    Ok(bwrap_command::AliasedGrant {
+        real_path: text(resolved.path)?,
+        links,
+        inner,
+        climbs_out_of: resolved
+            .climbed_out_of
+            .into_iter()
+            .map(text)
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn host_link(
+    location: PathBuf,
+    target: PathBuf,
+    depth: usize,
+    refuse: &dyn Fn(std::io::Error) -> FilesystemPolicyError,
+    text: &dyn Fn(PathBuf) -> Result<String, FilesystemPolicyError>,
+) -> Result<bwrap_command::GrantLink, FilesystemPolicyError> {
+    if depth == resolver_file::MAX_SYMLINKS {
+        return Err(refuse(std::io::Error::from_raw_os_error(libc::ELOOP)));
+    }
+    let followed = location
+        .parent()
+        .unwrap_or(Path::new("/"))
+        .join(std::fs::read_link(&location).map_err(refuse)?);
+    let mut passes_through = Vec::new();
+    let mut climbs_out_of = Vec::new();
+    if let Some(resolved) = resolve_through_symlinks(&followed) {
+        if let Some(error) = resolved.error {
+            return Err(refuse(error));
+        }
+        for (hop, hop_target) in resolved.links {
+            passes_through.push(host_link(hop, hop_target, depth + 1, refuse, text)?);
+        }
+        climbs_out_of = resolved
+            .climbed_out_of
+            .into_iter()
+            .map(text)
+            .collect::<Result<_, _>>()?;
+    }
+    Ok(bwrap_command::GrantLink {
+        path: text(location)?,
+        target: text(target)?,
+        passes_through,
+        climbs_out_of,
+    })
+}
+
+/// The link one level below the first symlink on `path`, paired with its real path.
+fn inner_link(
+    path: &Path,
+    links: &[(PathBuf, PathBuf)],
+) -> std::io::Result<Option<(PathBuf, PathBuf)>> {
+    let Some((first, _)) = links.first() else {
+        return Ok(None);
+    };
+    let path = std::path::absolute(path)?;
+    let Ok(rest) = path.strip_prefix(first) else {
+        return Ok(None);
+    };
+    let mut parts = rest.components();
+    let Some(Component::Normal(next)) = parts.next() else {
+        return Ok(None);
+    };
+    if parts.any(|part| part == Component::ParentDir) {
+        return Ok(None);
+    }
+    let inner = first.join(next);
+    match resolve_through_symlinks(&inner) {
+        Some(resolved) => match resolved.error {
+            Some(error) => Err(error),
+            None => Ok(Some((inner, resolved.path))),
+        },
+        None => Ok(None),
+    }
+}
+
+fn host_link_target(path: &str) -> std::io::Result<Option<PathBuf>> {
+    use std::io::ErrorKind::NotFound;
+
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {}
+        Err(error) if error.kind() != NotFound => return Err(error),
+        _ => return Ok(None),
+    }
+    match std::fs::canonicalize(path) {
+        Ok(target) => Ok(Some(target)),
+
+        // A dangling link mounts nothing: bwrap skips the --ro-bind-try source.
+        Err(error) if error.kind() == NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mxc_common::models::{ProxyAddress, ProxyConfig};
+
+    fn base_request() -> ExecutionRequest {
+        ExecutionRequest {
+            script_code: "echo hi".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_failed_bwrap_spawn_is_a_launch_failure() {
+        use crate::mxc_common::logger::Mode;
+        use crate::mxc_common::mxc_error::MxcErrorCode;
+
+        // A NUL in an argument makes `Command::spawn` fail before exec.
+        let request = ExecutionRequest {
+            script_code: "echo \0".into(),
+            ..Default::default()
+        };
+        let Some(resp) = BubblewrapScriptRunner::new()
+            .spawn_bwrap(
+                &request,
+                &HashSet::new(),
+                &[],
+                &[],
+                true,
+                ValidatedLaunch {
+                    egress_plan: None,
+                    bwrap: PathBuf::from("/usr/bin/bwrap"),
+                    network_tools: None,
+                },
+                &mut Logger::new(Mode::Buffer),
+                StdioMode::Pipes,
+            )
+            .err()
+        else {
+            panic!("spawning bwrap with a NUL argument must fail");
+        };
+
+        assert_eq!(resp.failure_phase, FailurePhase::LaunchFailed);
+        assert_eq!(resp.failure_phase.error_code(), MxcErrorCode::BackendError);
+        assert_eq!(resp.exit_code, -1);
+        assert!(
+            resp.error_message.contains("failed to spawn bwrap"),
+            "got: {}",
+            resp.error_message
+        );
+    }
+
+    #[test]
+    fn host_link_target_resolves_links_and_refuses_unresolvable_ones() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(root.join("usr/bin")).unwrap();
+        symlink("usr/bin", root.join("bin")).unwrap();
+        symlink("usr/missing", root.join("dangling")).unwrap();
+        symlink("loop", root.join("loop")).unwrap();
+        let probe = |name: &str| host_link_target(root.join(name).to_str().unwrap());
+
+        assert_eq!(probe("bin").unwrap(), Some(root.join("usr/bin")));
+        assert_eq!(probe("usr/bin").unwrap(), None);
+        assert_eq!(probe("absent").unwrap(), None);
+        assert_eq!(probe("dangling").unwrap(), None);
+        assert!(probe("loop").is_err());
+    }
+
+    #[test]
+    fn a_probed_merged_usr_tree_becomes_relative_baseline_links() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        for real in ["usr/bin", "usr/lib", "usr/lib64", "etc"] {
+            std::fs::create_dir_all(root.join(real)).unwrap();
+        }
+        for (link, target) in [
+            ("bin", "usr/bin"),
+            ("sbin", "usr/sbin"),
+            ("lib", "usr/lib"),
+            ("lib32", "usr/lib32"),
+            ("lib64", "usr/lib64"),
+            ("usr/sbin", "bin"),
+        ] {
+            symlink(target, root.join(link)).unwrap();
+        }
+
+        let links = bwrap_command::baseline_links(|path| {
+            Ok(host_link_target(&format!("{}{path}", root.display()))?
+                .map(|target| Path::new("/").join(target.strip_prefix(&root).unwrap())))
+        })
+        .unwrap();
+        let links: Vec<_> = links
+            .iter()
+            .map(|link| (link.path, link.relative_target.as_str()))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                ("/bin", "usr/bin"),
+                ("/sbin", "usr/bin"),
+                ("/lib", "usr/lib"),
+                ("/lib64", "usr/lib64"),
+                ("/usr/sbin", "bin"),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolver_hint_is_retained_for_unmatched_absolute_targets() {
+        use crate::mxc_common::logger::Mode;
+
+        let mut request = base_request();
+        let mut logger = Logger::new(Mode::Buffer);
+        let target = || Some(PathBuf::from("/opt/private/resolv.conf"));
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| target());
+        assert_eq!(logger.warnings().len(), 1);
+        assert!(logger.warnings()[0].contains("no known mount destination"));
+        assert!(logger.warnings()[0].contains("filesystem.readonlyPaths"));
+        assert!(logger.get_buffer().is_empty());
+
+        let mut logger = Logger::new(Mode::Buffer);
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| None);
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| {
+            Some(PathBuf::from("relative/resolv.conf"))
+        });
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| {
+            Some(PathBuf::from("/run/systemd/resolve/resolv.conf"))
+        });
+        assert!(logger.warnings().is_empty());
+
+        request.policy.readonly_paths = vec!["/other".into()];
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| target());
+        assert_eq!(logger.warnings().len(), 1);
+        let mut logger = Logger::new(Mode::Buffer);
+        request.policy.denied_paths = vec!["/etc".into()];
+        warn_resolver_mount_hint_with(&request, &mut logger, |_| target());
+        assert!(logger.warnings().is_empty());
+    }
+
+    #[test]
+    fn resolver_hint_checks_real_link_shapes_without_changing_host_etc() {
+        use crate::mxc_common::logger::Mode;
+        use std::os::unix::fs::symlink;
+
+        let home = PathBuf::from(std::env::var_os("HOME").expect("HOME is required for this test"));
+        assert!(home.is_absolute());
+        let dir = tempfile::tempdir_in(home).unwrap();
+        let target = dir.path().join("resolver-target");
+        std::fs::write(&target, "nameserver 127.0.0.1\n").unwrap();
+        let link = dir.path().join("resolv.conf");
+        symlink(&target, &link).unwrap();
+        let warn = |request: &ExecutionRequest, logger: &mut Logger| {
+            warn_resolver_mount_hint_with(request, logger, |_| std::fs::read_link(&link).ok());
+        };
+        let mut request = base_request();
+        let mut logger = Logger::new(Mode::Buffer);
+        warn(&request, &mut logger);
+        assert_eq!(logger.warnings().len(), 1);
+        assert!(logger.warnings()[0].contains(&target.display().to_string()));
+        assert!(logger.warnings()[0].contains("filesystem.readonlyPaths"));
+        assert!(logger.get_buffer().is_empty());
+
+        request.policy.readonly_paths = vec!["/other".into()];
+        let mut unrelated_logger = Logger::new(Mode::Buffer);
+        warn(&request, &mut unrelated_logger);
+        assert_eq!(unrelated_logger.warnings().len(), 1);
+
+        request.policy.readonly_paths = vec![dir.path().display().to_string()];
+        let mut covered_logger = Logger::new(Mode::Buffer);
+        warn(&request, &mut covered_logger);
+        assert!(covered_logger.warnings().is_empty());
+
+        request.policy.readonly_paths.clear();
+        std::fs::remove_file(&link).unwrap();
+        std::fs::write(&link, "nameserver 127.0.0.1\n").unwrap();
+        let mut regular_logger = Logger::new(Mode::Buffer);
+        warn(&request, &mut regular_logger);
+        assert!(regular_logger.warnings().is_empty());
+
+        std::fs::remove_file(&link).unwrap();
+        let chained = dir.path().join("chained");
+        symlink(&target, &chained).unwrap();
+        let directory = dir.path().join("directory");
+        std::fs::create_dir(&directory).unwrap();
+        for (name, link_target, expected_hints) in [
+            ("relative", PathBuf::from("resolver-target"), 0),
+            ("chained", chained, 1),
+            ("dangling", dir.path().join("missing"), 1),
+            ("directory", directory, 1),
+        ] {
+            symlink(link_target, &link).unwrap();
+            let mut hint_logger = Logger::new(Mode::Buffer);
+            warn(&request, &mut hint_logger);
+            assert_eq!(hint_logger.warnings().len(), expected_hints, "{name}");
+            std::fs::remove_file(&link).unwrap();
+        }
+    }
+
+    #[test]
+    fn cwd_mount_hint_is_retained_for_unmatched_paths() {
+        use crate::mxc_common::logger::Mode;
+
+        let mut request = base_request();
+        request.working_directory = "/home/user".into();
+        let mut logger = Logger::new(Mode::Buffer);
+        warn_cwd_mount_hint(&request, &mut logger);
+        assert_eq!(logger.warnings().len(), 1);
+        assert!(logger.warnings()[0].contains("no apparent covering mount"));
+        assert!(logger.warnings()[0].contains("filesystem.readonlyPaths"));
+        assert!(logger.get_buffer().is_empty());
+
+        request.policy.readonly_paths = vec!["/other".into()];
+        let mut unrelated_logger = Logger::new(Mode::Buffer);
+        warn_cwd_mount_hint(&request, &mut unrelated_logger);
+        assert_eq!(unrelated_logger.warnings().len(), 1);
+        request.policy.readonly_paths = vec!["/home/user/data".into()];
+        let mut covered_logger = Logger::new(Mode::Buffer);
+        warn_cwd_mount_hint(&request, &mut covered_logger);
+        assert!(covered_logger.warnings().is_empty());
+    }
+
+    /// A request carrying `alice:hunter2@` in its proxy URL, built the way a
+    /// programmatic caller would rather than through the JSON parser.
+    fn request_with_a_credential_bearing_proxy() -> ExecutionRequest {
+        let mut req = base_request();
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::from_url(
+                "http://alice:hunter2@proxy.example.com:3128",
+                "proxy.example.com".into(),
+                3128,
+            )),
+        };
+        req
+    }
+
+    /// Every declared feature must be matched by a backend-local refusal of
+    /// the values it cannot honor.
+    ///
+    /// Declaring `INGRESS_DEFAULT`/`HOST_LOOPBACK` tells shared validation to
+    /// stop checking those fields. That is the point — it is what lets the
+    /// honorable deny posture through — but it also means an unsupported value
+    /// now reaches the runner unchallenged. This asserts both halves at once:
+    /// shared validation waves the allow posture through *because* of the
+    /// declaration, and the backend gate is what stops it. Delete either half
+    /// and this fails, which is the fail-open the two-part change exists to
+    /// prevent.
+    #[test]
+    fn every_declared_inbound_feature_has_a_backend_refusal_behind_it() {
+        use crate::mxc_common::models::{NetworkAction, NetworkEgressPolicy, NetworkIngressPolicy};
+
+        use crate::bwrap_common::bwrap_command::{
+            BWRAP_HOST_LOOPBACK_ALLOW, BWRAP_INGRESS_DEFAULT_ALLOW,
+        };
+
+        let runner = BubblewrapScriptRunner::new();
+        let support = runner.network_policy_support();
+
+        for (default, host_loopback) in [
+            (NetworkAction::Allow, NetworkAction::Deny),
+            (NetworkAction::Deny, NetworkAction::Allow),
+        ] {
+            let mut request = base_request();
+            request.policy.network_egress = Some(NetworkEgressPolicy::default());
+            request.policy.network_ingress = Some(NetworkIngressPolicy {
+                default,
+                host_loopback,
+            });
+
+            assert!(
+                validate_network_policy_support(&request, support).is_ok(),
+                "shared validation should defer to the declaration \
+                 (default={default:?} hostLoopback={host_loopback:?})"
+            );
+            // Through `validate`, not the gate function directly: this must
+            // also fail if the gate is written but never wired in. The
+            // rejection sits ahead of the `bwrap` probe, so the verdict is the
+            // same on a host without bwrap installed.
+            let refusal = runner
+                .validate(&request)
+                .expect_err("the backend must refuse what the declaration stopped checking");
+            assert!(
+                refusal.error_message == BWRAP_INGRESS_DEFAULT_ALLOW
+                    || refusal.error_message == BWRAP_HOST_LOOPBACK_ALLOW,
+                "unexpected refusal for default={default:?} \
+                 hostLoopback={host_loopback:?}: {}",
+                refusal.error_message
+            );
+        }
+    }
+
+    /// Every `NetworkPolicySupport` bit must be a deliberate decision, proven
+    /// against a config the shared gate actually rules on.
+    ///
+    /// The bits are a hand-written declaration: nothing derives them from the
+    /// fields this backend really consumes, so a bit that was simply never
+    /// added reads exactly like one that was considered and refused. Both
+    /// produce the same clean rejection. That is how `RUNTIME_PROXY` stayed
+    /// undeclared while the backend had full proxy support the whole time --
+    /// no test could see the difference, because there was nothing to compare
+    /// the declaration against.
+    ///
+    /// This closes that gap from both sides. The union assertion means a newly
+    /// added bit fails here until someone categorizes it, so the decision can
+    /// no longer be made by omission. Each entry is then proven against a
+    /// request that exercises its field: declared bits must be accepted,
+    /// undeclared ones must be refused by name. Every probe is also run against
+    /// `ALL`, so a probe that stops reaching its gate fails loudly instead of
+    /// quietly passing for the wrong reason.
+    #[test]
+    fn every_network_policy_support_bit_is_a_deliberate_decision() {
+        use crate::mxc_common::models::{
+            NetworkAction, NetworkEgressPolicy, NetworkIngressPolicy, NetworkRule,
+        };
+
+        use crate::bwrap_common::network_rules::{
+            render_filter_payloads, EgressPlan, IngressPlan, RuleFamily,
+        };
+
+        // A directional posture makes the gates that key off it fire. Both
+        // sections are always set, because that is the only shape the parser
+        // produces (`apply_directional_network` fills them in together).
+        fn directional() -> ExecutionRequest {
+            let mut request = base_request();
+            request.policy.network_mode_specified = true;
+            request.policy.network_egress = Some(NetworkEgressPolicy::default());
+            request.policy.network_ingress = Some(NetworkIngressPolicy::default());
+            request
+        }
+
+        // (bit, declared, a request that exercises it, the field it names,
+        //  a probe proving the field reaches enforcement)
+        //
+        // Acceptance alone proved nothing: `HOST_LOOPBACK` sat here declared
+        // and accepted for its whole unenforced life. Each probe flips the
+        // field in a copy of its request and requires the rendered chain to
+        // change, so an over-declared bit fails here.
+        type Probe = fn(&ExecutionRequest) -> Result<(), String>;
+
+        /// The rendered v4 payload, exactly as the supervisor would install it.
+        fn chain_payload(request: &ExecutionRequest) -> Vec<String> {
+            let egress =
+                EgressPlan::for_request(request).expect("the probe requests are all renderable");
+            let ingress = IngressPlan::for_policy(&request.policy);
+            render_filter_payloads(
+                &egress,
+                &ingress,
+                RuleFamily::V4,
+                "MXC_EGRESS",
+                "MXC_INGRESS",
+            )
+        }
+
+        /// Requires the rendered chain to change, naming what was flipped.
+        fn must_differ(
+            flipped: &str,
+            before: Vec<String>,
+            after: Vec<String>,
+        ) -> Result<(), String> {
+            if before == after {
+                return Err(format!(
+                    "flipping {flipped} left the rendered chain unchanged: {before:?}"
+                ));
+            }
+            Ok(())
+        }
+
+        let egress_default: Probe = |request| {
+            let mut flipped = request.clone();
+            flipped.policy.network_egress = Some(NetworkEgressPolicy {
+                default: NetworkAction::Allow,
+                ..request.policy.network_egress.clone().unwrap_or_default()
+            });
+            must_differ(
+                "egress.default",
+                chain_payload(request),
+                chain_payload(&flipped),
+            )
+        };
+
+        let egress_rules: Probe = |request| {
+            let mut flipped = request.clone();
+            flipped.policy.network_egress = Some(NetworkEgressPolicy {
+                allow: Vec::new(),
+                deny: Vec::new(),
+                ..request.policy.network_egress.clone().unwrap_or_default()
+            });
+            must_differ(
+                "the egress rule lists",
+                chain_payload(request),
+                chain_payload(&flipped),
+            )
+        };
+
+        let ingress_default: Probe = |request| {
+            let mut flipped = request.clone();
+            flipped.policy.network_ingress = Some(NetworkIngressPolicy {
+                default: NetworkAction::Allow,
+                ..request.policy.network_ingress.clone().unwrap_or_default()
+            });
+            must_differ(
+                "ingress.default",
+                chain_payload(request),
+                chain_payload(&flipped),
+            )
+        };
+
+        let host_loopback: Probe = |request| {
+            let mut flipped = request.clone();
+            flipped.policy.network_ingress = Some(NetworkIngressPolicy {
+                host_loopback: NetworkAction::Allow,
+                ..request.policy.network_ingress.clone().unwrap_or_default()
+            });
+            must_differ(
+                "ingress.hostLoopback",
+                chain_payload(request),
+                chain_payload(&flipped),
+            )
+        };
+
+        let runtime_proxy: Probe = |request| {
+            let address = request
+                .policy
+                .network_proxy
+                .address
+                .clone()
+                .ok_or("the runtime-proxy probe carries no proxy address")?;
+            // The claim the bit makes is that a `runtimeConfig.networkProxy`
+            // lands on the proxy machinery this backend already enforces:
+            // the env injection, and no refusal on the way there.
+            if crate::bwrap_common::bwrap_command::proxy_with_egress_rejection(request).is_some() {
+                return Err(
+                    "the runtime-proxy shape is refused before it reaches the proxy".into(),
+                );
+            }
+            must_differ(
+                "the proxy address",
+                crate::bwrap_common::bwrap_command::build_args(request, Some(&address)),
+                crate::bwrap_common::bwrap_command::build_args(request, None),
+            )
+        };
+
+        let decisions: [(
+            NetworkPolicySupport,
+            bool,
+            ExecutionRequest,
+            &str,
+            Option<Probe>,
+        ); 6] = [
+            (
+                NetworkPolicySupport::EGRESS_DEFAULT,
+                true,
+                directional(),
+                "network.egress.default",
+                Some(egress_default),
+            ),
+            (
+                NetworkPolicySupport::EGRESS_RULES,
+                true,
+                {
+                    let mut request = directional();
+                    request.policy.network_egress = Some(NetworkEgressPolicy {
+                        allow: vec![NetworkRule::default()],
+                        ..Default::default()
+                    });
+                    request
+                },
+                "network.egress allow/deny rules",
+                Some(egress_rules),
+            ),
+            (
+                NetworkPolicySupport::INGRESS_DEFAULT,
+                true,
+                directional(),
+                "network.ingress.default",
+                Some(ingress_default),
+            ),
+            (
+                NetworkPolicySupport::HOST_LOOPBACK,
+                true,
+                directional(),
+                "network.ingress.hostLoopback",
+                Some(host_loopback),
+            ),
+            (
+                // The normalized runtime proxy reaches the private-namespace
+                // proxy-only enforcement path.
+                NetworkPolicySupport::RUNTIME_PROXY,
+                true,
+                {
+                    let mut request = directional();
+                    request.policy.network_egress = Some(NetworkEgressPolicy {
+                        default: NetworkAction::Deny,
+                        ..Default::default()
+                    });
+                    request.policy.runtime_network_proxy_specified = true;
+                    request.policy.network_proxy = ProxyConfig {
+                        address: Some(ProxyAddress::new("127.0.0.1".to_string(), 3128)),
+                    };
+                    request
+                },
+                "runtimeConfig.networkProxy",
+                Some(runtime_proxy),
+            ),
+            (
+                // Undeclared: a ProcessContainer concept with no Bubblewrap
+                // equivalent, so shared validation must keep refusing it.
+                NetworkPolicySupport::PROXY_PEER_IDENTITY,
+                false,
+                {
+                    let mut request = base_request();
+                    request.policy.allowed_proxy_peer = Some("Contoso.Proxy_123".to_string());
+                    request
+                },
+                "processContainer.network.allowedProxyPeer",
+                None,
+            ),
+        ];
+
+        // A bit added to `ALL` but not categorized above fails here.
+        let categorized = decisions
+            .iter()
+            .fold(NetworkPolicySupport::default(), |acc, (bit, ..)| acc | *bit);
+        assert!(
+            categorized.contains(NetworkPolicySupport::ALL)
+                && NetworkPolicySupport::ALL.contains(categorized),
+            "a NetworkPolicySupport bit is missing from this table -- decide whether \
+             Bubblewrap declares it, and prove that decision with a probe here"
+        );
+
+        let support = BubblewrapScriptRunner::new().network_policy_support();
+
+        for (bit, declared, request, field, probe) in decisions {
+            assert!(
+                validate_network_policy_support(&request, NetworkPolicySupport::ALL).is_ok(),
+                "the probe for {field} no longer reaches its gate, so it proves nothing"
+            );
+            assert_eq!(
+                support.contains(bit),
+                declared,
+                "the declaration for {field} disagrees with this table"
+            );
+
+            match validate_network_policy_support(&request, support) {
+                Ok(()) => assert!(declared, "{field} is accepted but recorded as undeclared"),
+                Err(error) => {
+                    assert!(
+                        !declared,
+                        "{field} is declared but was refused: {}",
+                        error.error_message
+                    );
+                    assert!(
+                        error.error_message.contains(field),
+                        "the refusal for {field} names something else: {}",
+                        error.error_message
+                    );
+                }
+            }
+
+            match (declared, probe) {
+                (true, Some(probe)) => probe(&request)
+                    .unwrap_or_else(|reason| panic!("{field} is over-declared: {reason}")),
+                (true, None) => panic!(
+                    "{field} is declared with no enforcement probe -- acceptance is not \
+                     evidence that anything acts on the field"
+                ),
+                (false, Some(_)) => panic!(
+                    "{field} is undeclared, so there is nothing for an enforcement probe \
+                     to prove; the refusal assertion above already covers it"
+                ),
+                (false, None) => {}
+            }
+        }
+    }
+
+    #[test]
+    fn an_ipv6_allow_warns_that_it_cannot_carry_traffic() {
+        use crate::mxc_common::models::{NetworkEgressPolicy, NetworkPeer, NetworkRule};
+
+        let allow = |cidr: &str| NetworkRule {
+            to: vec![NetworkPeer {
+                cidr: cidr.parse().expect("test CIDR"),
+                except: vec![],
+            }],
+            ports: vec![],
+        };
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy {
+            allow: vec![allow("2001:db8::1/128"), allow("203.0.113.5/32")],
+            ..Default::default()
+        });
+        let plan =
+            network_rules::EgressPlan::for_request(&req).expect("both literals are enforceable");
+
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_unreachable_v6_targets(&plan, &mut logger);
+        let out = logger.warnings().join("\n");
+        assert!(
+            out.contains("2001:db8::1/128"),
+            "must name the v6 target: {out}"
+        );
+        assert!(
+            !out.contains("203.0.113.5"),
+            "must not name the reachable v4 target: {out}"
+        );
+        // The retained-warning channel is the point: the debug buffer is not
+        // read back by `mxc_engine::spawn_execution_request`, so a warning left
+        // there is silent.
+        assert!(
+            logger.get_buffer().is_empty(),
+            "the warning must travel as a retained warning, not as buffer output"
+        );
+
+        // Nothing unreachable, nothing to say.
+        let mut v4_only = base_request();
+        v4_only.policy.network_egress = Some(NetworkEgressPolicy {
+            allow: vec![allow("203.0.113.5/32")],
+            ..Default::default()
+        });
+        let plan =
+            network_rules::EgressPlan::for_request(&v4_only).expect("a v4 literal is enforceable");
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_unreachable_v6_targets(&plan, &mut logger);
+        assert!(logger.warnings().is_empty(), "no v6 allow, no warning");
+    }
+
+    /// A plan whose only allow rule opens `cidr` on `ports`.
+    fn plan_allowing(
+        cidr: &str,
+        ports: Vec<crate::mxc_common::models::NetworkPort>,
+    ) -> network_rules::EgressPlan {
+        use crate::mxc_common::models::{NetworkEgressPolicy, NetworkPeer, NetworkRule};
+
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy {
+            allow: vec![NetworkRule {
+                to: vec![NetworkPeer {
+                    cidr: cidr.parse().expect("test CIDR"),
+                    except: vec![],
+                }],
+                ports,
+            }],
+            ..Default::default()
+        });
+        network_rules::EgressPlan::for_request(&req).expect("the allowlist is enforceable")
+    }
+
+    fn dns_port(
+        protocol: crate::mxc_common::models::NetworkProtocol,
+    ) -> Vec<crate::mxc_common::models::NetworkPort> {
+        vec![crate::mxc_common::models::NetworkPort {
+            protocol,
+            port: Some(53),
+            end_port: None,
+        }]
+    }
+
+    /// An allowlist that never names slirp's forwarder leaves the pinned
+    /// resolver unreachable, which the sandbox cannot report for itself: the
+    /// resolver file looks correct and the query is simply dropped.
+    #[test]
+    fn a_pinned_resolver_the_chain_drops_is_warned_about() {
+        let plan = plan_allowing("140.82.112.0/20", vec![]);
+
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_resolver_blocked_by_egress(&plan, true, &mut logger);
+        let out = logger.warnings().join("\n");
+        assert!(out.contains("10.0.2.3"), "must name the forwarder: {out}");
+        assert!(
+            out.contains("53") && out.contains("any"),
+            "must name the rule the caller needs: {out}"
+        );
+        assert!(
+            logger.get_buffer().is_empty(),
+            "the warning must travel as a retained warning, not as buffer output"
+        );
+
+        // A host whose resolver already works is never pinned, so there is
+        // nothing to warn about however closed the chain is.
+        let mut unpinned = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_resolver_blocked_by_egress(&plan, false, &mut unpinned);
+        assert!(
+            unpinned.warnings().is_empty(),
+            "no pin, no warning: {:?}",
+            unpinned.warnings()
+        );
+    }
+
+    /// A resolver falls back to TCP for an answer that does not fit a datagram,
+    /// and `options use-vc` -- which the pin carries over -- makes it use TCP
+    /// for everything, so a UDP-only rule still loses names.
+    #[test]
+    fn a_udp_only_rule_is_warned_about_for_tcp() {
+        use crate::mxc_common::models::NetworkProtocol;
+
+        let plan = plan_allowing("10.0.2.3/32", dns_port(NetworkProtocol::Udp));
+
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_resolver_blocked_by_egress(&plan, true, &mut logger);
+        let out = logger.warnings().join("\n");
+        assert!(
+            out.contains("TCP"),
+            "a UDP-only rule must still report TCP as blocked: {out}"
+        );
+    }
+
+    /// Warning at a caller who already opened the forwarder would send them to
+    /// change a rule that is already correct.
+    #[test]
+    fn a_pinned_resolver_the_chain_admits_is_not_warned_about() {
+        use crate::mxc_common::models::NetworkProtocol;
+
+        let plan = plan_allowing("10.0.2.3/32", dns_port(NetworkProtocol::Any));
+
+        let mut logger = Logger::new(crate::mxc_common::logger::Mode::Buffer);
+        warn_resolver_blocked_by_egress(&plan, true, &mut logger);
+        assert!(
+            logger.warnings().is_empty(),
+            "the chain admits DNS on both protocols, so there is nothing to report: {:?}",
+            logger.warnings()
+        );
+    }
+
+    /// Proxy-only mode rewrites the endpoint to slirp's gateway and opens
+    /// exactly that address, so an endpoint neither step can express has to be
+    /// refused at policy time -- before a proxy is started.
+    #[test]
+    fn validate_rejects_an_ipv6_loopback_proxy_endpoint_before_the_environment_probe() {
+        use crate::mxc_common::models::NetworkEgressPolicy;
+
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy::default());
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("[::1]".into(), 3128)),
+        };
+
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate_prepared_with_probe(&req, || {
+                panic!("an invalid endpoint must be rejected before probing bwrap")
+            })
+            .unwrap_err();
+
+        assert!(
+            err.error_message.contains("IPv6 loopback"),
+            "an endpoint the gateway cannot reach must be refused by validate: {}",
+            err.error_message
+        );
+    }
+
+    /// The runner-level twin of the proxy/directional conflict check.
+    ///
+    /// The helper has its own unit test, but nothing asserted that `validate`
+    /// actually *calls* it: deleting the wiring left every test green while
+    /// reopening the fail-open. This test fails if that call is removed.
+    ///
+    /// It also pins the ordering claim -- the refusal must land before the
+    /// environmental `bwrap` probe, so a host without bwrap still reports the
+    /// policy error rather than a missing binary.
+    #[test]
+    fn validate_rejects_a_directional_rule_set_combined_with_a_proxy() {
+        use crate::mxc_common::models::{NetworkAction, NetworkEgressPolicy, NetworkRule};
+
+        let unhonorable = [
+            NetworkEgressPolicy {
+                default: NetworkAction::Allow,
+                ..Default::default()
+            },
+            NetworkEgressPolicy {
+                default: NetworkAction::Deny,
+                allow: vec![NetworkRule::default()],
+                ..Default::default()
+            },
+        ];
+
+        for egress in unhonorable {
+            let mut req = base_request();
+            req.policy.network_egress = Some(egress);
+            req.policy.network_proxy.address = Some(ProxyAddress::new("127.0.0.1".into(), 3128));
+            let err = BubblewrapScriptRunner::new()
+                .validate_prepared_with_probe(&req, || panic!("policy must fail before probe"))
+                .unwrap_err();
+            assert_eq!(
+                err.error_message,
+                bwrap_command::BWRAP_PROXY_DIRECTIONAL_EGRESS
+            );
+        }
+    }
+
+    /// The proxy-only posture is the one directional shape a proxy may carry,
+    /// so it must survive the guard above rather than being caught by it.
+    #[test]
+    fn validate_accepts_the_proxy_only_directional_posture() {
+        use crate::mxc_common::models::{NetworkAction, NetworkEgressPolicy};
+
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy {
+            default: NetworkAction::Deny,
+            ..Default::default()
+        });
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("127.0.0.1".into(), 3128)),
+        };
+
+        let unavailable = bwrap_version::BwrapUnavailable::NotFound;
+        let expected = unavailable.to_string();
+        let err = BubblewrapScriptRunner::new()
+            .validate_prepared_with_probe(&req, || Err(unavailable))
+            .unwrap_err();
+        assert_eq!(err.error_message, expected);
+    }
+
+    #[test]
+    fn validate_rejects_a_routable_ipv6_proxy_endpoint_before_the_environment_probe() {
+        use crate::mxc_common::models::NetworkEgressPolicy;
+
+        // The egress rules are IPv4-only, so this endpoint could never be
+        // opened -- `run` would discover that only after starting slirp.
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy::default());
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("2001:db8::1".into(), 3128)),
+        };
+
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate_prepared_with_probe(&req, || {
+                panic!("an invalid endpoint must be rejected before probing bwrap")
+            })
+            .unwrap_err();
+
+        assert!(
+            err.error_message.contains("IPv4 proxy endpoint"),
+            "the endpoint check must explain the unsupported IPv6 address: {}",
+            err.error_message
+        );
+    }
+
+    /// A hostname endpoint is reached by pinning it over `/etc/hosts`, and the
+    /// pin outranks every policy mount -- so a policy that denies the file must
+    /// refuse the combination rather than silently hand the file back.
+    #[test]
+    fn validate_rejects_a_hostname_proxy_that_would_defeat_a_denied_hosts_file() {
+        use crate::mxc_common::models::NetworkEgressPolicy;
+
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy::default());
+        req.policy.denied_paths = vec!["/etc/hosts".into()];
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("proxy.example.com".into(), 3128)),
+        };
+
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate_prepared_with_probe(&req, || {
+                panic!("a denied hosts file must be rejected before probing bwrap")
+            })
+            .unwrap_err();
+
+        assert!(
+            err.error_message.contains("deniedPaths"),
+            "the conflict must be refused at policy time: {}",
+            err.error_message
+        );
+    }
+
+    /// `validate` compares the denied paths as written, so a spelling that only
+    /// becomes `/etc/hosts` after normalization slips past it. `spawn` builds
+    /// the masks from the normalized list, so the mask lands on `/etc/hosts`
+    /// and the pin -- spliced after every policy mount -- then hands the file
+    /// back. Regression test: the check must also see the normalized policy.
+    #[test]
+    fn a_dotdot_spelling_of_a_denied_hosts_file_still_refuses_the_pin() {
+        let mut req = base_request();
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("proxy.example.com".into(), 3128)),
+        };
+
+        // As written, this matches nothing the check looks for.
+        req.policy.denied_paths = vec!["/etc/../etc/hosts".into()];
+        assert!(
+            check_pin_against_denied_hosts(&req).is_ok(),
+            "precondition: the written form is not recognized"
+        );
+
+        // Normalized -- what `spawn` actually builds the masks from.
+        let mut normalized = req.clone();
+        normalized.policy.denied_paths = vec!["/etc/hosts".into()];
+        let err = check_pin_against_denied_hosts(&normalized)
+            .expect_err("the normalized policy must refuse the pin");
+        assert!(err.contains("deniedPaths"), "{err}");
+    }
+
+    /// The rejection is scoped to endpoints that actually produce a pin. An IP
+    /// literal is reached without touching `/etc/hosts`, so denying the file
+    /// stays compatible -- and that is the escape hatch the message offers.
+    #[test]
+    fn validate_accepts_an_ip_proxy_endpoint_alongside_a_denied_hosts_file() {
+        use crate::mxc_common::models::NetworkEgressPolicy;
+
+        let mut req = base_request();
+        req.policy.network_egress = Some(NetworkEgressPolicy::default());
+        req.policy.denied_paths = vec!["/etc/hosts".into()];
+        req.policy.network_proxy = ProxyConfig {
+            address: Some(ProxyAddress::new("127.0.0.1".into(), 3128)),
+        };
+
+        let unavailable = bwrap_version::BwrapUnavailable::NotFound;
+        let expected = unavailable.to_string();
+        let err = BubblewrapScriptRunner::new()
+            .validate_prepared_with_probe(&req, || Err(unavailable))
+            .unwrap_err();
+        assert_eq!(err.error_message, expected);
+    }
+
+    #[test]
+    fn validate_accepts_programmatic_directional_cidr_rules() {
+        use crate::mxc_common::models::{NetworkEgressPolicy, NetworkPeer, NetworkRule};
+
+        let mut req = base_request();
+        let rule = |cidr: &str| NetworkRule {
+            to: vec![NetworkPeer {
+                cidr: cidr.parse().expect("test CIDR"),
+                except: vec![],
+            }],
+            ports: vec![],
+        };
+        req.policy.network_egress = Some(NetworkEgressPolicy {
+            allow: vec![rule("203.0.113.7/32"), rule("10.0.0.0/8")],
+            deny: vec![rule("2001:db8::/32")],
+            ..Default::default()
+        });
+
+        let unavailable = bwrap_version::BwrapUnavailable::NotFound;
+        let expected = unavailable.to_string();
+        let err = BubblewrapScriptRunner::new()
+            .validate_prepared_with_probe(&req, || Err(unavailable))
+            .unwrap_err();
+        assert_eq!(err.error_message, expected);
+    }
+
+    #[test]
+    fn validate_rejects_empty_script_before_environment_probe() {
+        // Empty script_code is a user-input error and must be surfaced
+        // even on hosts without bwrap installed (independent of CI image).
+        let mut req = base_request();
+        req.script_code = String::new();
+
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate_prepared_with_probe(&req, || {
+                panic!("environment probe must not run for invalid input")
+            })
+            .unwrap_err();
+        assert!(err.error_message.contains("script_code is empty"));
+    }
+
+    #[test]
+    fn validate_rejects_a_credential_bearing_proxy_url_before_the_environment_probe() {
+        // The parser's credential guard only covers requests the parser built.
+        // `ExecutionRequest` and `ProxyAddress::from_url` are both public, so a
+        // caller can hand this runner a proxy URL the parser never saw --
+        // `to_url` returns it verbatim and `build_args` turns it into a
+        // `bwrap --setenv HTTP_PROXY <url>` argument, which any local user can
+        // read out of /proc/<pid>/cmdline while the sandbox runs.
+        //
+        // Like the empty-script check this is user input, so it has to be
+        // reported ahead of the bwrap probe: on a host with no bwrap installed
+        // a later guard would return the probe's error instead of this one.
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate(&request_with_a_credential_bearing_proxy())
+            .unwrap_err();
+
+        assert!(
+            err.error_message.contains("must not carry credentials"),
+            "a credential-bearing proxy URL must be refused before it can reach \
+             `bwrap --setenv`, but validate said: {}",
+            err.error_message
+        );
+    }
+
+    #[test]
+    fn the_credential_rejection_does_not_repeat_the_password_it_rejects() {
+        // An error message is logged and returned to the caller, so quoting the
+        // URL verbatim would publish the secret the guard exists to protect.
+        let runner = BubblewrapScriptRunner::new();
+        let err = runner
+            .validate(&request_with_a_credential_bearing_proxy())
+            .unwrap_err();
+
+        assert!(
+            !err.error_message.contains("hunter2"),
+            "the rejection leaked the password it was rejecting: {}",
+            err.error_message
+        );
+    }
+
+    #[test]
+    fn validate_surfaces_every_environment_probe_failure() {
+        let request = base_request();
+        let failures = [
+            bwrap_version::BwrapUnavailable::UnsupportedArchitecture("riscv64".to_string()),
+            bwrap_version::BwrapUnavailable::NotFound,
+            bwrap_version::BwrapUnavailable::ProbeFailed {
+                status: Some(126),
+                detail: "permission denied".to_string(),
+            },
+            bwrap_version::BwrapUnavailable::UnrecognizedVersion("junk".to_string()),
+            bwrap_version::BwrapUnavailable::TooOld {
+                found: bwrap_version::BwrapVersion::new(0, 4, 1),
+                path: "/usr/bin/bwrap".into(),
+            },
+        ];
+
+        for failure in failures {
+            let expected = failure.to_string();
+            let error = BubblewrapScriptRunner::new()
+                .validate_prepared_with_probe(&request, || Err(failure))
+                .unwrap_err();
+            assert_eq!(error.error_message, expected);
+        }
+    }
+
+    // SDK v2: refusals report policy_validation and a missing bwrap reports
+    // backend_unavailable. See docs/development/plans/sdk-v2-error-codes.md.
+    #[test]
+    fn refusals_and_a_missing_bwrap_report_backend_error() {
+        use crate::mxc_common::mxc_error::MxcErrorCode;
+
+        let runner = BubblewrapScriptRunner::new();
+        let empty_script = ExecutionRequest {
+            script_code: String::new(),
+            ..base_request()
+        };
+
+        for (what, error) in [
+            (
+                "empty script_code",
+                runner.validate(&empty_script).unwrap_err(),
+            ),
+            (
+                "proxy credentials",
+                runner
+                    .validate(&request_with_a_credential_bearing_proxy())
+                    .unwrap_err(),
+            ),
+            (
+                "missing bwrap",
+                runner
+                    .validate_prepared_with_probe(&base_request(), || {
+                        Err(bwrap_version::BwrapUnavailable::NotFound)
+                    })
+                    .unwrap_err(),
+            ),
+        ] {
+            assert_eq!(
+                error.failure_phase.error_code(),
+                MxcErrorCode::BackendError,
+                "input={what}; output={error:?}"
+            );
+        }
+    }
+
+    /// A denied symlink pointing at a **directory** is rewritten to its canonical
+    /// target so the mask lands on the real directory (bwrap cannot mount a mask
+    /// over a symlink whose parent is bound). The resolved directory is
+    /// classified as a `--tmpfs` (directory) mask, not a file mask.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_rewrites_symlink_to_dir() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_dir");
+        std::fs::create_dir(&target).unwrap();
+        let link = dir.path().join("link_to_dir");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![link.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        let out = plan.paths.expect("symlink must be rewritten");
+        let canonical = std::fs::canonicalize(&target).unwrap();
+        let canonical = canonical.to_string_lossy().into_owned();
+        assert_eq!(out, vec![canonical.clone()]);
+        // The link path itself must no longer appear.
+        assert!(!out.contains(&link.to_string_lossy().into_owned()));
+        // A directory is masked with `--tmpfs`, so it is NOT a file-mask target.
+        assert!(!plan.files.contains(&canonical));
+    }
+
+    /// A denied symlink pointing at a **file** is likewise rewritten to its
+    /// target and classified as a `/dev/null` (file) mask.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_rewrites_symlink_to_file() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_file.txt");
+        std::fs::write(&target, b"secret").unwrap();
+        let link = dir.path().join("link_to_file");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![link.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        let out = plan.paths.expect("symlink must be rewritten");
+        let canonical = std::fs::canonicalize(&target).unwrap();
+        let canonical = canonical.to_string_lossy().into_owned();
+        assert_eq!(out, vec![canonical.clone()]);
+        // A regular file is masked with `/dev/null`.
+        assert!(plan.files.contains(&canonical));
+    }
+
+    /// A denied path whose **ancestor** directory is a symlink (not the leaf) is
+    /// also rewritten to its real path — bwrap aborts on an ancestor symlink just
+    /// as it does on a leaf symlink.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_rewrites_ancestor_symlink() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("secret")).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // Deny .../link/secret — the leaf `secret` is a real dir, `link` is the
+        // symlinked ancestor.
+        let denied = link.join("secret");
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![denied.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        let out = plan.paths.expect("ancestor symlink must be rewritten");
+        assert_eq!(
+            out,
+            vec![real.join("secret").to_string_lossy().into_owned()]
+        );
+    }
+
+    /// An ancestor symlink with a **not-yet-created** leaf is resolved by
+    /// canonicalizing the deepest existing ancestor and re-appending the missing
+    /// tail (bwrap aborts here too, and `canonicalize` alone cannot resolve it).
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_rewrites_ancestor_symlink_missing_leaf() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let real = base.join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // Deny .../link/newfile — `newfile` does not exist yet.
+        let denied = link.join("newfile");
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![denied.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        let out = plan
+            .paths
+            .expect("ancestor symlink must be rewritten even with a missing leaf");
+        assert_eq!(
+            out,
+            vec![real.join("newfile").to_string_lossy().into_owned()]
+        );
+    }
+
+    /// Regular files, directories, and missing paths with no symlink anywhere in
+    /// the path are a no-op for rewriting (`paths` is `None`, avoiding an
+    /// unnecessary clone), but are still classified: the file → `/dev/null`, the
+    /// directory → `--tmpfs`.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_noop_for_non_symlinks() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        // Canonicalize up front so a symlinked tempdir root (e.g. via TMPDIR)
+        // doesn't spuriously trigger a rewrite — we are testing symlink-free paths.
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let file = base.join("f.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let subdir = base.join("d");
+        std::fs::create_dir(&subdir).unwrap();
+        let missing = base.join("does_not_exist");
+
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![
+                file.to_string_lossy().into_owned(),
+                subdir.to_string_lossy().into_owned(),
+                missing.to_string_lossy().into_owned(),
+            ],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        assert!(plan.paths.is_none());
+        // Classification still happens on the no-rewrite path.
+        assert!(plan.files.contains(&file.to_string_lossy().into_owned()));
+        assert!(!plan.files.contains(&subdir.to_string_lossy().into_owned()));
+    }
+
+    /// Broken links fail before `..` can redirect the mask to another path.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_rejects_broken_links() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::write(base.join("secret"), b"x").unwrap();
+        std::os::unix::fs::symlink(base.join("nonexistent_target"), base.join("dangling")).unwrap();
+        std::os::unix::fs::symlink("loop", base.join("loop")).unwrap();
+
+        for denied in [
+            base.join("dangling"),
+            base.join("dangling/../secret"),
+            base.join("loop"),
+        ] {
+            let policy = crate::mxc_common::models::ContainerPolicy {
+                denied_paths: vec![denied.to_string_lossy().into_owned()],
+                ..Default::default()
+            };
+            let mut logger = Logger::new(Mode::Buffer);
+            let error = resolve_denied_paths(&policy, &mut logger)
+                .err()
+                .unwrap_or_else(|| panic!("{} must fail closed", denied.display()));
+            assert!(
+                matches!(&error, FilesystemPolicyError::Policy(m) if m.contains("could not be resolved")),
+                "{error:?}"
+            );
+        }
+    }
+
+    /// A denied path that traverses `..` under a symlinked ancestor with a
+    /// missing intermediate directory must fold the `..` and resolve to the real
+    /// target the kernel would reach. Regression test for a `..`-dropping bug
+    /// that reconstructed a bystander target (`/real/missing/secret`) and left
+    /// the real denied path (`/real/secret`) exposed.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_denied_paths_folds_dotdot_under_symlinked_ancestor() {
+        use crate::mxc_common::logger::{Logger, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let real = base.join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // Deny .../link/missing/../secret — `missing` does not exist and the
+        // `..` cancels it, so the real target is .../real/secret.
+        let denied = link.join("missing").join("..").join("secret");
+        let policy = crate::mxc_common::models::ContainerPolicy {
+            denied_paths: vec![denied.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_denied_paths(&policy, &mut logger).expect("must not fail closed");
+        let out = plan
+            .paths
+            .expect("`..` under a symlinked ancestor must be rewritten");
+        assert_eq!(
+            out,
+            vec![real.join("secret").to_string_lossy().into_owned()],
+            "`..` must fold so the mask targets the real denied path, not a bystander"
+        );
+    }
+
+    fn text(path: &Path) -> String {
+        path.to_str().unwrap().to_owned()
+    }
+
+    fn grant_link(path: &Path, target: &Path) -> bwrap_command::GrantLink {
+        bwrap_command::GrantLink {
+            path: text(path),
+            target: text(target),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn aliased_grants_move_to_their_real_paths() {
+        use crate::mxc_common::logger::Mode;
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        std::fs::write(real.join("sub/file"), b"x").unwrap();
+        symlink(&real, base.join("alias")).unwrap();
+        symlink("alias", base.join("chain")).unwrap();
+        symlink("real/sub/file", base.join("file-link")).unwrap();
+
+        let policy = ContainerPolicy {
+            readwrite_paths: vec![
+                text(&base.join("alias")),
+                text(&base.join("chain/sub")),
+                text(&real),
+            ],
+            readonly_paths: vec![
+                text(&base.join("file-link")),
+                text(&base.join("alias/missing/../sub")),
+            ],
+            denied_paths: vec![text(&base.join("alias/secret"))],
+            ..Default::default()
+        };
+        let mut logger = Logger::new(Mode::Buffer);
+        let plan = resolve_granted_paths(&policy, &mut logger).unwrap();
+
+        let moved = plan.policy.expect("aliased grants must move");
+        assert_eq!(
+            moved.readwrite_paths,
+            [text(&real), text(&real.join("sub"))]
+        );
+        assert_eq!(
+            moved.readonly_paths,
+            [text(&real.join("sub/file")), text(&real.join("sub"))]
+        );
+        assert_eq!(moved.denied_paths, policy.denied_paths);
+        let alias = |real_path: &Path| bwrap_command::AliasedGrant {
+            real_path: text(real_path),
+            links: vec![grant_link(&base.join("alias"), &real)],
+            ..Default::default()
+        };
+        assert_eq!(
+            plan.aliased,
+            [
+                alias(&real),
+                bwrap_command::AliasedGrant {
+                    real_path: text(&real.join("sub")),
+                    links: vec![bwrap_command::GrantLink {
+                        passes_through: vec![grant_link(&base.join("alias"), &real)],
+                        ..grant_link(&base.join("chain"), &real)
+                    }],
+                    inner: Some(grant_link(&base.join("chain/sub"), &real.join("sub"))),
+                    ..Default::default()
+                },
+                bwrap_command::AliasedGrant {
+                    real_path: text(&real.join("sub/file")),
+                    links: vec![grant_link(&base.join("file-link"), &real.join("sub/file"))],
+                    ..Default::default()
+                },
+                bwrap_command::AliasedGrant {
+                    climbs_out_of: vec![text(&real.join("missing"))],
+                    ..alias(&real.join("sub"))
+                },
+            ]
+        );
+        assert!(logger.get_buffer().contains("readwritePaths entry"));
+    }
+
+    #[test]
+    fn directories_that_a_grant_or_its_links_climb_out_of_are_recorded() {
+        use crate::mxc_common::logger::Mode;
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        for directory in ["home", "data/staging", "data/app"] {
+            std::fs::create_dir_all(base.join(directory)).unwrap();
+        }
+        symlink(base.join("data/staging/../app"), base.join("home/app")).unwrap();
+
+        let policy = ContainerPolicy {
+            readwrite_paths: vec![
+                text(&base.join("home/app")),
+                text(&base.join("data/staging/../app")),
+            ],
+            ..Default::default()
+        };
+        let plan = resolve_granted_paths(&policy, &mut Logger::new(Mode::Buffer)).unwrap();
+        let app = text(&base.join("data/app"));
+        let staging = text(&base.join("data/staging"));
+        assert_eq!(
+            plan.aliased,
+            [
+                bwrap_command::AliasedGrant {
+                    real_path: app.clone(),
+                    links: vec![bwrap_command::GrantLink {
+                        climbs_out_of: vec![staging.clone()],
+                        ..grant_link(&base.join("home/app"), &base.join("data/app"))
+                    }],
+                    ..Default::default()
+                },
+                bwrap_command::AliasedGrant {
+                    real_path: app,
+                    climbs_out_of: vec![staging],
+                    ..Default::default()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn real_grants_stay_as_written() {
+        use crate::mxc_common::logger::Mode;
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let policy = ContainerPolicy {
+            readwrite_paths: vec![text(&base)],
+            readonly_paths: vec![text(&base.join("missing/child"))],
+            ..Default::default()
+        };
+        let plan = resolve_granted_paths(&policy, &mut Logger::new(Mode::Buffer)).unwrap();
+        assert!(plan.policy.is_none());
+        assert!(plan.aliased.is_empty());
+    }
+
+    #[test]
+    fn a_grant_below_a_symlinked_directory_records_the_link_one_level_down() {
+        use crate::mxc_common::logger::Mode;
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(base.join("var/tmp/project/src")).unwrap();
+        symlink("var/tmp", base.join("tmp")).unwrap();
+
+        let policy = ContainerPolicy {
+            readwrite_paths: vec![text(&base.join("tmp/project/src"))],
+            ..Default::default()
+        };
+        let plan = resolve_granted_paths(&policy, &mut Logger::new(Mode::Buffer)).unwrap();
+        assert_eq!(
+            plan.aliased,
+            [bwrap_command::AliasedGrant {
+                real_path: text(&base.join("var/tmp/project/src")),
+                links: vec![grant_link(&base.join("tmp"), &base.join("var/tmp"))],
+                inner: Some(grant_link(
+                    &base.join("tmp/project"),
+                    &base.join("var/tmp/project")
+                )),
+                ..Default::default()
+            }]
+        );
+    }
+
+    #[test]
+    fn unresolvable_grants_refuse_to_start() {
+        use crate::mxc_common::logger::Mode;
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        symlink(base.join("missing"), base.join("dangling")).unwrap();
+        symlink("loop", base.join("loop")).unwrap();
+
+        for (policy, list, path) in [
+            (
+                ContainerPolicy {
+                    readwrite_paths: vec![text(&base.join("dangling"))],
+                    ..Default::default()
+                },
+                "readwritePaths",
+                base.join("dangling"),
+            ),
+            (
+                ContainerPolicy {
+                    readonly_paths: vec![text(&base.join("loop/child"))],
+                    ..Default::default()
+                },
+                "readonlyPaths",
+                base.join("loop/child"),
+            ),
+        ] {
+            let error = resolve_granted_paths(&policy, &mut Logger::new(Mode::Buffer))
+                .err()
+                .unwrap_or_else(|| panic!("{} must refuse to start", path.display()));
+            let expected = format!("{list} entry '{}' could not be resolved", path.display());
+            assert!(
+                matches!(&error, FilesystemPolicyError::Policy(message) if message.contains(&expected)),
+                "{error:?}"
+            );
+        }
+    }
+}

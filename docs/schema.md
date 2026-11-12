@@ -1,0 +1,764 @@
+
+## Configuration Schema
+
+> **Audience:** MXC consumers and developers
+
+MXC uses a JSON configuration file. The current stable schema is at
+[`schemas/stable/mxc-config.schema.1.0.0.json`](../schemas/stable/mxc-config.schema.1.0.0.json).
+For development, the schema for version `1.1.0-alpha` at
+[`schemas/dev/mxc-config.schema.1.1.0-alpha.json`](../schemas/dev/mxc-config.schema.1.1.0-alpha.json)
+includes experimental features and may change without notice.
+
+For self-contained references to what each supported version accepts, see
+[containment policy language](containment-policy/README.md).
+
+See the [consumer glossary](glossary.md) for terminology. This guide describes
+["MXC request JSON"](#mxc-request-json); typed SDK callers use the types in the
+[SDK reference](api-reference/README.md) instead.
+
+Editors that support JSON Schema will provide autocomplete and validation when
+you add a `"$schema"` reference to your config file. Use the stable schema for
+production configs and the dev schema when working on experimental features:
+
+```json
+// Production
+"$schema": "./schemas/stable/mxc-config.schema.1.0.0.json"
+
+// Development (experimental features)
+"$schema": "./schemas/dev/mxc-config.schema.1.1.0-alpha.json"
+```
+
+### "MXC request JSON"
+
+"MXC request JSON" is a versioned request object defined by the
+[published schemas](../schemas/stable/) or
+[development schema](../schemas/dev/mxc-config.schema.1.1.0-alpha.json).
+Executors and `mxc_ffi`, MXC's C-callable library, use the same registered
+contracts. There is no additional free-form FFI format.
+
+Typed Rust, .NET, and Node SDK callers use `ContainerRequest`,
+`ProvisionRequest`, and `ExecutionRequest`, not JSON. Node and .NET produce
+"MXC request JSON" internally.
+
+Creation requests omit `phase`, `sandboxId`, and `sessionId`. Lifecycle
+requests include `phase`. Sandbox-addressed operations (`start`, `exec`,
+`stop`, and `deprovision`) take `sandboxId`; `deprovision-session` instead
+takes `sessionId`. Both provision operations create their own IDs.
+
+For executor lifecycle calls, supply `phase` through `--operation` and the
+target ID through `--container-id` or `--session-id`, not as top-level JSON
+fields. The executor inserts them before using the same contract parser.
+`wslc.provision.sessionId` stays in the JSON body: it selects the session a new
+sandbox joins, not the target of the operation.
+
+For example, starting a provisioned WSLc container uses this "MXC request JSON"
+with `mxc_run_state_aware_json`:
+
+```json
+{
+    "version": "1.0.0",
+    "phase": "start",
+    "sandboxId": "wslc:0123456789abcdef0123456789abcdef"
+}
+```
+
+To supply the same request through the executor, save the non-routing fields
+as `start.json`:
+
+```json
+{
+    "version": "1.0.0"
+}
+```
+
+```text
+wxc-exec.exe start.json --operation start --container-id wslc:0123456789abcdef0123456789abcdef
+```
+
+Replace the example ID with the one returned by provision. The C-callable
+functions take NUL-terminated UTF-8 JSON strings. The schemas specify fields
+and values; backend validation checks whether the requested policy can run.
+For full lifecycle examples, see [container lifecycle JSON requests](#container-lifecycle-json-requests).
+
+### Directional networking (supported contracts)
+
+Supported contracts from `0.9.0-alpha` use explicit egress and ingress policy
+and put the loopback proxy endpoint in runtime configuration:
+
+```json
+{
+    "version": "0.9.0-alpha",
+    "network": {
+        "egress": {
+            "default": "deny",
+            "allow": [{
+                "to": [{ "cidr": "140.82.112.0/20" }],
+                "ports": [{ "protocol": "tcp", "port": 443 }]
+            }]
+        },
+        "ingress": {
+            "default": "deny",
+            "hostLoopback": "deny"
+        }
+    }
+}
+```
+
+Direct egress rules and `runtimeConfig.networkProxy` select different
+connectivity models and cannot be combined. Direct mode applies numeric CIDR,
+protocol, and port rules where the backend supports them. A runtime proxy
+names a caller-managed HTTP/S endpoint; the proxy owns any destination
+filtering. Whether MXC can restrict raw-socket traffic to that endpoint
+depends on the backend; see its guide. When `network`, `network.egress`, or
+`network.egress.default` is omitted, `egress.default` resolves to `deny`.
+Both ingress controls also default to `deny` when omitted. `hostLoopback`
+resolves independently of `ingress.default`, so host-loopback access must
+be requested explicitly.
+A runtime proxy may omit `network.egress`: the effective egress policy is
+still `deny` with no direct allow or deny rules.
+A ProcessContainer proxy requires `ingress.default: "allow"`. Identity-scoped
+proxies set a non-blank `allowedProxyPeer` and keep `hostLoopback: "deny"`;
+identity-less host proxies omit `allowedProxyPeer` and require
+`hostLoopback: "allow"`. The identity-less route is a weaker development/testing
+deployment: it opens both host-loopback directions without restricting access
+to a named proxy peer. It does not enforce a proxy-only host-loopback exception.
+
+For MicroVM networking and proxy support, see the
+[NVX backend capability table](backends/nvx/nvx.md#supported-operations-and-policy).
+
+```json
+{
+    "version": "0.9.0-alpha",
+    "containment": "processcontainer",
+    "network": {
+        "egress": { "default": "deny" },
+        "ingress": {
+            "default": "allow",
+            "hostLoopback": "deny"
+        }
+    },
+    "runtimeConfig": {
+        "networkProxy": "http://127.0.0.1:8080"
+    },
+    "processContainer": {
+        "network": {
+            "allowedProxyPeer": "Contoso.Proxy_123"
+        }
+    }
+}
+```
+
+The `defaultPolicy`, `enforcementMode`, `allowLocalNetwork`, `allowedHosts`,
+`blockedHosts`, and `network.proxy` fields belonged to retired contracts.
+No supported contract accepts them. Migrate existing policies to
+directional fields and `runtimeConfig.networkProxy` rather than changing
+the version string alone.
+
+### IsolationSession unrestricted networking (0.9)
+
+IsolationSession cannot restrict networking. JSON requests for `0.9.0-alpha` must describe
+that actual posture through the standard directional network fields:
+
+```json
+{
+    "version": "0.9.0-alpha",
+    "phase": "provision",
+    "containment": "isolation_session",
+    "network": {
+        "egress": { "default": "allow" },
+        "ingress": {
+            "default": "allow",
+            "hostLoopback": "allow"
+        }
+    }
+}
+```
+
+All three directional values must be explicitly `allow`; omission defaults to
+deny. Legacy network fields, rules, mixed postures, and proxies are rejected.
+An absent or empty `network` object is rejected. Exact v0.9 IsolationSession
+does not require an experimental execution opt-in.
+Every complete request that carries a process requires a non-empty
+`process.commandLine`. The Windows native CLI may accept a template without
+that field when the command is supplied after `--`; `wxc-exec.exe` inserts or
+replaces `process.commandLine` before schema and typed request validation. That
+entry-point transform does not make the unmodified template a complete request
+that can be executed independently.
+
+### Full Schema
+
+```json
+{
+    "version": "1.0.0",                    // Exact schema version. Minimum supported: "0.9.0-alpha"; current stable: "1.0.0".
+    "containerId": "my-container",         // Optional externally assigned container ID.
+                                           //  Omit it to use backend-defined internal naming.
+                                           //  Must not contain an embedded NUL (`\u0000`);
+                                           //  the executor rejects it rather than truncating.
+    "containment": "processcontainer",     // Backend (see table below)
+
+    "lifecycle": {
+        "destroyOnExit": true,             // Destroy container after execution
+        "preservePolicy": false            // Retain container policies after exit if applicable
+    },
+
+    "process": {
+        "commandLine": "python app.py",    // Required: command to execute
+        "cwd": "C:\\workspace",            // Working directory (optional; when omitted each
+                                           //  backend substitutes a granted directory rather
+                                           //  than inheriting the launcher's — see
+                                           //  "Working Directory" below)
+        "env": ["MY_VAR=value"],           // Omitted: backend default; supplied: used verbatim
+        "inheritDefaultEnv": true,         // Layer env on the backend default (0.9.0-alpha)
+        "timeout": 30000                   // Timeout in ms (0 = no timeout)
+    },
+
+    "filesystem": {
+        "readwritePaths": ["C:\\temp"],     // Read-write access
+        "readonlyPaths": ["C:\\data"],      // Read-only access
+        "deniedPaths": ["C:\\Windows"]      // Blocked paths
+    },
+
+    "network": {
+        "egress": {
+            "default": "deny",
+            "allow": [{
+                "to": [{ "cidr": "203.0.113.0/24" }],
+                "ports": [{ "protocol": "tcp", "port": 443 }]
+            }],
+            "deny": [{
+                "to": [{ "cidr": "203.0.113.7/32" }],
+                "ports": [{ "protocol": "tcp", "port": 443 }]
+            }]
+        },
+        "ingress": {
+            "default": "deny",
+            "hostLoopback": "deny"
+        }
+    },
+
+    "ui": {
+        "disable": true,                   // Disable all UI access (default true)
+        "clipboard": "none",               // "none", "read", "write", or "all"
+        "injection": false                 // Allow synthetic input injection
+    },
+
+    "processContainer": {                  // Process-based container-specific
+        "leastPrivilege": false,           // true is rejected: PSEC has no LPAC token option
+        "capabilities": ["internetClient"],
+        "filesystem": {
+            "enumeratePaths": ["C:\\tools"] // Query/list entries without reading file contents
+        },
+        "captureDenials": {                // Windows-only: record the process's access
+            "mode": "block",               // "block" (default): access stays denied and
+                                           // is logged (deny-by-default preserved). "allow":
+                                           // access is allowed and logged (audit; relaxes
+                                           // deny-by-default, emits a security warning).
+            "outputPath": "C:\\logs\\denials.json", // JSON denials file the app reads. Parent dir
+                                           // must exist; a unique per-run id is stamped into the
+                                           // stem and the actual path is printed on stderr.
+            "retainEtl": false             // Keep the sealed ETL after analysis and report its
+                                           // path in output metadata. Defaults to false.
+                                           // Retention requires a terminal wait; abandoning the
+                                           // process handle deletes the internal trace.
+                                           // Requires compatible native PSEC capture support.
+        }
+                                           // Omit outputPath for a managed JSON output file.
+                                           // Native PSEC capture supports runtimeConfig.networkProxy
+                                           // without adding the direct-egress capture capability.
+                                           // Missing native capture exports or required PSEC
+                                           // capabilities fail before MXC creates the container.
+    },
+
+    "lxc": {                               // LXC-specific
+        "distribution": "alpine",
+        "release": "3.19"
+    },
+
+    "seatbelt": {                          // macOS Seatbelt settings (macOS only)
+        "profileOverride": null,           // Optional raw TinyScheme profile (escape hatch)
+        "guiAccess": false,                // Allow GUI Mach services / IOKit / pty for window-drawing apps
+        "nestedPty": true,                 // Allow inner process to allocate its own pty (posix_openpt)
+        "keychainAccess": false,           // Allow Keychain via securityd / trustd / cfprefsd / lsd.*
+        "extraMachLookups": [],            // Additional Mach service global-names the inner process may resolve
+        "captureDenials": {                // 1.1.0-alpha: record what the sandbox blocked.
+                                           // Not combinable with profileOverride.
+            "mode": "block",               // "block" (default) or "allow" (default-denied access is
+                                           // allowed and recorded; explicit denies still apply)
+            "outputPath": "~/denials.json",// Absolute or ~/ path; parent dir must exist. Omit for a
+                                           // temp file. Actual path is printed on stderr.
+            "retainEtl": false             // Keep the raw log as a .seatbelt.log and report its
+                                           // path as etlPath
+        }
+    },
+
+    "telemetry": {                         // Telemetry (Windows only)
+        "enabled": true                    // Request emission for this run; MXC-owned user consent
+                                           // and a permitting administrative policy are also required
+    },
+
+    "wslc": {                              // WSL Container settings (v0.9+)
+        "image": "alpine:latest",          // Container image name
+        "imageTarPath": "C:\\images\\alpine.tar",  // Import image from local tar file
+        "cpuCount": 4,                     // CPU count for WSLC session
+        "memoryMb": 2048,                  // Memory in MB for WSLC session
+        "gpu": false,                      // GPU passthrough
+        "storagePath": "C:\\wslc-storage", // Image store path
+        "portMappings": [                  // Host<->container port forwarding. TCP only -- the WSLC SDK runtime returns E_NOTIMPL for UDP, so the parser hard-rejects "udp" entries with a clear message.
+            { "windowsPort": 8080, "containerPort": 80, "protocol": "tcp" }
+        ]
+    },
+
+    "hyperlight": {                        // Hyperlight settings (v0.10+)
+        "runtime": "node"                  // Guest runtime: agent (default), python, python-shell, node, bash or dotnet-jit
+    }
+}
+```
+
+> **Compatibility settings.** Create-and-run contracts `0.9.0-alpha`, `1.0.0`,
+> and `1.1.0-alpha` accept `fallback.allowDaclMutation` as an optional boolean
+> for compatibility and ignore it. It does not enable host-DACL mutation or
+> change native enforcement. Removing this accepted field from the 1.x line
+> requires a new major contract.
+
+> **Lifecycle operation fields.** The `phase` top-level field selects a
+> container lifecycle operation: JSON that includes it is parsed as input for
+> that operation (see below), *not* the create-and-run configuration above. The `sandboxId`
+> top-level field is only for lifecycle operations; a create-and-run JSON request carrying `sandboxId`
+> is rejected with a parse error. Callers cannot supply `correlationVector`;
+> it is rejected as an unknown field because lifecycle correlation is internal
+> to MXC and is not a declared JSON request or response field. See
+> [Container lifecycle architecture](development/architecture/container-lifecycle.md)
+> and [telemetry architecture](development/architecture/telemetry.md).
+
+### Working Directory
+
+`process.cwd` is optional. When it is set, it is passed to the backend
+verbatim — an unusable value fails the launch rather than being silently
+replaced. When it is **omitted**, backends do not simply inherit the launcher's
+working directory: under a deny-by-default sandbox that directory is usually
+unreadable, and the result ranges from a confusing silent relocation (Windows
+restarts the child at the drive root) to `getcwd()` errors on the child's
+stderr. Each backend therefore substitutes a directory the sandbox can actually
+use:
+
+| Backend | Default when `process.cwd` is omitted |
+|---------|----------------------------------------|
+| Windows ProcessContainer (PSEC) | First `readwritePaths` entry that is an existing directory, else the first such `readonlyPaths` entry, else the system drive root (`%SystemDrive%\`). Never `NULL`. |
+| Seatbelt (macOS) | Same precedence, with `~` expanded as the profile expands it; falls back to `/`. |
+| Bubblewrap (Linux) | No substitution — a policy grant is never adopted. `--chdir` is emitted only for an explicit `process.cwd`, which from 0.9 is also normalized against the sandbox root and used as `HOME`. With no explicit `cwd` there is no `--chdir` and `HOME` is unset — see [`docs/backends/bwrap/bubblewrap-backend.md`](backends/bwrap/bubblewrap-backend.md). |
+| LXC / WSL Container | The container root — see [`docs/backends/lxc/lxc-backend.md`](backends/lxc/lxc-backend.md). |
+| MicroVM | The guest default; see [NVX working-directory behaviour](backends/nvx/nvx.md#working-directory-and-environment). |
+| Hyperlight | Not applicable — this backend rejects a working directory outright. |
+
+Policy entries that are blank, name a file, or do not exist yet are skipped:
+a process cannot be launched in any of them.
+
+WSL Container create-and-run execution accepts an explicit `process.cwd` only as a local
+Windows drive path, which is mapped under `/mnt/<drive>` (for example
+`C:\work` becomes `/mnt/c/work`); any other value is rejected before the
+container is created. WSL Container execution in an existing container (`exec`) takes an absolute
+in-container path instead. See
+[`docs/backends/wslc/wsl-container-getting-started.md`](backends/wslc/wsl-container-getting-started.md).
+
+### Environment
+
+`process.env` and `process.inheritDefaultEnv` combine as follows from
+`0.9.0-alpha`:
+
+| `process.env` | `inheritDefaultEnv` | The child gets |
+|---|---|---|
+| omitted | ignored | the backend default |
+| `[]` | `false` (default) | nothing |
+| `[]` | `true` | the backend default |
+| `["FOO=bar"]` | `false` (default) | only `FOO` |
+| `["FOO=bar"]` | `true` | the default, plus `FOO`; a caller entry wins |
+
+`inheritDefaultEnv` layers the supplied entries over the default, so supplying
+none of them asks for the default itself — the same environment an omitted
+`process.env` gets.
+
+Two backends depart from the table. The Windows process container requires
+`SYSTEMROOT` and `LOCALAPPDATA` to be present, so a caller-owned block that
+omits them — including `[]` — is rejected before launch rather than used; the
+rejection names the missing variables. IsolationSession starts every process
+from the agent user's default environment and cannot replace or empty it, so
+`process.env` without `inheritDefaultEnv` — including `[]` — is rejected before
+launch.
+
+Native Windows PSEC can replace `LOCALAPPDATA` with a container-profile path
+after MXC supplies the environment block. Supplying the required entry does
+not guarantee that the contained process observes the host profile path.
+
+What the default block contains is backend-specific; see the backend's guide.
+On the WSL Container backend it is the container image's own `ENV`, which MXC
+neither authors nor enumerates — see
+[`docs/backends/wslc/wsl-container-getting-started.md`](backends/wslc/wsl-container-getting-started.md#environment).
+
+For MicroVM environment support and limits, see
+[NVX working directory and environment](backends/nvx/nvx.md#working-directory-and-environment).
+
+### Filesystem Policy
+
+The `filesystem` section defines path access policy shared across backends:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `readwritePaths` | string[] | `[]` | Paths the process can read and write. |
+| `readonlyPaths` | string[] | `[]` | Paths the process can read but not write. |
+| `deniedPaths` | string[] | `[]` | Paths the process cannot access at all. |
+
+Backend support for filesystem policy is described in each backend guide; see
+the [NVX capability table](backends/nvx/nvx.md#supported-operations-and-policy)
+for MicroVM. Backend-specific sections, including
+`processContainer.filesystem.enumeratePaths`, can only accompany their matching
+`containment` selection.
+
+The ProcessContainer-only `processContainer.filesystem` section contains:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enumeratePaths` | string[] | `[]` | Paths the process can query or enumerate without reading file contents. Requires schema `0.9.0-alpha` and a Windows BaseContainer host with PSEC 1.1 `fs_enumerate` support. |
+
+On Windows, `deniedPaths` is enforced natively when PSEC advertises
+`PSE_SUPPORT_FS_DENY`; on a host without it, a request with `deniedPaths` is
+rejected before execution.
+
+Windows BaseContainer can also receive access through Windows permissions granted
+to `ALL_APPLICATION_PACKAGES`. An applicable explicit `deniedPaths` rule takes
+precedence over access supplied by that group. See
+[ProcessContainer filesystem access](backends/process-container/filesystem.md)
+for implicit grants, their interaction with explicit policy, and an observed
+common baseline. Baseline fragments are documentation, not replacement policies;
+overlapping explicit grants and denies follow the rules below.
+
+#### Overlapping paths for Windows BaseContainer
+
+When paths overlap across `readwritePaths` and `deniedPaths`:
+
+- The same directory in both `readwritePaths` and `deniedPaths` is denied.
+- An explicitly granted readwrite child of a denied parent remains readable
+  and writable. A sibling without that child grant remains denied, even when
+  the denied parent is beneath a broader readwrite grant.
+
+Denying a parent does not cancel a more specific child grant. To block the
+child, remove its grant or add the child itself to `deniedPaths`.
+
+#### Filesystem probe timeouts
+
+Bubblewrap, LXC, and WSLC check filesystem policy just before enforcement.
+Listed aliases of the same object are tightened to the most restrictive intent
+(`denied` > `readonly` > `readwrite`), then delegation checks require read access
+for read-only grants and read/write access for writable grants. Missing paths
+are skipped; other access-check failures reject the request. Object identities
+that cannot be determined reject the request when denied paths are present,
+and otherwise produce a warning. These checks do not eliminate races between
+validation and mounting.
+
+Each policy-path probe has a **five-second deadline**, including time waiting
+for a worker. This also covers the parser's advisory existence probes on all
+backends, Bubblewrap and LXC mask-target resolution, Bubblewrap grant
+resolution, and WSLC overlap canonicalization (including missing-tail ancestor
+lookup). A timeout or worker
+failure **rejects startup**, even without denied paths; it never treats the path
+as missing or skips a security check. The error names the path and the failure.
+Ordinary missing-path warnings and returned filesystem-error handling remain
+unchanged. The deadline is internal and independent of `process.timeout`,
+including when script execution has no timeout.
+
+Blocking filesystem calls cannot be cancelled reliably. A timed-out worker may
+remain blocked until the filesystem recovers, but at most **16 probe workers**
+can exist per process. A blocked worker retains its slot; repeated timeouts do
+not create unlimited threads. If all slots are occupied, later probes fail
+within the same deadline. Restore the inaccessible filesystem or restart the
+host process to recover capacity. Workers are reused within each validation
+pass, and Windows probes retain the caller's impersonation identity.
+
+Before starting a probe worker, MXC keeps its containing native library loaded
+for the rest of the process lifetime. Closing a caller's library handle after a
+timeout therefore cannot unload code beneath a blocked worker. If that lifetime
+protection cannot be established, the probe fails without starting a worker.
+
+On Unix, delegation uses the real UID/GID; a root-running LXC executor still
+checks root's access, not a pre-elevation user's access. These deadlines bound
+policy probes, not total sandbox startup, backend mount operations, or workload
+I/O if the filesystem becomes unavailable after validation.
+
+#### Path grants and root directories for Windows BaseContainer
+
+For Windows BaseContainer, a path grant in `readwritePaths` applies to that directory
+and its descendants with the exception of root directories. Granting access to a
+**volume root** (e.g. `C:\`) does **not** cascade to its child folders to prevent over-provisioning.
+
+For example, `"readwritePaths": ["C:\\"]` does **not** grant access to files
+under `C:\data`.
+
+#### Upward directory traversal for Windows BaseContainer
+
+Many tools search **upward** from the working directory toward the volume root,
+looking for a marker file that defines their project. With Windows BaseContainer, when such a tool reaches a parent directory that is not in the allowlist, `ACCESS_DENIED` will be returned.
+
+When resolving this error, grant only the specific directories the tool must reach and keep that set as small as possible.
+Avoid resolving this error by granting broad profile roots. Each 'readwritePaths' grant also exposes that directory's descendants and granting broad profile roots may result in over-permissioning.
+
+### UI Policy
+
+The `ui` section is the cross-platform UI-restriction policy. Every field is
+default-deny, so on a backend that enforces the section an omitted `ui` is
+equivalent to full lockdown. **That equivalence is per-backend**: a backend that
+does not enforce UI policy applies no restriction whether the section is omitted
+or supplied, so an omitted `ui` there is not lockdown. Check the backend's own
+documentation before relying on the default.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `disable` | boolean | `true` | Disable all UI access. On Windows ProcessContainer this maps to the Win32k system-call disable mitigation, so the process cannot create windows, use GDI, or make `NtUser*` / `NtGdi*` calls. |
+| `clipboard` | enum | `"none"` | Clipboard access level: `"none"`, `"read"`, `"write"`, or `"all"`. |
+| `injection` | boolean | `false` | Whether the process may inject synthetic keyboard/mouse input (`SendInput` and friends). |
+
+**Per-backend support.** `ui` is enforced by the Windows ProcessContainer
+backend (via job-object UI restrictions plus the Win32k mitigation — see
+[`backends/process-container/UIPolicy_Schema.md`](backends/process-container/UIPolicy_Schema.md))
+and by the macOS Seatbelt backend (via the generated sandbox profile). Other
+backends do not implement UI restrictions; each backend's documentation states
+whether it applies, rejects, or ignores the section. **IsolationSession and WSLc
+refuse any supplied `ui` at every phase on both surfaces**, and each accepts an
+omitted one without applying any UI restriction — so the section's default-deny
+reading does not hold on either. The reasons differ: no `ui` posture is truthful
+for a session-isolated sandbox (see
+[IsolationSession Rust lifecycle architecture](development/architecture/backends/isolation-session/state-aware-rust.md)),
+while WSLc has no mechanism to enforce UI restrictions on a container (see
+[WSLc container lifecycle guide](backends/wslc/wslc-state-aware.md)).
+The Windows `processContainer.ui` sub-block carries the ProcessContainer-only
+fields `isolation`, `desktopSystemControl`, `systemSettings`, and `ime`.
+`processContainer.filesystem` carries `enumeratePaths`. Both sub-blocks are
+valid only when `containment` is `processcontainer`.
+
+### Containment Backends
+
+The `containment` field accepts both **abstract intent values** (which the
+native binary resolves per host) and **concrete backend values** (which select
+a specific runner). Prefer abstract intents unless you specifically need to
+force a particular backend.
+
+#### Abstract intents
+
+| Value | Resolution |
+|-------|------------|
+| `"process"` | `processcontainer` on Windows, `bubblewrap` on Linux, `seatbelt` on macOS |
+| `"vm"` | Full hardware-virtualised VM isolation. Resolves to `windows_sandbox` on Windows. |
+| `"microvm"` | MicroVM on Windows x64 (NVX via the Windows Hypervisor Platform). Experimental. |
+
+#### Concrete backends
+
+| Value | Description |
+|-------|-------------|
+| `"processcontainer"` | Windows process-level isolation through native PSEC (BaseContainer). Requests the host cannot fully enforce are rejected before container creation; schema version and `--experimental` do not enable an AppContainer fallback. |
+| `"windows_sandbox"` | Windows Sandbox VM isolation. Supports create-and-run execution with a fresh disposable VM per execution, and container lifecycle operations backed by a long-lived per-container daemon. |
+| `"wslc"` | Linux containers via the WSL Container SDK |
+| `"lxc"` | Native LXC container isolation. No abstract intent resolves to LXC; request it explicitly. |
+| `"microvm"` | MicroVM isolation via NVX on Windows x64 |
+| `"hyperlight"` | MicroVM isolation via Hyperlight + Unikraft with an embedded CPython snapshot (experimental) |
+| `"isolation_session"` | Windows isolation session: create-and-run execution uses a freshly provisioned isolated user account in its own OS-managed session. Container lifecycle operations can retain the session between executions. |
+| `"seatbelt"` | macOS sandbox isolation (Seatbelt). Requires macOS 15 or later — see [`docs/backends/seatbelt/seatbelt-backend.md`](backends/seatbelt/seatbelt-backend.md). |
+| `"bubblewrap"` | Unprivileged Linux sandboxing via Bubblewrap/user namespaces. The Linux default — see [`docs/backends/bwrap/bubblewrap-backend.md`](backends/bwrap/bubblewrap-backend.md). |
+
+Only the backend section matching the selected `containment` value is accepted;
+a config that also carries an unrelated backend's section is **rejected** with a
+"Multiple containment backends configured" error rather than silently ignored.
+
+### Container lifecycle JSON requests
+
+These examples use ["MXC request JSON"](#mxc-request-json). For executor
+calls, use the conversion described above.
+
+The development schema documents JSON objects for container lifecycle
+operations (`provision-session` / `provision` / `start` / `exec` / `stop` /
+`deprovision` / `deprovision-session`).
+The create-and-run JSON above describes container setup and a workload together.
+Lifecycle JSON instead identifies an operation: `provision` allocates a new
+container; later operations use the returned `sandboxId`.
+
+Choose a supported contract version for the backend and operation:
+
+- IsolationSession uses published `0.9.0-alpha`.
+- WSLC uses published `0.9.0-alpha`, or development `1.1.0-alpha` for
+  `wslc.provision.portMappings` and the session operations; Windows Sandbox
+  uses development `1.1.0-alpha`.
+
+Contracts before `0.9.0-alpha` are retired. The supported published
+`0.9.0-alpha` and `1.0.0` contracts describe create-and-run JSON requests plus
+IsolationSession and WSLC lifecycle JSON requests. This Windows Sandbox example therefore uses the
+development schema for `1.1.0-alpha`:
+
+```json
+{
+    "$schema": "./schemas/dev/mxc-config.schema.1.1.0-alpha.json",
+    "version": "1.1.0-alpha",
+    "phase": "exec",
+    "sandboxId": "wsb:abcd1234",
+    "process": { "commandLine": "echo hi" }
+}
+```
+
+The `sandboxId` prefix routes sandbox-addressed operations to the backend;
+those requests do not accept `containment`. Provision and both WSLc session
+operations instead require `containment`. Cross-cutting policy stays at the
+top level, and backend-specific settings stay under the backend section
+(such as `wslc.provision`).
+
+Phase / sandboxId / sessionId / containment validation:
+
+| Phase | `sandboxId` | `sessionId` | `containment` |
+|---|---|---|---|
+| `provision-session` | (not allowed) | (not allowed) | **Required** — `wslc` only |
+| `provision`     | (not allowed) | (not allowed) | **Required** — picks the backend whose `provision` mints a fresh sandboxId |
+| `start`         | **Required** (`<prefix>:<token>`) | (not allowed) | (not allowed) |
+| `exec`          | **Required** | (not allowed) | (not allowed) |
+| `stop`          | **Required** | (not allowed) | (not allowed) |
+| `deprovision`   | **Required** | (not allowed) | (not allowed) |
+| `deprovision-session` | (not allowed) | **Required** (`wslcsess:<token>`) | **Required** — `wslc` only |
+
+A session ID carries no backend prefix, so the session phases declare their
+containment instead of being routed by their target. Any containment other than
+`wslc` is refused with `unsupported_containment`: no other backend owns a
+session that sandboxes are placed into.
+
+Backends supporting container lifecycle operations today are `isolation_session`, `windows_sandbox`,
+and `wslc` (all Windows-only). IsolationSession does not require runtime
+experimental authorization; Windows Sandbox does.
+
+WSLC `provision` accepts `wslc.provision.portMappings`, the same
+`windowsPort` / `containerPort` / `protocol` entries as the create-and-run
+`wslc.portMappings` list, applied to the sandbox's own container:
+
+```json
+{
+    "$schema": "./schemas/dev/mxc-config.schema.1.1.0-alpha.json",
+    "version": "1.1.0-alpha",
+    "phase": "provision",
+    "containment": "wslc",
+    "network": {
+        "egress": { "default": "allow" },
+        "ingress": { "default": "allow", "hostLoopback": "allow" }
+    },
+    "wslc": {
+        "provision": {
+            "image": "alpine:latest",
+            "portMappings": [
+                { "windowsPort": 8080, "containerPort": 80 }
+            ]
+        }
+    }
+}
+```
+
+Mappings require the bridged (all-`allow`) posture shown above; the isolated
+posture is rejected at provision.
+
+Two entries claiming the same `windowsPort` are rejected on both surfaces.
+
+#### WSLC session operations
+
+Sizing is a property of the session rather than of a sandbox, so a WSLC caller
+asks for a sized session first and then places sandboxes in it:
+
+```json
+{
+    "$schema": "./schemas/dev/mxc-config.schema.1.1.0-alpha.json",
+    "version": "1.1.0-alpha",
+    "phase": "provision-session",
+    "containment": "wslc",
+    "wslc": {
+        "provisionSession": {
+            "cpuCount": 4,
+            "memoryMb": 8192,
+            "gpu": false
+        }
+    }
+}
+```
+
+The response carries `result.sessionId` (`wslcsess:<32 lowercase hex>`). A
+`provision` joins that session by naming it:
+
+```json
+{
+    "$schema": "./schemas/dev/mxc-config.schema.1.1.0-alpha.json",
+    "version": "1.1.0-alpha",
+    "phase": "provision",
+    "containment": "wslc",
+    "wslc": {
+        "provision": {
+            "image": "alpine:latest",
+            "sessionId": "wslcsess:0123456789abcdef0123456789abcdef"
+        }
+    }
+}
+```
+
+`cpuCount: 4` means the VM has four virtual CPUs shared by every sandbox in the
+session, not four per sandbox, which is why a `provision` declares no sizing of
+its own. Omitting `sessionId` joins an implicit session shared by every request
+that names none — the behaviour every WSLC `provision` had before these
+operations existed.
+
+A `deprovision-session` names the session in a top-level `sessionId` and is
+refused while any sandbox is still in it; deprovision those first. Session IDs
+are opaque bearer values: any same-user process holding one can release that
+session, so keep them out of logs.
+
+The create-and-run `wslc` section keeps its own `cpuCount` / `memoryMb` / `gpu`
+/ `storagePath` knobs, which size the session that one run creates for itself.
+
+Full lifecycle API: [container lifecycle](container-lifecycle.md).
+
+### Schema Versioning
+
+MXC execution config files require a `version` field naming a supported
+contract. Version spelling, including patch and prerelease, is significant;
+there is no range, latest-version, or missing-version fallback.
+
+Versions with a pre-release suffix (e.g., `-alpha`) indicate the schema is not
+yet stable — breaking changes may occur before publication. Version `1.0.0`
+is the first stable contract. After `1.0.0`, breaking changes require a major
+version bump per semver.
+
+Supported contracts:
+
+| Config `version` | Status |
+|---|---|
+| `"0.9.0-alpha"` | Published; minimum supported |
+| `"1.0.0"` | Published; current stable |
+| `"1.1.0-alpha"` | Development contract; may change |
+
+An absent version, a retired version, or any unregistered spelling such as
+`0.6.1-alpha`, `0.10.0-alpha`, or `1.0.1` is rejected.
+
+#### When to bump
+
+| Change type | Version bump | Example |
+|---|---|---|
+| Backward-compatible bug fix | **Patch** (0.4.0 → 0.4.1) | Fix default value |
+| New optional field or functionality | **Minor** (0.4.0 → 0.5.0) | Adding `resources` section |
+| Remove a field / breaking change | **Major** (0.x → 1.0.0) | Dropping legacy fields |
+
+**Rule of thumb:** Follow [semver](https://semver.org/). While in `0.x` (initial
+development), any release may include breaking changes per
+[semver §4](https://semver.org/#spec-item-4). Once `1.0.0` is reached, breaking
+changes require a major bump.
+
+#### Migration process for breaking changes
+
+1. **PR N:** Add new field with dual-read fallback from old field. Minor bump.
+2. **PR N+1:** Update all configs, examples, SDK types, and docs to new format.
+3. **PR N+2:** Remove fallback code. Minor bump (or major if post-1.0). Old configs
+   no longer parse.
+
+#### Version history
+
+| Version | Changes |
+|---|---|
+| 0.3.0-alpha | Initial versioned schema. Added `process`, `lifecycle`, `containerId`, `wslc` alias. Dual-read fallbacks for legacy fields. |
+| 0.4.0-alpha | Removed legacy fields (`script`, `workingDirectory`, `processContainer.name`, etc.). `process` section now required. |
+
+See the `tests/examples/` directory for complete configuration examples.

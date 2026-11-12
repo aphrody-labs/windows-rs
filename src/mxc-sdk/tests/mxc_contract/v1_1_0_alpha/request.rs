@@ -1,0 +1,414 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use mxc_sdk::mxc_contract::dev::{
+    parse_request, ContainmentProbeError, PhaseProbeError, ProvisionRequest, Request,
+    RequestParseError,
+};
+
+#[test]
+fn microvm_creation_requires_an_image_on_both_paths() {
+    for operation in [
+        r#""process":{"commandLine":"echo"}"#,
+        r#""phase":"provision""#,
+    ] {
+        for settings in [
+            "", r#","microvm":{}"#, r#","microvm":{"image":""}"#,
+            r#","microvm":{"image":" "}"#, r#","microvm":{"image":"python:\n3.12"}"#,
+            r#","microvm":{"image":"python:\u00003.12"}"#, r#","microvm":{"image":null}"#,
+        ] {
+            let json = format!(
+                r#"{{"version":"1.1.0-alpha","containment":"microvm",{operation}{settings}}}"#
+            );
+            assert!(parse_request(&json).is_err(), "accepted {json}");
+        }
+        let json = format!(
+            r#"{{"version":"1.1.0-alpha","containment":"microvm",{operation},"microvm":{{"image":"docker.io/library/python:3.12-alpine"}}}}"#
+        );
+        assert!(parse_request(&json).is_ok(), "rejected {json}");
+    }
+}
+
+#[test]
+fn microvm_registry_reference_cases_apply_to_both_creation_contracts() {
+    let cases: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("image_reference_cases.json")).unwrap();
+    for case in cases {
+        let image = case["image"].as_str().unwrap();
+        let valid = case["valid"].as_bool().unwrap();
+        for operation in ["create-and-run", "provision"] {
+            let mut request = serde_json::json!({
+                "version": "1.1.0-alpha",
+                "containment": "microvm",
+                "microvm": {"image": image}
+            });
+            if operation == "provision" {
+                request["phase"] = serde_json::json!("provision");
+            } else {
+                request["process"] = serde_json::json!({"commandLine": "echo"});
+            }
+            assert_eq!(
+                parse_request(&request.to_string()).is_ok(),
+                valid,
+                "{operation}: {image:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn microvm_long_image_references_preserve_the_registry_contract() {
+    let dotted = "a.".repeat(512 * 1024);
+    for (image, valid) in [
+        (dotted.clone(), false),
+        (format!("{dotted}/"), false),
+        (format!("{dotted}/repo"), true),
+        (format!("{dotted}/repo\n"), false),
+    ] {
+        for provision in [false, true] {
+            let mut request = serde_json::json!({
+                "version": "1.1.0-alpha",
+                "containment": "microvm",
+                "microvm": {"image": image}
+            });
+            if provision {
+                request["phase"] = serde_json::json!("provision");
+            } else {
+                request["process"] = serde_json::json!({"commandLine": "echo"});
+            }
+            assert_eq!(parse_request(&request.to_string()).is_ok(), valid);
+        }
+    }
+}
+
+#[test]
+fn existing_microvm_execution_cannot_select_an_image() {
+    let json = r#"{
+        "version":"1.1.0-alpha",
+        "phase":"exec",
+        "sandboxId":"microvm:0123456789abcdef0123456789abcdef",
+        "process":{"commandLine":"echo"},
+        "microvm":{"image":"docker.io/library/python:3.12-alpine"}
+    }"#;
+    assert!(parse_request(json).is_err());
+}
+
+#[test]
+fn both_microvm_creation_contracts_preserve_optional_provision_presence() {
+    for lifecycle in [false, true] {
+        for (settings, present, memory) in [
+            ("", false, None),
+            (r#","provision":{}"#, true, None),
+            (r#","provision":{"memoryMib":512}"#, true, Some(512)),
+        ] {
+            let operation = if lifecycle {
+                r#""phase":"provision""#
+            } else {
+                r#""process":{"commandLine":"echo"}"#
+            };
+            let json = format!(r#"{{"version":"1.1.0-alpha","containment":"microvm",{operation},"microvm":{{"image":"docker.io/library/python:3.12-alpine"{settings}}}}}"#);
+            let provision = match parse_request(&json).unwrap() {
+                Request::OneShot(request) => request.microvm.into_option().unwrap().provision,
+                Request::Provision(ProvisionRequest::MicroVm(request)) => request.microvm.provision,
+                other => panic!("unexpected request {other:?}"),
+            };
+            assert_eq!(provision.as_ref().is_some(), present);
+            assert_eq!(
+                provision
+                    .into_option()
+                    .and_then(|config| config.memory_mib.into_option()),
+                memory
+            );
+        }
+    }
+}
+
+#[test]
+fn no_phase_selects_one_shot_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "process": {"commandLine": "echo"}
+    }"#;
+
+    assert!(matches!(parse_request(json).unwrap(), Request::OneShot(_)));
+}
+
+#[test]
+fn isolation_session_one_shot_requires_network() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "containment": "isolation_session",
+        "process": {"commandLine": "echo"}
+    }"#;
+
+    let error = parse_request(json).unwrap_err();
+    assert!(matches!(
+        error,
+        RequestParseError::InvalidCombination {
+            contract: "one-shot",
+            message,
+        } if message.contains("network.egress.default=allow")
+    ));
+}
+
+#[test]
+fn isolation_session_one_shot_accepts_directional_network() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "containment": "isolation_session",
+        "process": {"commandLine": "echo"},
+        "network": {
+            "egress": {"default": "allow"},
+            "ingress": {"default": "allow", "hostLoopback": "allow"}
+        }
+    }"#;
+
+    assert!(matches!(parse_request(json).unwrap(), Request::OneShot(_)));
+}
+
+#[test]
+fn invalid_one_shot_root_returns_invalid_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "one-shot",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn unknown_phase_returns_phase_error() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "restart"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::Phase(PhaseProbeError::UnsupportedPhase(phase))
+            if phase == "restart"
+    ));
+}
+
+#[test]
+fn non_string_phase_returns_phase_error() {
+    for phase in ["42", "true", "{}", "[]"] {
+        let json = format!(
+            r#"{{
+                "version": "1.1.0-alpha",
+                "phase": {phase},
+                "containment": "wslc"
+            }}"#
+        );
+        assert!(matches!(
+            parse_request(json.as_str()).unwrap_err(),
+            RequestParseError::Phase(PhaseProbeError::InvalidDeclaration(_))
+        ));
+    }
+}
+
+#[test]
+fn missing_provision_containment_returns_containment_error() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "provision"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::Containment(ContainmentProbeError::InvalidDeclaration(_))
+    ));
+}
+
+#[test]
+fn unsupported_provision_containment_returns_containment_error() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "provision",
+        "containment": "somevalue"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::Containment(ContainmentProbeError::UnsupportedContainment(_))
+    ));
+}
+
+#[test]
+fn provision_phase_with_isolation_session_containment_selects_isolation_session_provision_request()
+{
+    let json = r#"{
+            "version": "1.1.0-alpha",
+            "phase": "provision",
+            "containment": "isolation_session",
+            "network": {"egress":{"default":"allow"},"ingress":{"default":"allow","hostLoopback":"allow"}}
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap(),
+        Request::Provision(ProvisionRequest::IsolationSession(_))
+    ));
+}
+
+#[test]
+fn provision_phase_with_windows_sandbox_containment_selects_windows_sandbox_provision_request() {
+    let json = r#"{
+            "version": "1.1.0-alpha",
+            "phase": "provision",
+            "containment": "windows_sandbox"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap(),
+        Request::Provision(ProvisionRequest::WindowsSandbox(_))
+    ));
+}
+
+#[test]
+fn provision_phase_with_wslc_containment_selects_wslc_provision_request() {
+    let json = r#"{
+            "version": "1.1.0-alpha",
+            "phase": "provision",
+            "containment": "wslc"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap(),
+        Request::Provision(ProvisionRequest::Wslc(_))
+    ));
+}
+
+#[test]
+fn invalid_provision_phase_isolation_session_root_returns_invalid_request() {
+    let json = r#"{
+            "version": "1.1.0-alpha",
+            "phase": "provision",
+            "containment": "isolation_session"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "IsolationSession provision",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn deprovision_phase_selects_deprovision_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "deprovision",
+        "sandboxId": "test123456"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap(),
+        Request::Deprovision(_)
+    ));
+}
+
+#[test]
+fn invalid_deprovision_phase_root_returns_invalid_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "deprovision"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "deprovision",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn exec_phase_selects_exec_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "exec",
+        "sandboxId": "test123456",
+        "process": {"commandLine": "echo"}
+    }"#;
+
+    assert!(matches!(parse_request(json).unwrap(), Request::Exec(_)));
+}
+
+#[test]
+fn invalid_exec_phase_root_returns_invalid_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "exec",
+        "sandboxId": "test123456"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "exec",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn start_phase_selects_start_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "start",
+        "sandboxId": "test123456"
+    }"#;
+
+    assert!(matches!(parse_request(json).unwrap(), Request::Start(_)));
+}
+
+#[test]
+fn invalid_start_phase_root_returns_invalid_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "start"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "start",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn stop_phase_selects_stop_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "stop",
+        "sandboxId": "test123456"
+    }"#;
+
+    assert!(matches!(parse_request(json).unwrap(), Request::Stop(_)));
+}
+
+#[test]
+fn invalid_stop_phase_root_returns_invalid_request() {
+    let json = r#"{
+        "version": "1.1.0-alpha",
+        "phase": "stop"
+    }"#;
+
+    assert!(matches!(
+        parse_request(json).unwrap_err(),
+        RequestParseError::InvalidRequest {
+            contract: "stop",
+            ..
+        }
+    ));
+}

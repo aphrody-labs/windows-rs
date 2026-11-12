@@ -1,0 +1,133 @@
+@{
+    "473" = @{
+        FriendlyName = "Packaged App Launch"
+        Script = "test_cases\Invoke-Issue473-PackagedApp.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "MSIX packaged Notepad")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "483" = @{
+        FriendlyName = "Bun Runtime Launch"
+        Script = "test_cases\Invoke-Issue483-BunAndSparsePath.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "Bun")
+        Dependencies = @(
+            @{
+                Name = "Bun"
+                Executable = "bun.exe"
+                WingetId = "Oven-sh.Bun"
+                ArgumentName = "BunExe"
+            }
+        )
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "636" = @{
+        FriendlyName = "Edge Isolated Startup"
+        Script = "test_cases\Invoke-Issue636-EdgeStartup.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "Microsoft Edge", "interactive desktop")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "694" = @{
+        FriendlyName = "Native DOS and NT Final Paths"
+        Script = "test_cases\Invoke-Issue694-GetFinalPathNameByHandle.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "PSEC BaseContainer-capable host", "inbox .NET Framework compiler or prebuilt probe")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "785" = @{
+        FriendlyName = "Capture Probe Agreement"
+        Script = "test_cases\Invoke-Issue785-ProbeCaptureDenials.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "captureDenials support")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "825" = @{
+        FriendlyName = "PowerShell Provider Location"
+        Script = "test_cases\Invoke-Issue825-PowerShellProviderLocation.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "secondary NTFS volume", "PowerShell")
+        HarnessArguments = "SecondaryDrive"
+        Destructive = $false
+    }
+    "902" = @{
+        FriendlyName = "Relative Working Directory"
+        Script = "test_cases\Invoke-Issue902-RelativeWorkingDirectory.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1061" = @{
+        FriendlyName = "MSYS Object Namespace"
+        Script = "test_cases\Invoke-Issue1061-MsysBaseNamedObjects.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "Git Bash or MSYS2")
+        Dependencies = @(
+            @{
+                Name = "Git for Windows"
+                Executable = "bash.exe"
+                Paths = @("%ProgramFiles%\Git\bin\bash.exe")
+                WingetId = "Git.Git"
+                ArgumentName = "BashExe"
+            }
+        )
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1102" = @{
+        FriendlyName = "Default PATH Inheritance"
+        Script = "test_cases\Invoke-Issue1102-DefaultPath.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1109" = @{
+        FriendlyName = "Volume Root Grant"
+        Script = "test_cases\Invoke-Issue1109-BaseContainerVolumeRoot.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "BaseContainer-capable host")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1130" = @{
+        FriendlyName = "PSEC Sparse Environment Rejection"
+        Script = "test_cases\Invoke-Issue1130-PsecSparseEnvironment.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "PSEC BaseContainer-capable host")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1162" = @{
+        FriendlyName = "BaseContainer Filesystem Enumeration"
+        Script = "test_cases\Invoke-Issue1162-ProcessContainerFsEnumerate.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "PSEC fs_enumerate-capable host")
+        CapabilityPreflight = $true
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1245" = @{
+        FriendlyName = "desktopSystemControl Policy"
+        Script = "test_cases\Invoke-Issue1245-desktopSystemControl.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "PSEC BaseContainer-capable host", "interactive desktop")
+        CapabilityPreflight = $true
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+    "1246" = @{
+        FriendlyName = "Tier 1 Clipboard Policy Matrix"
+        Script = "test_cases\Invoke-Issue1246-Tier1ClipboardRestrictions.ps1"
+        ExpectedTierSupport = @("base-container-psec")
+        Prerequisites = @("wxc-exec", "BaseContainer-capable host", "Windows PowerShell 5.1", "interactive desktop with host clipboard access")
+        HarnessArguments = "Default"
+        Destructive = $false
+    }
+}

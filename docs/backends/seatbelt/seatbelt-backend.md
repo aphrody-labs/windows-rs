@@ -1,0 +1,809 @@
+# macOS Seatbelt Backend
+
+> **Audience:** MXC consumers and developers
+
+Runs commands inside Apple's kernel-enforced sandbox — the same Seatbelt
+framework behind the App Sandbox that every Mac App Store app uses.
+
+## At a glance
+
+| | |
+|---|---|
+| **Binary** | `mxc-exec-mac` |
+| **Config value** | `"containment": "seatbelt"` |
+| **Schema** | `1.0.0` or later. |
+| **Requires** | macOS 15 (Sequoia) or later. No root, no daemon, no install. |
+| **Isolation** | Process tree (no named container, no lifecycle, nothing to clean up) |
+| **Enforced by** | The macOS kernel, via a generated profile |
+
+MXC translates your JSON policy into a Seatbelt profile and applies it with
+`sandbox_init()` between `fork()` and `exec()`. The profile is passed as a
+string — no temp files. The child keeps the parent's Mach bootstrap namespace,
+which is what lets GUI apps run under the sandbox when `guiAccess` is enabled.
+The sandbox lives exactly as long as the process tree it wraps.
+
+## Quick start
+
+```json
+{
+    "$schema": "../../schemas/stable/mxc-config.schema.1.0.0.json",
+    "version": "1.0.0",
+    "containment": "seatbelt",
+    "process": { "commandLine": "echo hi", "timeout": 30000 },
+    "filesystem": {
+        "readwritePaths": ["/tmp/output"],
+        "readonlyPaths":  ["/Users/me/project"],
+        "deniedPaths":    ["/Users/me/.ssh"]
+    },
+    "network": {
+        "egress":  { "default": "deny" },
+        "ingress": { "default": "deny", "hostLoopback": "deny" }
+    }
+}
+```
+
+That denies all network access. To open it up, see
+[Network policy](#network-policy) — and read
+[the `hostLoopback` trap](#the-hostloopback-trap) before setting
+`egress.default: "allow"`.
+
+```bash
+./mxc-exec-mac config.json              # run it
+./mxc-exec-mac --dry-run config.json    # validate only, don't execute
+```
+
+**Tip:** always run `--dry-run` first.
+> **Which schema version?** This doc uses the directional network shape
+> (`egress` / `ingress` / `runtimeConfig.networkProxy`) throughout. It is the
+> only supported network shape for accepted Seatbelt configs.
+
+For supported contracts, `ingress.hostLoopback: "allow"` under
+`ingress.default: "deny"` is rejected. An omitted host-loopback field
+remains deny rather than inheriting ingress allow.
+
+## What Seatbelt can and can't enforce
+
+| Capability | Supported | Notes |
+|---|:---:|---|
+| Read-only / read-write / denied paths | ✅ | Kernel-enforced, subtree-scoped |
+| Block all outbound network | ✅ | Kernel-enforced |
+| Allow all outbound network | ✅ | Kernel-enforced |
+| Reach a **loopback** address / port | ✅ | Kernel-enforced, port-scoped |
+| Accept inbound connections | ✅ | All-or-nothing — cannot be scoped |
+| UI / clipboard / input-injection lockdown | ✅ | Kernel-enforced |
+| Route traffic through an HTTP proxy | ⚠️ | Egress confinement is enforced; *using* the proxy is cooperative — see [below](#proxy-support-what-is-and-isnt-enforced) |
+| Allow/deny by **hostname** | ❌ | Rejected — no such primitive in Seatbelt |
+| Allow/deny by **IP, CIDR, port, or protocol** | ❌ | Rejected — no such primitive |
+| Scope **inbound** to loopback only | ❌ | Rejected — not expressible |
+| Firewall / packet-filter enforcement mode | ❌ | Rejected — no packet-filter layer |
+| Proxy peer identity pinning | ❌ | Rejected — not supported |
+| Named containers, attach, lifecycle | ❌ | Not applicable — process-scoped |
+| Caller-controlled PTY | ✅ | Incompatible with `guiAccess` |
+
+The short version: **Seatbelt gives you an on/off switch for outbound network
+plus a loopback exception. It has no concept of "this host but not that one."**
+Its `(remote ...)` filter accepts only `*` and `localhost` — nothing else is
+even syntactically valid.
+
+## Filesystem policy
+
+| Field | Generated rule | Effect |
+|---|---|---|
+| `readonlyPaths` | `(allow file-read* (subpath …))` **plus** `(deny file-write* network-bind network-outbound (subpath …))` | Read the subtree — and explicitly *not* write it or use sockets in it |
+| `readwritePaths` | `(allow file-read* file-write* network-bind network-outbound (subpath …))` | Read, write, and use AF_UNIX sockets |
+| `deniedPaths` | `(deny file-read* file-read-metadata file-write* network-bind network-outbound (subpath …))`, emitted **last** | Overrides every allow above it |
+
+The paired deny on `readonlyPaths` is emitted for **every** read-only entry, not
+just nested ones. It matters most when a read-only path sits inside a broader
+`readwritePaths` subtree: the read-only `allow` names only `file-read*`, so on
+its own it says nothing about writes and couldn't displace the wider grant.
+
+Seatbelt is **last-match-wins** among rules that carry a filter, so denies
+emitted after allows win. (An *unfiltered* rule doesn't participate — a blanket
+`(allow network-outbound)` can't override a path-scoped deny.)
+
+A rule naming an operation outright outranks one that only reaches it through a
+wildcard, which is why `deniedPaths` spells out `file-read-metadata` alongside
+`file-read*`: the baseline grants metadata reads unfiltered so path resolution
+works, and without the explicit mention a denied path would still answer
+`stat()` with its real size and timestamps.
+
+Rules are emitted shallow-to-deep, so the **deepest** matching rule wins at any
+given path. `deniedPaths` sits outside that ordering and always outranks.
+
+### How your paths get rewritten
+
+Before a path reaches the profile, MXC:
+
+1. **Expands `~`** against `$HOME` and resolves relative paths from MXC's
+   working directory.
+2. **Resolves symlinks**, including files, directory ancestors, chains, and
+   macOS roots such as `/tmp` → `/private/tmp`.
+3. **Applies `..` after following symlinks** and collapses redundant separators
+   and `.` segments. Missing trailing components are supported.
+4. **Re-applies precedence** (`denied` > `readonly` > `readwrite`) to the
+   *resolved* paths.
+
+For example, if `/work/link` points to `/data/nested`,
+`/work/link/../secret.txt` applies to `/data/secret.txt`, not
+`/work/secret.txt`. A deny on a symlink protects its real target and other
+symlink aliases, even under a broader read-write grant.
+
+Paths are resolved before launch. Dangling symlinks, symlink loops, inaccessible
+ancestors, and targets whose resolved names cannot be represented as UTF-8 are
+rejected rather than producing rules that might not protect the intended path.
+
+`/Users` needs no rewriting — it's a firmlink, not a symlink.
+
+### UNIX-domain sockets
+
+Seatbelt matches AF_UNIX sockets by **path**, so MXC governs them with the
+**filesystem** policy, not the network policy:
+
+| | `bind()` | `connect()` |
+|---|:---:|:---:|
+| `readwritePaths` | ✅ | ✅ |
+| `readonlyPaths` | ❌ | ❌ |
+| `deniedPaths` | ❌ | ❌ |
+
+Why: Node toolchains (tsx, vite, esbuild, jest workers) need both halves for
+IPC. Gating them behind `ingress.default: "allow"` would force real network
+ingress on just to run a build. These rules are path-scoped, so they never
+widen IP networking.
+
+> ⚠️ **`connect()` is a capability `file-write*` alone didn't grant.** A broad
+> `readwritePaths` root lets the sandbox talk to any pre-existing listener
+> underneath it — and a Docker, `ssh-agent`, or `gpg-agent` socket is a control
+> plane. Keep the read-write root narrow, and put sensitive sockets in
+> `deniedPaths`.
+
+### Always-on baseline
+
+Every sandbox gets these regardless of policy, so the dynamic linker, shells,
+and standard tools work:
+
+| Access | Paths |
+|---|---|
+| Read-only | `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/usr/lib`, `/usr/libexec`, `/usr/share`, `/System`, `/Library`, `/private/etc`, `/private/var/db/timezone`, `/private/var/db/dyld`, `/private/var/select`, the active developer directory |
+| Read **+ write** | `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom` |
+| Read-data only | `/` itself — the loader can't resolve path lookups without it |
+
+Every sandbox also gets an unfiltered `(allow file-read-metadata)`, because the
+kernel reads metadata on each ancestor directory while resolving a path.
+`deniedPaths` names that operation explicitly so it still outranks the grant.
+
+The `/dev/*` entries are writable because shell redirections (`>/dev/null`,
+`</dev/urandom`) need both directions. Writes to `/dev/null` and `/dev/zero` are
+discarded; writes to the entropy devices are harmless.
+
+MXC grants exact device paths for inherited terminals or the caller-owned PTY
+assigned to the workload. Explicit filesystem grants or `profileOverride` can widen access.
+
+The developer grant resolves from the `xcode-select` symlink, and only when root
+owns both the link and every directory above it, so an unprivileged process
+cannot point it elsewhere. `DEVELOPER_DIR` is ignored for the same reason. When
+the link selects
+`<Xcode.app>/Contents/Developer`, MXC grants read-only access to the enclosing
+app bundle because dispatched tools load sibling frameworks; otherwise only the
+selected directory is granted. Many `/usr/bin` tools (`python3`, `git`) are
+`xcrun` shims that need this access. `deniedPaths` still overrides the grant.
+
+SIP-protected paths stay unwritable no matter what you put in
+`readwritePaths` — the kernel enforces that independently of the profile.
+
+## Network policy
+
+Seatbelt declares support for
+`EGRESS_DEFAULT | INGRESS_DEFAULT | HOST_LOOPBACK | RUNTIME_PROXY` — notably
+**not** `EGRESS_RULES` (per-CIDR/port rules) and not `PROXY_PEER_IDENTITY`.
+Anything it hasn't declared is rejected up front.
+
+### Fields (supported schema 0.9+)
+
+This is the cross-backend directional format accepted by the supported
+contracts. Schema 0.8 is no longer accepted; see the
+[supported network fields](../../schema.md#directional-networking-supported-contracts).
+
+> **Omitting `network` entirely denies all IP networking.** Every field below
+> defaults to `deny`, so a config with no `network` block behaves exactly like
+> `egress: {default: "deny"}, ingress: {default: "deny", hostLoopback: "deny"}`.
+> You only need a `network` block to *open* something up.
+
+| Field | Behavior |
+|---|---|
+| `egress.default` | `"deny"` → no *general* outbound rule; baseline `(deny default)` blocks IP sockets, except for the host-loopback path (`ingress.hostLoopback`) and a `runtimeConfig.networkProxy` endpoint, which are carved out of it. `"allow"` → `(allow network-outbound)`, `(allow network-bind (local ip))`, `(allow system-socket)`. Only the first of those three is egress. |
+| `egress.allow` / `egress.deny` | **Rejected** if non-empty — no CIDR/port/protocol primitive exists |
+| `ingress.default` | `"allow"` → `(allow network-inbound (local ip))`. This single rule is what permits **both `bind()` and `listen()`**; `network-bind` alone grants `bind()` but not `listen()`. |
+| `ingress.hostLoopback` | Controls sandbox → host loopback. May be `"deny"` under `ingress.default: "allow"`; `"allow"` under `ingress.default: "deny"` is rejected. **Defaults to `"deny"`.** |
+| `runtimeConfig.networkProxy` | Loopback `http`/`https` URL with an explicit port |
+
+### The `hostLoopback` trap
+
+> ⚠️ **`ingress.hostLoopback` defaults to `"deny"`.**
+
+This config looks like "let the sandbox use the network":
+
+```json
+{ "network": { "egress": { "default": "allow" } } }
+```
+
+But `ingress` is absent, so `hostLoopback` defaults to `deny`, and the
+generated profile is:
+
+```lisp
+(allow network-outbound)
+(deny network-outbound (remote ip "localhost:*"))   ;; last match wins
+```
+
+**Your sandbox can reach the whole internet but not your own machine** — no
+`localhost:3000` dev server, no local model endpoint. It passes validation
+silently, because `ingress.default` defaulted to `deny` too and the two agree.
+
+If you want loopback, say so explicitly:
+
+```json
+{
+  "network": {
+    "egress":  { "default": "allow" },
+    "ingress": { "default": "allow", "hostLoopback": "allow" }
+  }
+}
+```
+
+Two more things to know about `hostLoopback`:
+
+- **`localhost` means "this machine", not "this network."** The rule covers
+  *every* address the host is bound to, LAN IPs included. It can't be narrowed
+  to `127.0.0.1` — a literal address is a Seatbelt syntax error. Other machines
+  are unaffected either way.
+- **`deny` also cuts the sandbox off from its own loopback listeners**, since a
+  Seatbelt sandbox shares the host's network stack.
+
+#### Why only one divergent pair is allowed
+
+`hostLoopback` is bidirectional, but Seatbelt can only enforce the outbound
+half. There's no way to scope an inbound grant by peer: `(local ip)` filters on
+the sandbox's *own* bind address, and a `remote ip` inbound filter is a no-op
+because the peer isn't known at bind time.
+
+**`hostLoopback: "allow"` under `ingress.default: "deny"` is rejected**, because
+the only rule that could carry the promised inbound grant is the blanket
+`(allow network-inbound (local ip))` that `default: "deny"` withholds.
+
+**`hostLoopback: "deny"` under `ingress.default: "allow"` is accepted**, because
+its container→host half *is* expressible — by the `(deny default)` baseline
+under a denied egress default, and by the explicit `localhost:*` deny under an
+allowed one. Its host→container half is not, so a host process can still reach
+the sandbox's listeners. That residual grant is strictly narrower than the
+alternative it replaces: reaching a listener through `hostLoopback: "allow"`
+gives up the container→host direction as well.
+
+> ⚠️ **The inbound grant is not scoped by address either.** Seatbelt cannot
+> express a local-address filter — a literal `(local ip "127.0.0.1:8080")` is a
+> profile syntax error, `host must be * or localhost`, exactly as for `remote`.
+> So a workload that binds `0.0.0.0` rather than `127.0.0.1` is reachable from
+> **the LAN**, not only from this host. `--bind 127.0.0.1` is a convention the
+> workload follows, not one the sandbox can enforce. Prefer a backend with a
+> private network namespace when that is not acceptable.
+
+If you only need *outbound* loopback, `egress.default: "deny"` plus a loopback
+`runtimeConfig.networkProxy` gets you there with **no** inbound exposure.
+
+### Proxy support: what is and isn't enforced
+
+This distinction matters, and it's easy to get backwards.
+
+| Question | Enforced? |
+|---|---|
+| Can the sandbox reach anything *other than* the proxy? | **No — kernel-enforced**, provided `ingress.hostLoopback` stays `"deny"` (see the caveat below). |
+| Will a client actually *speak to* the proxy? | Not enforced — cooperative. |
+| Is traffic transparently redirected into the proxy? | No. |
+| Can the proxy contain *inbound* traffic? | No — a proxy confines egress only. Inbound is governed solely by `ingress.default`, and Seatbelt cannot scope that grant by peer or by address. |
+
+**Egress confinement is real.** A proxy is only ever accepted alongside a deny
+egress default (proxy + `"allow"` is [rejected](#network)), so with the
+recommended `hostLoopback: "deny"` the profile ends up as:
+
+```lisp
+(deny default)
+(allow network-outbound (remote ip "localhost:<proxy-port>"))
+```
+
+That single port is the sandbox's entire outbound universe. The kernel enforces
+it. A client that opens raw sockets and ignores `HTTP_PROXY` **cannot** reach
+the internet or any other host-local service — it simply fails to connect.
+
+> ⚠️ **`ingress.hostLoopback: "allow"` widens outbound** to *every port on this
+> host*, not just the proxy port, and the confinement claim above no longer
+> holds. Keep `hostLoopback: "deny"` whenever the proxy is meant to be the only
+> way out. This won't prevent the proxy's TCP responses from reaching the
+> sandbox.
+>
+> `ingress.default` is a separate decision: it grants inbound only and never
+> widens outbound, so `{"default": "allow", "hostLoopback": "deny"}` keeps
+> proxy-only egress while permitting a listener. The tradeoff is inbound — that
+> grant cannot be scoped by peer or address, so the sandbox's listeners are
+> reachable from this host and, if the workload binds `0.0.0.0`, from the LAN.
+
+**Proxy usage is cooperative.** MXC injects `HTTP_PROXY` / `HTTPS_PROXY` /
+`ALL_PROXY` (and lowercase forms) and strips any caller-supplied proxy vars.
+Well-behaved clients (curl, requests, fetch) honor them. A client that ignores
+them doesn't *escape* — it just doesn't get anywhere. macOS has no
+WinHTTP-style per-process OS proxy policy, so MXC can't force the routing the
+way Windows can.
+
+**What the profile does not control is where the proxy then connects.** A
+caller-managed proxy applies its own destination policy; MXC does not supply
+one. Configure hostname allow/block lists on that proxy, not in the sandbox
+request. `egress.allow` / `egress.deny` describe direct traffic and cannot be
+combined with `runtimeConfig.networkProxy`.
+
+> **Caveat:** Seatbelt's `localhost` token means "this machine at any address,"
+> so the reachability rule also covers the host's non-loopback addresses **on
+> that same port number**. It cannot be narrowed — a literal `127.0.0.1` is a
+> profile syntax error.
+
+## UI policy
+
+| Policy | Generated rule |
+|---|---|
+| `ui.disable: true` (default) | Denies mach-lookup of `com.apple.windowserver.active`, `com.apple.windowserver.session`, and `com.apple.coreservices.launchservicesd` |
+| `ui.clipboard: "none"` (default) | Denies mach-lookup of `com.apple.pasteboard.1` |
+| `ui.injection: false` (default) | Denies `iokit-open` of `IOHIDLibUserClient` |
+
+## Seatbelt-specific options
+
+Set under a top-level `"seatbelt"` key.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `nestedPty` | bool | `true` | Lets the inner process allocate and use its own ptys, without granting access to unrelated host terminals. Needed by anything that spawns a shell — test runners, `git`, `gh`, REPLs, agent tools. Set `false` for a tighter sandbox. |
+| `guiAccess` | bool | `false` | Adds Mach/IOKit rules so GUI apps can create windows, and widens the filesystem — see below. **Requires UI to be enabled**, which is spelled `ui.disable: false` (there is no `ui.enable`). |
+| `keychainAccess` | bool | `false` | Opens the sandbox enough for `keytar` / Security.framework to reach the Keychain. Opt in only if genuinely needed. |
+| `profileOverride` | string | unset | Replaces the generated profile with raw TinyScheme. **All `filesystem`/`network`/`ui` policy is ignored for profile generation.** MXC still appends the two [process cleanup](#process-cleanup) rules, and rejects an override that contains their `com.microsoft.mxc.run.` names. Last resort. |
+| `extraMachLookups` | string[] | `[]` | Additional Mach services the sandbox may look up, as exact `global-name` values. The escape hatch for an app that needs one XPC service without resorting to `profileOverride`. Names starting with `com.microsoft.mxc.run.` are rejected. |
+| `captureDenials` | object | unset | **Requires config version `1.1.0-alpha`.** Records what the sandbox blocked into a JSON report. See [Learning mode](#learning-mode-capturedenials). |
+
+<details>
+<summary><code>guiAccess</code> — exactly what it opens</summary>
+
+All `mach-lookup` (an allowlist would be fragile — the services GUI frameworks
+need vary by macOS release), plus `mach-register`, `iokit-open` for GPU/Metal,
+`pseudo-tty` with `/dev/ptmx` and sandbox-authorized `/dev/ttys*` devices, and
+POSIX shared memory. PTY allocation remains enabled even when `nestedPty` is
+`false`.
+
+It also grants read **and** write across all of `/private/tmp` and
+`/private/var/folders`, regardless of your `filesystem` policy. Deny rules are
+emitted last, so a `deniedPaths` entry still overrides this grant.
+
+</details>
+
+<details>
+<summary><code>keychainAccess</code> — exactly what it opens</summary>
+
+Mach lookup for `com.apple.SecurityServer`, `com.apple.securityd`,
+`com.apple.trustd`, `com.apple.trustd.agent`, `com.apple.ocspd`,
+`com.apple.cfprefsd.daemon`, `com.apple.cfprefsd.agent`, `com.apple.xpcd`, and
+the `com.apple.lsd.*` family (matched by anchored regex — Seatbelt has no glob
+in `global-name`). Read access to `/private/var/db/mds` and
+`/private/var/protected/trustd`. Read+write on `~/Library/Keychains` and
+`/private/var/folders`. System keychain stores are already covered by the
+baseline `/Library` and `/System` allows.
+</details>
+
+## Learning mode (`captureDenials`)
+
+Learning mode shows what a workload tried to do that the policy did not
+allow, so you can decide what to grant. The config must use version
+`1.1.0-alpha`. The typed v1 SDK settings send `1.0.0` requests, so they can't
+turn this on yet. Use `mxc-exec-mac`, or send a `1.1.0-alpha` request through
+the V1.Dev JSON API for [Rust](../../api-reference/rust/v1/dev.md),
+[.NET](../../api-reference/dotnet/v1/dev.md), or
+[Node](../../api-reference/node/v1/dev.md).
+
+```json
+"seatbelt": {
+    "captureDenials": {
+        "mode": "block",
+        "outputPath": "~/mxc/denials.json"
+    }
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | `"block"` | `"block"`: blocked accesses stay blocked and are recorded. `"allow"`: accesses the policy would block by default are allowed and recorded, and MXC prints a warning. Explicit denies, such as `deniedPaths` and `ui` denies, are still enforced. |
+| `outputPath` | a temp file | Absolute path, or one starting with `~/`. The parent directory must exist. |
+| `retainEtl` | `false` | Keeps the raw `log stream` output next to the report as `.seatbelt.log`, readable only by you. The pointer line's `etlPath` names it. The field shares its name with Windows; the file isn't an ETL. |
+
+MXC adds a per-run ID to the file name (`denials.json` becomes
+`denials.<pid>_<id>.json`). Names without an extension get `.json` first.
+MXC writes a `.verbose.json` file next to it and
+prints the actual path on stderr as a JSON line:
+
+```json
+{"type":"captureDenials","outputPath":"/Users/me/mxc/denials.53120_9f2c….json","exitCode":0,"totalDenials":4,"deniedResourcesTruncated":false}
+```
+
+The report uses the [same format as Windows](../../learning-mode.md#output-file-the-caller-consumes),
+with these macOS differences:
+
+- `resource` is an absolute path for `file`. Other types use
+  `<operation>:<target>`, for example `network-outbound:remote:*:443` or
+  `mach-lookup:com.apple.CARenderServer`.
+
+- Verbose signatures use `providerGuid` `com.apple.security.sandbox`, event
+  ID `0`, and the Seatbelt operation (for example `file-read-data`) as
+  `eventName`. Any `target` that contains `/` becomes `<REDACTED>`, other
+  values are kept, and values over 256 characters are cut short. There is no
+  account-name replacement or digest.
+
+`deniedResourcesTruncated: true` means some denials may be missing. Delete the
+report, its `.verbose.json` file, and any `.seatbelt.log` when you're done.
+
+Requests that `guiAccess` grants, such as Mach lookups and IOKit opens, aren't
+denials. They appear only in the verbose file, with `"decision": "allowGrant"`.
+
+`mxc-exec-mac --audit config.json` is a shortcut that runs the
+config with `captureDenials` in `"allow"` mode and writes the report to a temp
+file.
+
+**Limits**
+
+MXC counts repeated denials as they arrive instead of storing each one, so a
+workload that hits the same denial many times doesn't push other denials out
+of the report. The report lists at most 10,000 different denials, and the
+verbose file at most 4,096 groups; extra groups are only counted. MXC skips
+any log line over 64 KiB and sets `processedEventsTruncated` in the verbose
+file. Reaching the 10,000-denial limit or skipping a line marks the report as
+truncated. MXC stops writing `.seatbelt.log` at 1 GiB, keeps the file, and
+adds a warning; the report and verbose file are not affected.
+
+**Limitations**
+
+- It can't be combined with `profileOverride`. MXC finds this run's entries
+  by tagging the rules in its generated profile, and it doesn't rewrite a
+  custom profile.
+
+- macOS hides the remote address in network reports (`remote:*:443`), so only
+  the port is known.
+
+- Reads of paths that don't exist aren't reported.
+
+- Paths longer than about 900 bytes aren't reported, and the report isn't
+  marked truncated. macOS limits each report to about 1 KB. The access is
+  still blocked in `block` mode and allowed in `allow` mode.
+
+- MXC reads the reports with `log stream`. If it can't collect every report
+  before the workload exits, the verbose file sets `processedEventsTruncated`
+  to `true`. Accounts that can't run `log stream` haven't been tested.
+
+## Process environment
+
+**The host environment is never inherited.** The child always starts from a
+cleared environment, so host secrets (cloud credentials, API tokens) can't leak
+into untrusted code. This is unconditional.
+
+`process.env` is an array of `"KEY=VALUE"` strings, not an object.
+
+The child gets a default block of `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`),
+`HOME` (the directory the child is started in), and `TERM`
+(`xterm-256color`). What you supply decides what happens to it:
+
+| `process.env` | `inheritDefaultEnv` | Result |
+| --- | --- | --- |
+| omitted | — | the default block |
+| `[]` | — | nothing else at all |
+| `["FOO=bar"]` | `false` (default) | `FOO` only — **no `PATH`** |
+| `["FOO=bar"]` | `true` | the default block plus `FOO`; a same-named entry wins |
+
+`PWD` sits outside the table: it is always exported, set to the resolved
+working directory. It is applied *after* everything above. It exists so the
+child's `getcwd()` takes its fast `$PWD` path
+instead of walking parent directories the sandbox may not let it read, which
+would otherwise leak a "getcwd: … Operation not permitted" line onto stderr.
+
+The table is the environment MXC hands the child. macOS `/bin/sh` assigns its
+own `PATH` and `TERM` when it starts without them, so neither reads back as
+empty from inside the workload.
+
+> ⚠️ **`HOME` is only set when a working directory resolves.** It names the
+> directory the child is started in, so when `process.cwd` is omitted *and* no
+> policy path supplies one, `HOME` is left unset.
+> Because `HOME` is the working directory, dotfiles inside it — `.gitconfig`,
+> `.npmrc`, `.curlrc`, `.config/*` — are read as *user-level* tool
+> configuration, not just project input. Pass `"HOME=…"` to point elsewhere
+> when the workspace is untrusted.
+
+Tools installed outside the default `PATH` need both an env entry **and** a
+`readonlyPaths` grant — e.g. Homebrew on Apple silicon needs
+`"PATH=/opt/homebrew/bin:…"` plus `readonlyPaths: ["/opt/homebrew"]`.
+
+## Working directory
+
+`process.cwd`, if omitted, resolves to the first of: `readwritePaths[0]` →
+`readonlyPaths[0]` → `/`. A `~` default is tilde-expanded the same way policy
+paths are. The directory must already exist; a missing path (including one
+hidden by `..`) fails before launch, even with `--dry-run`. It is then resolved
+through symlinks and `..`, and `PWD`
+and the default `HOME` use that physical path (for example, `/tmp` becomes
+`/private/tmp`).
+
+A relative `cwd` is resolved against the MXC process's directory.
+
+**Note:** `getcwd()` only succeeds when the directory *itself* is readable under the profile. An
+out-of-policy `cwd` makes callers that resolve relative paths (`git`, Python's
+`os.getcwd`/`os.path.abspath`, and even `import` when `sys.path` contains `''`)
+fail with `Operation not permitted`. Grant the working directory in
+`readwritePaths` or `readonlyPaths`.
+
+## Process cleanup
+
+A run ends when its main process (the `/bin/sh` that runs your command) exits,
+times out, or is killed. MXC then kills every process the run started that is
+still running, so nothing the run started outlives it. This includes:
+
+- background jobs (`command &`)
+- processes that left the run's session or process group, such as a Node
+  `spawn(..., { detached: true })` child, which calls `setsid()`
+- processes whose parent has already exited
+
+A status check (`try_wait`, `TryGetExitCode`) only reports the exit. Cleanup
+runs when you wait, kill, or release the process handle.
+
+### How MXC finds the run's processes
+
+Each run gets eight random IDs. MXC adds two rules to the end of the run's
+profile:
+
+```scheme
+(deny mach-lookup (global-name-prefix "com.microsoft.mxc.run."))
+(allow mach-lookup (global-name-regex #"^com\.microsoft\.mxc\.run\.(<id1>|...|<id8>)$"))
+```
+
+Every process in the run inherits the profile and cannot remove it. To clean
+up, MXC scans the system's process list and asks macOS which processes allow
+all eight names and deny other random names under the same prefix. It skips
+processes that existed before the run started. No service under the prefix
+exists, so the rules grant nothing. They are added after a `profileOverride`
+profile too.
+
+`--debug` prints these rules after the end of the generated profile, not inside
+it, so the profile can be copied into `profileOverride` without them. MXC
+rejects a `profileOverride` or `extraMachLookups` entry that uses the
+`com.microsoft.mxc.run.` prefix, because the rules MXC adds would override it.
+
+MXC freezes every matching process before killing any, so a process cannot
+restart one that was just killed. It scans again until two scans in a row find
+nothing new.
+
+### Limits
+
+Cleanup is best effort. Windows job objects and Linux PID namespaces let the
+operating system track every process; macOS offers no equivalent to a program
+running without special privileges.
+
+- A scan cannot prove that nothing is left. A run that keeps starting very
+  short-lived processes can occasionally slip one past a scan.
+- If new processes are still appearing after 5 seconds, MXC stops. After a
+  normal exit, wait still returns the exit code and the failure is listed in
+  the process warnings. After a timeout or kill, the call reports an error.
+- Programs that macOS starts on the workload's behalf, such as an app opened
+  with `open` when `guiAccess` is enabled, run outside the sandbox and are not
+  part of the run.
+
+## Usage
+
+### Command line
+
+```bash
+./mxc-exec-mac config.json                        # config file
+./mxc-exec-mac --config-base64 <base64-string>    # inline config
+./mxc-exec-mac --dry-run config.json              # validate, don't run
+./mxc-exec-mac --audit config.json                # record what gets blocked (learning mode)
+./mxc-exec-mac --debug --log-file mxc.log config.json
+```
+
+### SDK
+
+```typescript
+import { spawnSandbox, SandboxPolicy } from '@microsoft/mxc-sdk/v1';
+
+const policy: SandboxPolicy = {
+    filesystem: {
+        readwritePaths: ['/tmp/output'],
+        readonlyPaths:  ['/opt/tools'],
+    },
+    network: {
+        egress:  { default: 'deny' },
+        ingress: { default: 'deny', hostLoopback: 'deny' },
+    },
+};
+
+// On macOS this resolves to mxc-exec-mac and builds a seatbelt config.
+const pty = spawnSandbox('echo hello', policy);
+pty.onData((data) => console.log(data));
+pty.onExit((e) => console.log('Exit:', e.exitCode));
+```
+
+The v1 `SandboxPolicy` has no `version` field; the SDK emits exact `1.0.0`.
+Network policy uses the directional `egress`/`ingress` fields only, and the SDK
+rejects the legacy `allowOutbound`/`allowedHosts`/`blockedHosts` fields with a
+migration error.
+
+## Building from source
+
+Requires Xcode Command Line Tools (`xcode-select --install`) and Rust. Not
+needed if you install pre-built binaries via npm.
+
+```bash
+./build-mac.sh              # native arch, release
+./build-mac.sh --all        # Apple silicon + Intel
+./build-mac.sh --debug      # debug build
+./build-mac.sh --rust-only  # skip the TypeScript SDK
+```
+
+<details>
+<summary>Full machine setup from scratch</summary>
+
+**1. Xcode Command Line Tools** — `clang`, `ld`, headers, macOS SDK.
+
+```bash
+xcode-select --install
+```
+
+**2. Rust toolchain**
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup target add aarch64-apple-darwin   # required on M-series
+rustup target add x86_64-apple-darwin    # only for --all / cross-compilation
+```
+
+**3. Homebrew** (optional — only for the tools below)
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Follow the `PATH` instructions it prints (`/opt/homebrew/bin` on Apple silicon).
+
+| Tool | Install | Needed for |
+|---|---|---|
+| Python 3 | `brew install python` | example `21_mac_python_info.json` |
+| Node.js | `brew install node` | building/testing the TypeScript SDK |
+
+> On Apple silicon Homebrew lives at `/opt/homebrew`, so example configs that
+> run Python include `"readonlyPaths": ["/opt/homebrew"]` to let the sandbox
+> reach the interpreter and its libraries.
+
+**4. Verify**
+
+```bash
+./build-mac.sh --rust-only
+./src/target/aarch64-apple-darwin/release/mxc-exec-mac --debug \
+    tests/examples/15_mac_hello_world.json
+```
+
+Expect profile-generation output followed by `hi from seatbelt`.
+</details>
+
+Output lands in `sdk/node/bin/<arch>/mxc-exec-mac`, which the SDK's
+`findDarwinExecutable()` picks up automatically.
+
+### Codesigning and notarization
+
+`build-mac.sh` produces an **unsigned** binary. Shipping requires:
+
+1. `codesign --options runtime --sign "Developer ID Application: …" mxc-exec-mac`
+2. `xcrun notarytool submit … --wait`
+3. `xcrun stapler staple mxc-exec-mac`
+
+These run in the release CI pipeline, not the local build script — they need
+Apple credentials.
+
+## Troubleshooting / Configs that are rejected
+
+Run with `--debug` to print the generated profile — most surprises are obvious
+once you can see the rules that were emitted.
+
+`--log-file <path>` prints the generated profile to a file.
+
+### Common symptoms
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Internet works, but `localhost:3000` is refused | [The `hostLoopback` trap](#the-hostloopback-trap) — you set `egress.default: "allow"` and left `ingress` out, so `hostLoopback` defaulted to `deny` | Add `ingress: {default: "allow", hostLoopback: "allow"}` |
+| All network fails and you didn't configure any | Omitting `network` denies everything — it isn't "unset", it's deny | Add an explicit `egress`/`ingress` block |
+| `guiAccess: true` rejected: "cannot be combined with `ui.disable=true`" | `ui.disable` defaults to `true`, so an omitted `ui` section conflicts | Add `ui: {disable: false}` |
+| `readwritePaths` on `/System` or `/usr` still can't write | SIP outranks the profile | Nothing to fix — pick a different path |
+| Command not found, or a tool can't find its libraries | The environment is always cleared and `PATH` resets to `/usr/bin:/bin:/usr/sbin:/sbin` | Add `process.env`, and `readonlyPaths` for the install prefix (e.g. `/opt/homebrew`) |
+| A client is configured with `HTTP_PROXY` but reaches nothing | It's ignoring the proxy vars. Outbound is kernel-scoped to the proxy port, so it can't connect anywhere else | Use a proxy-aware client — see [Proxy support](#proxy-support-what-is-and-isnt-enforced) |
+| A test runner or build tool fails spawning workers | `nestedPty: false`, or its IPC socket sits under a `readonlyPaths`/`deniedPaths` entry | Leave `nestedPty` at `true`; put socket directories in `readwritePaths` |
+
+### What gets rejected
+
+MXC refuses any config it cannot faithfully enforce, rather than quietly
+approximating it. This is the complete list.
+
+One documented exception: `ingress.hostLoopback: "deny"` under
+`ingress.default: "allow"` is accepted with the container-to-host half enforced
+and the host-to-container half left open, because Seatbelt cannot scope an
+inbound grant by peer. See [the trap](#the-hostloopback-trap).
+
+#### Network
+
+Field names below are the supported directional shape. Retired contracts are
+rejected before Seatbelt validation.
+
+| Config | Why it's rejected | Do this instead |
+|---|---|---|
+| `egress.allow` / `egress.deny` (non-empty) | No CIDR/port/protocol filtering primitive | Use `egress.default` alone |
+| `ingress.hostLoopback: "allow"` + `ingress.default: "deny"` | The inbound half is not expressible, so the promised host-to-container grant could not be made; see [the trap](#the-hostloopback-trap) | Set both to `"allow"` |
+| `runtimeConfig.networkProxy` + `egress.default: "allow"` | Outbound is already open, so traffic could bypass the proxy | `egress.default: "deny"` + the proxy |
+| `runtimeConfig.networkProxy` + non-empty direct `egress.allow` / `egress.deny` | Direct rules and proxy-only mode are alternatives | Remove direct rules and enforce destination policy at the proxy |
+| `runtimeConfig.networkProxy` with a non-loopback host | The runtime proxy endpoint must be loopback | Use `localhost`, `127.0.0.1`, or `[::1]` |
+| `processContainer.network.allowedProxyPeer` | Peer identity pinning isn't supported | Remove it |
+
+#### Filesystem
+
+| Config | Why it's rejected | Do this instead |
+|---|---|---|
+| A dangling symlink, symlink loop, or inaccessible path | The target cannot be resolved reliably for a Seatbelt path filter | Repair the link or make the path accessible to MXC |
+| A path resolving to a non-UTF-8 name | The profile cannot represent the target faithfully | Use a target with a UTF-8 name |
+
+#### Streaming / GUI
+
+| Config | Why it's rejected |
+|---|---|
+| `guiAccess: true` with `ui.disable: true`, or with no `ui` section | The GUI rules are only emitted when UI is enabled, so the request would otherwise be dropped without a word |
+| `guiAccess: true` with piped stdio or a caller-controlled PTY | GUI mode needs inherited stdio and an externally owned terminal |
+| `launchMethod` in a supported contract | The field is retired and rejected during JSON parsing |
+
+## Limitations
+
+**No per-host network filtering.** Seatbelt's `(remote ...)` filter accepts only
+`*` and `localhost`. Alternatives considered:
+
+| Approach | Status | Why |
+|---|---|---|
+| `pf` packet filter | Not viable | Needs root, system-wide (not per-process), unstable hostname→IP for CDNs |
+| `/etc/hosts` edits | Not viable | Needs root, affects all processes, bypassable via direct IP or DoH |
+| Network Extension | Possible future | `NEFilterDataProvider` can filter per-process by hostname, but needs a signed System Extension, a special entitlement, user approval, and a separate daemon |
+
+**Inbound access is all-or-nothing.** You cannot accept loopback connections
+while refusing LAN connections — see [above](#why-only-one-divergent-pair-is-allowed).
+
+**Proxy routing is cooperative, but egress confinement is not.** A client that
+ignores `HTTP_PROXY` cannot bypass to the internet — the kernel scopes outbound
+to the proxy's port and nothing else. What isn't guaranteed is that a client
+uses the proxy at all. See
+[Proxy support](#proxy-support-what-is-and-isnt-enforced).
+
+**Terminal.app + Terminal emulators can't start a login shell.** macOS terminals start each
+session through setuid-root `/usr/bin/login`, and a sandboxed process may never
+exec a setuid binary (`forbidden-exec-sugid`). No profile grant lifts that. An
+emulator that can be configured to run a command directly instead of a login
+shell (e.g. iTerm2's *Custom Command*) avoids the setuid exec.
+
+**No container abstraction.** No persistent container to attach to or destroy —
+every invocation is a fresh process tree.
+
+**Process cleanup is best effort.** MXC cannot prove that every process a run
+started has ended. See [Process cleanup](#process-cleanup).
+
+**SIP overrides the profile.** You cannot grant write access to `/System` or
+`/usr`, even with an explicit `readwritePaths` entry.
+
+**`sandbox_init` is deprecated in headers** (since 10.8) but still ships and is
+used by Apple's own apps and Chromium. It's the same framework behind the App
+Sandbox.
+
+## Tests
+
+`tests/scripts/run_seatbelt_all_tests.sh` runs the whole suite; the individual
+`run_seatbelt_<area>_test.sh` scripts can be run on their own. There is no skip
+path — a missing prerequisite fails, so a green run always means the assertions
+executed.

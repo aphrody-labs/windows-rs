@@ -1,0 +1,1837 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! `IsolationSessionManager` — granular wrapper over the in-proc
+//! isolation session lifecycle. Each method maps 1:1 to a single WinRT op.
+//! `create_process` also drives the ConPTY relay setup + shutdown ladder
+//! against the local console.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::mxc_common::audit::{AuditEvent, AuditEventName, KillMethod, TeardownStatus};
+use crate::mxc_common::logger::Logger;
+use crate::mxc_common::process_util::{OwnedHandle, PipeReadCanceller};
+use crate::mxc_common::sandbox_process::StreamCloser;
+use crate::mxc_common::state_aware_backend::{ExecHandle, ExecOutcome};
+
+use crate::isolation_session_bindings::bindings::{
+    IsoSessionFeature, IsoSessionOps, IsoSessionProcess, IsoSessionProcessResult,
+    IsoSessionUserResult,
+};
+use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_CHAR};
+use windows::Win32::System::Com::{CoDecrementMTAUsage, CoIncrementMTAUsage, CO_MTA_USAGE_COOKIE};
+use windows::Win32::System::Console::{
+    GetConsoleMode, GetStdHandle, CONSOLE_MODE, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+    STD_OUTPUT_HANDLE,
+};
+use windows::Win32::System::Threading::{CreateEventW, SetEvent, WaitForSingleObject};
+use windows::UI::WindowId;
+use windows_core::{HSTRING, PCWSTR};
+
+use super::console_mode::{get_local_console_size, ConsoleModeRestorer, CtrlHandlerGuard};
+use super::console_relay::{create_console_relay_thread, ConsoleRelayParams};
+use super::error::{
+    activation_error, check_result, format_iso_error, lifecycle_err, op, transport_err,
+    IsolationSessionError, StalePromotion,
+};
+use super::owned_thread::{self, Impersonation};
+use super::pipe_relay::{
+    create_relay_thread, create_relay_thread_with_stop, drain_output_relays_within,
+    duplicate_handle, OutputRelayDrain, PipeRelay, PipeRelayWithStopParams,
+};
+use super::process_options::{
+    build_iso_process_options, with_service_timeout_grace, ProcessOptions,
+};
+
+// The OS account name is lifecycle addressing data, not diagnostic identity.
+const AGENT_IDENTITY_MARKER: &str = "isolation-session-agent";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StdinHandleKind {
+    Console,
+    PipeOrFile,
+}
+
+fn classify_stdin_handle(handle: HANDLE) -> StdinHandleKind {
+    let file_type = unsafe { GetFileType(handle) };
+    if file_type == FILE_TYPE_CHAR {
+        let mut mode = CONSOLE_MODE(0);
+        if unsafe { GetConsoleMode(handle, &mut mode) }.is_ok() {
+            return StdinHandleKind::Console;
+        }
+    }
+    StdinHandleKind::PipeOrFile
+}
+
+/// # Safety
+/// Handles must be valid during setup. Console input is borrowed and must
+/// remain valid until the relay exits; the other handles are duplicated.
+unsafe fn create_stdin_relay(
+    stdin: HANDLE,
+    destination: HANDLE,
+    stop_event: HANDLE,
+    interactive: bool,
+    resize_callback: impl Fn(u16, u16) + Send + 'static,
+) -> Result<(OwnedHandle, Option<PipeReadCanceller>), IsolationSessionError> {
+    // Choose the relay from stdin itself; `interactive` describes stdout.
+    if classify_stdin_handle(stdin) == StdinHandleKind::PipeOrFile {
+        let (thread, canceller) = unsafe { create_relay_thread(stdin, destination) }
+            .map_err(|e| lifecycle_err(format!("create stdin relay: {e}")))?
+            .into_thread_and_canceller();
+        return Ok((thread, Some(canceller)));
+    }
+
+    // process.Close() can release the original while the relay is still writing.
+    let h_write = duplicate_handle(destination)
+        .map_err(|e| lifecycle_err(format!("duplicate stdin handle: {e}")))?;
+    let h_stop_event = duplicate_handle(stop_event)
+        .map_err(|e| lifecycle_err(format!("duplicate stdin stop event: {e}")))?;
+    let thread = if interactive {
+        unsafe {
+            create_console_relay_thread(ConsoleRelayParams {
+                h_read: stdin,
+                h_write,
+                h_stop_event,
+                resize_callback: Box::new(resize_callback),
+            })
+        }
+        .map_err(|e| lifecycle_err(format!("create console-aware stdin relay: {e}")))?
+    } else {
+        unsafe {
+            create_relay_thread_with_stop(PipeRelayWithStopParams {
+                h_read: stdin,
+                h_write,
+                h_stop_event,
+            })
+        }
+        .map_err(|e| lifecycle_err(format!("create stdin relay: {e}")))?
+    };
+    Ok((thread, None))
+}
+
+/// Keeps the process's MTA alive for as long as the lifecycle's WinRT objects,
+/// which outlive the call that created them.
+/// `CoIncrementMTAUsage` holds a reference releasable from any thread;
+/// `CoUninitialize` is thread-affine and would tear the apartment down under a
+/// live object.
+pub(super) struct MtaReference {
+    cookie: CO_MTA_USAGE_COOKIE,
+}
+
+impl MtaReference {
+    pub(super) fn acquire() -> Result<Self, IsolationSessionError> {
+        // SAFETY: the out-parameter is a valid, writable local.
+        let cookie = unsafe { CoIncrementMTAUsage() }.map_err(|e| {
+            transport_err(
+                op::CO_INCREMENT_MTA_USAGE,
+                "could not keep a multi-threaded apartment alive",
+                &e,
+            )
+        })?;
+        Ok(Self { cookie })
+    }
+}
+
+impl Drop for MtaReference {
+    fn drop(&mut self) {
+        // SAFETY: balances the `CoIncrementMTAUsage` in `acquire`. The cookie is
+        // not thread-affine, so this is sound on whichever thread drops it.
+        unsafe {
+            let _ = CoDecrementMTAUsage(self.cookie);
+        }
+    }
+}
+
+// SAFETY: the cookie is an opaque token, never dereferenced, and
+// `CoDecrementMTAUsage` accepts it from any thread.
+unsafe impl Send for MtaReference {}
+unsafe impl Sync for MtaReference {}
+
+/// Activates the in-proc IsolationSession runtime factory and returns the
+/// instance.
+fn check_service_available_and_activate() -> Result<IsoSessionOps, IsolationSessionError> {
+    match IsoSessionOps::new() {
+        Ok(ops) => Ok(ops),
+        // The HRESULT→error mapping lives in `activation_error` so it stays
+        // testable without depending on whether this host can activate the
+        // API at all.
+        Err(e) => Err(activation_error(e.code().0 as u32, &e.message())),
+    }
+}
+
+/// `GetFeatureLevel` fails on a host that does not recognize the feature
+/// value, so an error reads as not supported.
+fn feature_supported_from(level: windows_core::Result<i32>) -> bool {
+    matches!(level, Ok(level) if level > 0)
+}
+
+const ZERO_WINDOW_ID: WindowId = WindowId { Value: 0 };
+
+/// The provision-time facts the OS assigns to a freshly-created agent user,
+/// read from `IsoSessionUserResult` at `add_user`. The addressing key for
+/// every later lifecycle op remains `agent_user_name`; the other two fields
+/// are provision metadata surfaced to the caller.
+pub(super) struct ProvisionedUser {
+    /// The OS-assigned agent account name (also the `sandboxId` tail).
+    pub agent_user_name: String,
+    /// The security identifier (SID) of the agent user. Diagnostic only.
+    pub agent_user_sid: String,
+    /// A directory shared between the calling user and this isolated agent
+    /// user, through which the caller can stage files into the session. Each
+    /// isolated user can access only its own workspace; the caller can access
+    /// all of them. Deleted when the agent user is deprovisioned.
+    pub ephemeral_workspace_path: String,
+}
+
+/// Manages the isolation session lifecycle. Methods map 1:1 to the granular
+/// API steps.
+pub struct IsolationSessionManager {
+    /// The OS-assigned agent user name returned by `add_user`. Used as the
+    /// `agentUserName` argument to every subsequent lifecycle op.
+    agent_user_name: HSTRING,
+    /// The activated service instance. Held for the manager's lifetime so
+    /// the WinRT factory is reused across calls.
+    ops: IsoSessionOps,
+    /// The impersonation of the thread that created this manager: every call
+    /// the manager makes, and every call for a process it starts, is made
+    /// under it.
+    impersonation: Impersonation,
+    /// Declared after `ops` so it drops last: the apartment outlives every
+    /// object activated in it.
+    _mta: MtaReference,
+}
+
+impl IsolationSessionManager {
+    /// Start an interactive process whose ConPTY handles remain caller-driven.
+    pub(super) fn pty_process(
+        &self,
+        options: &ProcessOptions,
+        logger: Option<&Logger>,
+    ) -> Result<Arc<ClosingProcess>, IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            let mta = MtaReference::acquire()?;
+            Ok(Arc::new(ClosingProcess::new(
+                self.start_process(options, logger)?,
+                self.impersonation.clone(),
+                mta,
+            )))
+        })
+    }
+
+    /// Pegs a manager to an existing OS-assigned agent user name (the value
+    /// returned by `add_user`). Activates the service factory once and
+    /// reuses it for the manager's lifetime.
+    pub(super) fn new(agent_user_name: &str) -> Result<Self, IsolationSessionError> {
+        let impersonation = Impersonation::of_this_thread()?;
+        owned_thread::call(&impersonation, || {
+            let mta = MtaReference::acquire()?;
+            let ops = check_service_available_and_activate()?;
+            Ok(Self {
+                agent_user_name: HSTRING::from(agent_user_name),
+                ops,
+                impersonation: impersonation.clone(),
+                _mta: mta,
+            })
+        })
+    }
+
+    /// Provisions an agent user and returns its provision-time facts (the
+    /// OS-assigned account name — which addresses every subsequent lifecycle
+    /// op — plus the agent SID and the shared ephemeral workspace path),
+    /// together with a manager already pegged to that account.
+    ///
+    /// The manager is returned rather than left to the caller to build with
+    /// [`Self::new`] because building it separately would activate the service
+    /// a second time. That second activation can fail *after* the agent user
+    /// has been minted, and at that point the account cannot be removed —
+    /// removal needs the very service instance that just failed to activate —
+    /// so the sandbox would leak with no way to clean it up. Handing back the
+    /// instance `add_user` already holds removes that window entirely.
+    ///
+    /// Once the API reports success the account exists, so every failure after
+    /// that point deprovisions best-effort rather than abandoning it. The sole
+    /// exception is a failure to read the account name itself, which leaves
+    /// nothing to address a removal to.
+    ///
+    /// Note: the in-proc API exposes no session-lifetime knob, so `lifecycle`
+    /// cannot be honored here. Unsupported values are refused by the calling
+    /// surface rather than ignored — one-shot rejects `destroyOnExit: false`
+    /// and `preservePolicy: true` in `validate_runner`, and the state-aware
+    /// parser rejects the whole `lifecycle` section.
+    pub(super) fn add_user(
+        app_id: Option<&str>,
+    ) -> Result<(ProvisionedUser, Self), IsolationSessionError> {
+        let impersonation = Impersonation::of_this_thread()?;
+        owned_thread::call(&impersonation, || {
+            let mta = MtaReference::acquire()?;
+            let ops = check_service_available_and_activate()?;
+            // Prefer the newest overload the host advertises.
+            let (op_add_user, started) = if feature_supported_from(
+                ops.GetFeatureLevel(IsoSessionFeature::DeducedEnterpriseAgentUser),
+            ) {
+                (
+                    op::ADD_USER_DEDUCED,
+                    ops.AddUserAsync3(&HSTRING::from(app_id.unwrap_or_default()), ZERO_WINDOW_ID),
+                )
+            } else if feature_supported_from(
+                ops.GetFeatureLevel(IsoSessionFeature::AppScopedRegistration),
+            ) {
+                (
+                    op::ADD_USER,
+                    ops.AddUserAsync2(
+                        &HSTRING::from(app_id.unwrap_or_default()),
+                        &HSTRING::new(),
+                        &HSTRING::new(),
+                    ),
+                )
+            } else {
+                (
+                    op::ADD_USER_LEGACY,
+                    ops.AddUserAsync(&HSTRING::new(), &HSTRING::new()),
+                )
+            };
+            let user_result: IsoSessionUserResult = owned_thread::wait_for(op_add_user, started)?;
+
+            let err = user_result
+                .Error()
+                .map_err(|e| transport_err(op_add_user, "get Error failed", &e))?;
+            let is_error = err
+                .IsError()
+                .map_err(|e| transport_err(op_add_user, "get IsError failed", &e))?;
+            if is_error {
+                // Provision mints the agent user, so `ERROR_NOT_FOUND` here can
+                // never mean "the sandbox is gone" — there is no sandbox id yet.
+                return Err(format_iso_error(
+                    op_add_user,
+                    &err,
+                    StalePromotion::NotEligible,
+                ));
+            }
+
+            let agent_user_name = user_result
+                .AgentUserName()
+                .map_err(|e| transport_err(op_add_user, "get AgentUserName failed", &e))?;
+
+            // Past this point the OS account exists and `agent_user_name` is the
+            // key that removes it, so build the manager now rather than after the
+            // remaining getters. That makes every subsequent failure recoverable:
+            // the removal key and a live service instance are both already in hand.
+            //
+            // A failure of `AgentUserName()` above is the one case with no
+            // in-process remedy — without the name there is nothing to address a
+            // removal to — so it is left to propagate.
+            let manager = Self {
+                agent_user_name: agent_user_name.clone(),
+                ops,
+                impersonation: impersonation.clone(),
+                _mta: mta,
+            };
+
+            let provisioned =
+                match Self::read_remaining_facts(&user_result, &agent_user_name, op_add_user) {
+                    Ok(provisioned) => provisioned,
+                    Err(e) => {
+                        // Best-effort: returning here without this would abandon an
+                        // account we are still able to remove.
+                        let _ = manager.deprovision_agent_user();
+                        return Err(e);
+                    }
+                };
+
+            Ok((provisioned, manager))
+        })
+    }
+
+    /// Reads the provision-time facts that remain after the agent user name.
+    ///
+    /// Split out of [`Self::add_user`] so that a failure in any of them lands
+    /// on one error path, where the freshly created account can be removed
+    /// instead of orphaned. `op_add_user` is the operation label of the
+    /// provisioning overload actually invoked, so these getters' failures are
+    /// attributed to the same API call in telemetry.
+    fn read_remaining_facts(
+        user_result: &IsoSessionUserResult,
+        agent_user_name: &HSTRING,
+        op_add_user: &'static str,
+    ) -> Result<ProvisionedUser, IsolationSessionError> {
+        let agent_user_sid = user_result
+            .AgentUserSid()
+            .map_err(|e| transport_err(op_add_user, "get AgentUserSid failed", &e))?;
+        let ephemeral_workspace_path = user_result
+            .EphemeralWorkspacePath()
+            .map_err(|e| transport_err(op_add_user, "get EphemeralWorkspacePath failed", &e))?;
+
+        Ok(ProvisionedUser {
+            agent_user_name: agent_user_name.to_string(),
+            agent_user_sid: agent_user_sid.to_string(),
+            ephemeral_workspace_path: ephemeral_workspace_path.to_string(),
+        })
+    }
+
+    /// Step 2: Start the isolation session for the pegged agent user.
+    pub(super) fn start_session(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            // Prefer the newest overload the host advertises.
+            let (op_start_session, started) = if feature_supported_from(
+                self.ops
+                    .GetFeatureLevel(IsoSessionFeature::DeducedEnterpriseAgentUser),
+            ) {
+                (
+                    op::START_SESSION_DEDUCED,
+                    self.ops
+                        .StartSessionAsync2(&self.agent_user_name, ZERO_WINDOW_ID),
+                )
+            } else {
+                (
+                    op::START_SESSION,
+                    self.ops
+                        .StartSessionAsync(&self.agent_user_name, &HSTRING::new()),
+                )
+            };
+            let result = owned_thread::wait_for(op_start_session, started)?;
+            check_result(&result, op_start_session, StalePromotion::Eligible)
+        })
+    }
+
+    /// Step 3a: Start a process inside the started isolation session, and
+    /// return it **without waiting**.
+    ///
+    /// Split out of [`Self::create_process`] so the caller chooses how the
+    /// streams are consumed: the relayed path bridges them with its own relay
+    /// threads and blocks (see `create_process`), while an in-process SDK
+    /// caller takes the raw handles and drives them itself.
+    fn start_process(
+        &self,
+        options: &ProcessOptions,
+        logger: Option<&Logger>,
+    ) -> Result<StartedProcess, IsolationSessionError> {
+        let proc_options = build_iso_process_options(options)?;
+
+        let result: IsoSessionProcessResult = owned_thread::wait_for(
+            op::RUN_PROCESS,
+            self.ops.RunProcessWithOptionsAsync(
+                &self.agent_user_name,
+                &HSTRING::from(&options.process_path),
+                &HSTRING::from(&options.arguments),
+                &proc_options,
+            ),
+        )?;
+
+        let err = result
+            .Error()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get Error failed", &e))?;
+        let is_error = err
+            .IsError()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get IsError failed", &e))?;
+        if is_error {
+            return Err(format_iso_error(
+                op::RUN_PROCESS,
+                &err,
+                StalePromotion::Eligible,
+            ));
+        }
+
+        let process: IsoSessionProcess = result
+            .Process()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get Process failed", &e))?;
+
+        // A getter that errors is a backend failure, not an absent stream:
+        // propagate it rather than coercing to 0, which downstream treats as
+        // "no handle" and silently skips the corresponding stdio relay. A
+        // genuinely returned 0 still means absent and is preserved.
+        let stdout = process
+            .OutputHandle()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get OutputHandle failed", &e))?;
+        let stderr = process
+            .ErrorHandle()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get ErrorHandle failed", &e))?;
+        let stdin = process
+            .InputHandle()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get InputHandle failed", &e))?;
+
+        Ok(StartedProcess {
+            process,
+            stdout,
+            stderr,
+            stdin,
+            identity: AGENT_IDENTITY_MARKER,
+            audit_logger: std::sync::Mutex::new(
+                logger
+                    .map(Logger::clone_diagnostic_sink)
+                    .unwrap_or_else(Logger::inherit_thread_diagnostic_sink),
+            ),
+        })
+    }
+
+    /// Step 3: Create a process inside the started isolation session and run it
+    /// to completion. Output is streamed live to the calling process's stdio via
+    /// internal relay threads; only the exit code or timeout is returned.
+    ///
+    /// `options.timeout_ms` is enforced locally; the service-side timer is armed
+    /// with [`with_service_timeout_grace`] so a timeout is never reported as an
+    /// ordinary exit.
+    ///
+    /// This is the **relay** path, reached by `wxc-exec` and by an in-process
+    /// caller that asked to attach. A caller that wants the streams handed back
+    /// uses [`Self::piped_exec_handle`] instead.
+    ///
+    /// [`with_service_timeout_grace`]: super::process_options::with_service_timeout_grace
+    pub(super) fn create_process(
+        &self,
+        options: &ProcessOptions,
+        logger: Option<&mut Logger>,
+    ) -> Result<ExecOutcome, IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            // Everything fallible that does not need the workload runs first, so no
+            // failure can strand a running one.
+            let wxc_stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }
+                .map_err(|e| lifecycle_err(format!("GetStdHandle(stdout) failed: {}", e)))?;
+            let wxc_stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) }
+                .map_err(|e| lifecycle_err(format!("GetStdHandle(stderr) failed: {}", e)))?;
+            let wxc_stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE) }
+                .map_err(|e| lifecycle_err(format!("GetStdHandle(stdin) failed: {}", e)))?;
+
+            // Manual-reset stop event for console-backed stdin relays.
+            let stdin_stop_event = unsafe {
+                CreateEventW(None, true, false, PCWSTR::null())
+                    .map_err(|e| lifecycle_err(format!("CreateEventW(stdin stop): {}", e)))?
+            };
+            // Declared before `scope`, which holds a raw copy: it must drop last.
+            let stdin_stop_owned = OwnedHandle::new(stdin_stop_event);
+
+            // Relay threads bridge the calling process's stdio to
+            // `IsoSessionProcess`'s pipes: console-handle inheritance cannot cross
+            // the desktop-session boundary.
+            //
+            // Handle ownership across four sources:
+            //   - Pipe handles owned by `IsoSessionProcess` (`OutputHandle()` /
+            //     `ErrorHandle()` / `InputHandle()`, returned as u64): released
+            //     by `process.Close()`. We do NOT close them. The output relays
+            //     read their own duplicates, so `Close()` does not disturb them.
+            //   - The calling process's std handles (`GetStdHandle`): OS-owned.
+            //     We do NOT close them.
+            //   - Stop event for stdin relay (`CreateEventW`): RAII-closed via
+            //     `OwnedHandle`.
+            //   - Relay thread handles: RAII-closed via `OwnedHandle` after we
+            //     `WaitForSingleObject` on each.
+            //
+            // Lifetime: each relay's param struct is moved to the heap and owned
+            // by its thread, which frees it on exit, so joining is not required
+            // for memory safety.
+            let service_options = with_service_timeout_grace(options.clone());
+            let started = self.start_process(&service_options, logger.as_deref())?;
+            let process = &started.process;
+            let stdout_handle_val = started.stdout;
+            let stderr_handle_val = started.stderr;
+            let stdin_handle_val = started.stdin;
+
+            let mut scope = RelayScope::new(process, stdin_stop_owned.get());
+
+            // In interactive mode, switch the calling process's console to raw VT
+            // so only the agent's ConPTY echoes and renders; otherwise both do.
+            // RAII-restored on scope exit. No-op when stdio is not a console.
+            let _console_guard = if options.interactive {
+                Some(ConsoleModeRestorer::install_raw_vt())
+            } else {
+                None
+            };
+
+            // Install a console Ctrl handler that signals `stdin_stop_owned`
+            // on Ctrl-C or terminal-close events, so the relay loops drain
+            // cleanly instead of being terminated by the OS default
+            // `ExitProcess`. Interactive mode only — non-interactive mode
+            // wants the default behavior so the parent can terminate
+            // wxc-exec via Ctrl-C. Installed after the workload starts: the
+            // event is manual-reset and never cleared, so an earlier Ctrl-C
+            // would stop the stdin relay for the session's lifetime.
+            let _ctrl_guard = if options.interactive {
+                Some(CtrlHandlerGuard::install(stdin_stop_owned.get()))
+            } else {
+                None
+            };
+
+            // Push the local console's viewport size into the agent's inner ConPTY.
+            // Without it the inner HPCON keeps its default dimensions and VT-aware
+            // agents (e.g. PSReadLine) anchor their prompt to that smaller last row,
+            // overlaying text once they reach it. Mid-session resize is not handled
+            // here.
+            if options.interactive {
+                if let Some((cols, rows)) = get_local_console_size() {
+                    let _ = process.ResizeConsole(cols, rows);
+                }
+            }
+
+            scope.stdout = if stdout_handle_val != 0 {
+                Some(
+                    unsafe {
+                        create_relay_thread(
+                            HANDLE(stdout_handle_val as *mut core::ffi::c_void),
+                            wxc_stdout,
+                        )
+                    }
+                    .map_err(|e| lifecycle_err(format!("create stdout relay: {}", e)))?,
+                )
+            } else {
+                None
+            };
+            scope.stderr = if stderr_handle_val != 0 {
+                Some(
+                    unsafe {
+                        create_relay_thread(
+                            HANDLE(stderr_handle_val as *mut core::ffi::c_void),
+                            wxc_stderr,
+                        )
+                    }
+                    .map_err(|e| lifecycle_err(format!("create stderr relay: {}", e)))?,
+                )
+            } else {
+                None
+            };
+            if stdin_handle_val != 0 {
+                // The console relay needs its own process reference for resize calls.
+                let process_for_resize = process.clone();
+                let impersonation = self.impersonation.clone();
+                // SAFETY: process and standard handles outlive relay setup;
+                // the host's console input remains valid during execution.
+                let (thread, canceller) = unsafe {
+                    create_stdin_relay(
+                        wxc_stdin,
+                        HANDLE(stdin_handle_val as *mut core::ffi::c_void),
+                        stdin_stop_owned.get(),
+                        options.interactive,
+                        move |cols, rows| {
+                            let _ = owned_thread::call(&impersonation, || {
+                                let _ = process_for_resize.ResizeConsole(cols, rows);
+                                Ok(())
+                            });
+                        },
+                    )
+                }?;
+                scope.stdin = Some(thread);
+                scope.stdin_canceller = canceller;
+            }
+
+            let outcome = started.wait(options.timeout_ms, || scope.stop_stdin())?;
+            scope.finish()?;
+
+            Ok(outcome)
+        })
+    }
+
+    /// Start a process and hand back its live pipes as an [`ExecHandle`].
+    ///
+    /// Shared by the state-aware `Piped` exec and the one-shot streaming
+    /// backend.
+    ///
+    /// `timeout_ms` is the caller's deadline, enforced by the waiter. Arm the
+    /// service-side timer with [`with_service_timeout_grace`] before calling:
+    /// without that margin the two deadlines coincide, and a timeout can arrive
+    /// as an ordinary exit.
+    ///
+    /// [`with_service_timeout_grace`]: super::process_options::with_service_timeout_grace
+    pub(super) fn piped_exec_handle(
+        &self,
+        options: &ProcessOptions,
+        timeout_ms: u32,
+        logger: Option<&Logger>,
+    ) -> Result<ExecHandle, IsolationSessionError> {
+        let started = owned_thread::call(&self.impersonation, || {
+            // Acquired before the workload starts, so a failure here cannot
+            // leave one running with no handle to reach it.
+            let mta = MtaReference::acquire()?;
+            Ok(Arc::new(ClosingProcess::new(
+                self.start_process(options, logger)?,
+                self.impersonation.clone(),
+                mta,
+            )))
+        })?;
+
+        // Read the handles before the closures take ownership. A zero means the
+        // stream is genuinely absent, which is exactly the sentinel the
+        // consumer already treats as "no stream".
+        let stdout = HANDLE(started.stdout as *mut std::ffi::c_void);
+        let stderr = HANDLE(started.stderr as *mut std::ffi::c_void);
+        let stdin = HANDLE(started.stdin as *mut std::ffi::c_void);
+
+        // `IsoSessionProcess` answers `IAgileObject`, so the closures may hold it
+        // on whatever thread runs them; the calls they make go through
+        // `owned_thread`.
+        let waiter_process = Arc::clone(&started);
+        let stdin_process = Arc::clone(&started);
+        Ok(ExecHandle {
+            stdout,
+            stderr,
+            stdin,
+            stdin_closer: Some(Box::new(move || {
+                let _ = owned_thread::call(&stdin_process.impersonation, || {
+                    let _ = stdin_process.process.CloseStandardInput();
+                    Ok(())
+                });
+            })),
+            // Reports `TimedOut` when the deadline elapsed with the process
+            // still running — see `StartedProcess::wait`, which samples that
+            // before the shutdown ladder destroys the evidence.
+            waiter: Box::new(move || {
+                owned_thread::call(&waiter_process.impersonation, || {
+                    waiter_process.wait(timeout_ms, || Ok(true))
+                })
+                .map_err(super::error::map_lifecycle_error)
+            }),
+            // Reports whether the platform *accepted* the kill: `terminate`'s
+            // bounded post-kill wait is not consulted, so a `Terminate` that
+            // was accepted and then did not take effect still reports success.
+            terminator: Box::new(move || {
+                owned_thread::call(&started.impersonation, || started.terminate())
+                    .map_err(super::error::map_lifecycle_error)
+            }),
+        })
+    }
+
+    /// Step 4: Stop the isolation session.
+    pub(super) fn stop_session(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            let result = owned_thread::wait_for(
+                op::STOP_SESSION,
+                self.ops.StopSessionAsync(&self.agent_user_name),
+            )?;
+            check_result(&result, op::STOP_SESSION, StalePromotion::Eligible)
+        })
+    }
+
+    /// Step 5: Deprovision the agent user.
+    pub(super) fn deprovision_agent_user(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            let result = owned_thread::wait_for(
+                op::REMOVE_USER,
+                self.ops.RemoveUserAsync(&self.agent_user_name),
+            )?;
+            check_result(&result, op::REMOVE_USER, StalePromotion::Eligible)
+        })
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TeardownOutcome {
+    pub session_stopped: Option<bool>,
+    pub agent_user_deprovisioned: Option<bool>,
+}
+
+impl TeardownOutcome {
+    fn status(&self) -> TeardownStatus {
+        let steps = [self.session_stopped, self.agent_user_deprovisioned];
+        if steps.contains(&Some(false)) {
+            TeardownStatus::Failure
+        } else if steps.iter().all(Option::is_none) {
+            TeardownStatus::Skipped
+        } else {
+            TeardownStatus::Success
+        }
+    }
+}
+
+pub fn log_sandbox_torn_down(logger: &mut Logger, phase: &str, outcome: TeardownOutcome) {
+    if !logger.has_diagnostic_sink() && !crate::mxc_common::telemetry::is_active() {
+        return;
+    }
+    crate::mxc_common::telemetry::log_sandbox_torn_down(
+        AGENT_IDENTITY_MARKER,
+        outcome.status().as_str(),
+        &format!(
+            "session_stopped={},agent_user_deprovisioned={}",
+            outcome.session_stopped == Some(true),
+            outcome.agent_user_deprovisioned == Some(true),
+        ),
+    );
+    let record = AuditEvent::new(AuditEventName::SandboxTornDown)
+        .str("backend", "isolation_session")
+        .str("identity", AGENT_IDENTITY_MARKER)
+        .str("phase", phase)
+        .str("status", outcome.status().as_str())
+        .bool("session_stopped", outcome.session_stopped == Some(true))
+        .bool(
+            "agent_user_deprovisioned",
+            outcome.agent_user_deprovisioned == Some(true),
+        );
+    logger.log_audit_event(&record);
+}
+
+/// A process started inside an isolation session but **not yet awaited**.
+///
+/// Separating start from wait is what makes streaming possible: the executor
+/// path hands these handles to its own relay threads and blocks, while an
+/// in-process SDK caller takes them and drives them itself.
+///
+/// **Handle ownership stays here.** The three pipe handles belong to the
+/// `IsoSessionProcess` and are released by its `Close()`; a consumer duplicates
+/// them and must never close the originals. A `0` means the stream is genuinely
+/// absent, not that a getter failed — `start_process` propagates getter errors
+/// rather than coercing them.
+pub(super) struct StartedProcess {
+    pub(super) process: IsoSessionProcess,
+    pub(super) stdout: u64,
+    pub(super) stderr: u64,
+    pub(super) stdin: u64,
+    identity: &'static str,
+    audit_logger: std::sync::Mutex<Logger>,
+}
+
+impl StartedProcess {
+    fn audit(&self, name: AuditEventName) -> AuditEvent {
+        AuditEvent::new(name)
+            .str("backend", "isolation_session")
+            .str("identity", self.identity)
+            .u64("pid", 0)
+    }
+
+    fn record_exited(&self, exit_code: i32) {
+        crate::mxc_common::telemetry::log_process_event(
+            self.identity,
+            0,
+            crate::mxc_common::telemetry::ProcessEvent::Exited(exit_code),
+        );
+        let mut logger = self.audit_logger.lock().unwrap_or_else(|e| e.into_inner());
+        logger.log_audit_event(
+            &self
+                .audit(AuditEventName::ProcessExited)
+                .i64("exit_code", exit_code as i64),
+        );
+    }
+
+    fn record_timed_out(&self, timeout_ms: u32) {
+        crate::mxc_common::telemetry::log_process_event(
+            self.identity,
+            0,
+            crate::mxc_common::telemetry::ProcessEvent::TimedOut(timeout_ms as u64),
+        );
+        let mut logger = self.audit_logger.lock().unwrap_or_else(|e| e.into_inner());
+        logger.log_audit_event(
+            &self
+                .audit(AuditEventName::ProcessTimedOut)
+                .u64("timeout_ms", timeout_ms as u64),
+        );
+    }
+
+    fn record_kill_failed(&self, error_code: i32) {
+        crate::mxc_common::telemetry::log_process_event(
+            self.identity,
+            0,
+            crate::mxc_common::telemetry::ProcessEvent::KillFailed(
+                KillMethod::TerminateProcess.as_str(),
+                error_code,
+            ),
+        );
+        let mut logger = self.audit_logger.lock().unwrap_or_else(|e| e.into_inner());
+        logger.log_audit_event(
+            &self
+                .audit(AuditEventName::ProcessKillFailed)
+                .str("kill_method", KillMethod::TerminateProcess.as_str())
+                .i64("error_code", error_code as i64),
+        );
+    }
+
+    /// Block until the process exits and yield its exit code, escalating
+    /// through the graceful-shutdown ladder if it outlives `timeout_ms`.
+    ///
+    /// The *instruction sequence* is the one the relayed path runs inline, but
+    /// the ladder's first two tiers are **inert for a consumer that holds
+    /// duplicates of the pipe handles**:
+    ///
+    /// - Tier 1 closes the backend's stdin write end, but a pipe reaches EOF
+    ///   only when *every* write end is closed, so tier 1 alone does not
+    ///   produce EOF.
+    /// - Tier 2 (`SendCtrlClose`) is ConPTY-only and returns `E_NOTIMPL`
+    ///   otherwise, and a piped exec never allocates one.
+    ///
+    /// The ladder therefore degrades to the full 5s + 3s stall followed by
+    /// tier 3's hard terminate.
+    ///
+    /// # Telling a timeout from an exit
+    ///
+    /// Reported as [`ExecOutcome::TimedOut`] when the deadline elapsed with the
+    /// process still running, and [`ExecOutcome::Exited`] otherwise.
+    ///
+    /// **Neither available signal is sound alone**, because each is also a legal
+    /// exit code: `WaitForExit` answers `-1` on timeout, and a timed-out
+    /// process still reads [`STILL_ACTIVE`] (259) from `ExitCode()`. A workload
+    /// is untrusted code and can return either value at will.
+    ///
+    /// Their *conjunction* establishes **whether the process was still running
+    /// when it was sampled**, which is what the ladder decision needs. A process
+    /// that exited cannot have exited with both values at once, so requiring
+    /// both pins the live case:
+    ///
+    /// | Case | `WaitForExit` | `ExitCode()` | Verdict |
+    /// |---|---|---|---|
+    /// | still running | `-1` | `259` | `TimedOut` (after the ladder confirms it died) |
+    /// | exited after the deadline | `-1` | `7` | `TimedOut` (already gone; no ladder) |
+    /// | ambiguous | `-1` | `-1` | `Exited(-1)` |
+    /// | exited `259` | `259` | `259` | `Exited(259)` |
+    ///
+    /// # A spent deadline is sticky
+    ///
+    /// The two reads are not atomic, so a process can exit in the window between
+    /// them. That still reports [`ExecOutcome::TimedOut`]: the sentinel proves
+    /// the deadline elapsed while the process was running, and a later-observed
+    /// exit code does not un-spend it. Reporting that code instead would hide a
+    /// missed deadline from a caller who asked for one.
+    ///
+    /// `TimedOut` promises the process is **gone**, not that this code killed
+    /// it — a process that died on its own satisfies that just as a killed one
+    /// does. The sibling WSLc backend draws the same line, tracking
+    /// `deadline_elapsed` separately from `timed_out` so a spent deadline is
+    /// reported "stickily rather than a later-observed exit code", and treating
+    /// an already-confirmed exit as satisfying its termination check.
+    ///
+    /// The one irreducible case is `-1`/`-1`, where the sentinel and the exit
+    /// code collide: nothing distinguishes a timeout from a workload that
+    /// exited with `-1`, so it is read as the exit.
+    ///
+    /// # How far "gone" reaches here
+    ///
+    /// Both timeout paths confirm **the foreground process only**, because that
+    /// is the only thing this API exposes: `IsoSessionProcess` has `Terminate`
+    /// and `ExitCode` for the process it represents and no tree primitive. A
+    /// descendant the workload backgrounded can therefore outlive a reported
+    /// timeout on either path — the live one, which checks `ExitCode()` after
+    /// the ladder, and the late-exit one, which has nothing left to terminate.
+    ///
+    /// That is not a gap this layer can close: descendants live in the isolation
+    /// session's own user context and are reclaimed when the session is stopped
+    /// and deprovisioned. Stated rather than implied, because
+    /// [`ExecOutcome::TimedOut`] leaves the reach to the backend and the SDK's
+    /// `WaitOutcome::TimedOut` describes process-tree backends where the kill
+    /// does cover the tree.
+    ///
+    /// A zero `timeout_ms` short-circuits the whole test: it means INFINITE, and
+    /// a wait with no deadline cannot have missed one. This is the default, so
+    /// without the guard the common configuration would be the one at risk.
+    ///
+    /// # Why the ladder does not run for an exit
+    ///
+    /// The ladder exists to kill a **survivor**. Running it for a process that
+    /// already exited reintroduces the very ambiguity this function avoids: its
+    /// first `ExitCode()` reads 259 for a workload that exited with 259, so it
+    /// walks all three tiers and cannot then tell that exit from a live
+    /// process. An exited process therefore returns its code directly.
+    ///
+    /// `before_shutdown` stops caller-owned input copying after a timeout.
+    /// Returning false skips the stdin-close step because a writer remains open.
+    pub(super) fn wait(
+        &self,
+        timeout_ms: u32,
+        before_shutdown: impl FnOnce() -> Result<bool, IsolationSessionError>,
+    ) -> Result<ExecOutcome, IsolationSessionError> {
+        // `WaitForExit` is a Win32 `WaitForSingleObject` on a kernel handle —
+        // no COM round-trip. On timeout it returns -1; the ladder below then
+        // decides what to do about a process that is still running.
+        let waited = self
+            .process
+            .WaitForExit(timeout_ms)
+            .map_err(|e| transport_err(op::RUN_PROCESS, "WaitForExit failed", &e))?;
+
+        // Sampled before the ladder, which kills a survivor and so destroys the
+        // evidence. `?`-propagated for the same reason the ladder propagates its
+        // first query: a failure here means the kernel handle is broken, and
+        // guessing "it exited" would report a fabricated outcome.
+        let plan = plan_wait(timeout_ms, waited, || {
+            self.process
+                .ExitCode()
+                .map_err(|e| transport_err(op::RUN_PROCESS, "get ExitCode failed", &e))
+        })?;
+
+        match plan {
+            // An exited process must skip shutdown: the ladder cannot
+            // distinguish a real exit code of 259 from STILL_ACTIVE.
+            WaitPlan::Exited(exit_code) => {
+                self.record_exited(exit_code);
+                return Ok(ExecOutcome::Exited(exit_code));
+            }
+            // The deadline was spent, but the process is already gone.
+            // Nothing needs killing; retain the timeout result.
+            WaitPlan::TimedOutAfterDeadline => {
+                self.record_timed_out(timeout_ms);
+                return Ok(ExecOutcome::TimedOut);
+            }
+            WaitPlan::KillThenReportTimeout => {}
+        }
+
+        self.record_timed_out(timeout_ms);
+        let stdin_released = before_shutdown()?;
+        let (_, terminate_error) = wait_with_graceful_shutdown(&self.process, stdin_released)?;
+        if let Some(error_code) = terminate_error {
+            self.record_kill_failed(error_code);
+        }
+        let after = self
+            .process
+            .ExitCode()
+            .map_err(|e| transport_err(op::RUN_PROCESS, "get ExitCode failed", &e))?;
+        if after == STILL_ACTIVE {
+            // A 259 exit during shutdown remains ambiguous: conservatively
+            // report failure rather than claiming the process was killed.
+            return Err(lifecycle_err(
+                "the sandboxed process was still running after timeout shutdown; \
+                 it timed out but could not be confirmed killed",
+            ));
+        }
+        Ok(ExecOutcome::TimedOut)
+    }
+
+    /// Kill the process now, reporting whether the kill request was *accepted*.
+    ///
+    /// Deliberately **not** the graceful ladder [`Self::wait`] uses. That ladder
+    /// gives a well-behaved child up to eight seconds to notice a closed stdin
+    /// or a Ctrl-Close, which is right for a shutdown and wrong for a caller who
+    /// asked to terminate: `SandboxProcess::kill` promises to kill, and a
+    /// cancellation path that takes eight seconds to act reads as a hang.
+    ///
+    /// The post-kill wait is **bounded**. `WaitForExit(0)` means INFINITE here,
+    /// so waiting on the assumption that `Terminate` succeeded would wedge this
+    /// call forever if it ever failed against a live process.
+    ///
+    /// That bound covers *this call only*. A caller that also owns a waiter must
+    /// not infer completion from `Ok(())` and unconditionally join it. The PTY
+    /// streaming adapter joins only an already-finished waiter during drop and
+    /// otherwise detaches it, keeping handle destruction bounded.
+    ///
+    /// **What this does not tell you.** The bounded wait's result is discarded,
+    /// so a `Terminate` the platform accepted but that left the process running
+    /// still yields `Ok(())`. What *is* now reported is the distinction between
+    /// an accepted request and a refused one: the `Err` this returns reaches the
+    /// caller through `ExecHandle::terminator` and `SandboxProcess::kill`.
+    /// Confirming the process actually died would need the bounded wait's result
+    /// as well, which this type does not carry.
+    pub(super) fn terminate(&self) -> Result<(), IsolationSessionError> {
+        if let Err(error) = self.process.Terminate() {
+            self.record_kill_failed(error.code().0);
+            return Err(transport_err(op::RUN_PROCESS, "Terminate failed", &error));
+        }
+        // Bounded rather than INFINITE so a `Terminate` that was accepted but
+        // never took effect cannot park the caller inside this function. The
+        // result is discarded because there is nowhere to report it; see the
+        // note above, which also covers why this does not bound teardown.
+        let _ = self.process.WaitForExit(TERMINATE_WAIT_MS);
+        Ok(())
+    }
+
+    /// Force-terminate and confirm within a bounded wait that the process is gone.
+    ///
+    /// Setup-failure paths cannot return a public process handle, so unlike
+    /// [`Self::terminate`] they must not report success merely because the
+    /// terminate request was accepted.
+    fn terminate_and_confirm(&self) -> Result<(), IsolationSessionError> {
+        let termination_error = self.process.Terminate().err();
+        if let Some(error) = &termination_error {
+            self.record_kill_failed(error.code().0);
+        }
+        let waited = self
+            .process
+            .WaitForExit(TERMINATE_WAIT_MS)
+            .map_err(|error| transport_err(op::RUN_PROCESS, "WaitForExit failed", &error))?;
+        let exit_code =
+            if waited == WAIT_FOR_EXIT_TIMEOUT {
+                Some(self.process.ExitCode().map_err(|error| {
+                    transport_err(op::RUN_PROCESS, "get ExitCode failed", &error)
+                })?)
+            } else {
+                None
+            };
+        if termination_is_confirmed(waited, exit_code) {
+            return Ok(());
+        }
+        if let Some(error) = termination_error {
+            return Err(transport_err(op::RUN_PROCESS, "Terminate failed", &error));
+        }
+        Err(lifecycle_err(
+            "the sandboxed process was still running after the bounded terminate wait",
+        ))
+    }
+}
+
+/// Owns the relay threads and the workload for the span of `create_process`.
+///
+/// [`finish`](Self::finish) tears down a workload that has already exited.
+/// Dropping without it cancels output reads and terminates the workload.
+/// Every join is bounded; cancellation does not interrupt destination writes.
+struct RelayScope<'a> {
+    process: &'a IsoSessionProcess,
+    stop_event: HANDLE,
+    stdout: Option<PipeRelay>,
+    stderr: Option<PipeRelay>,
+    stdin: Option<OwnedHandle>,
+    /// Ends a pipe/file-backed stdin relay. Console stdin relays use the stop
+    /// event instead because `CancelSynchronousIo` has console-handle edge
+    /// cases.
+    stdin_canceller: Option<PipeReadCanceller>,
+    finished: bool,
+}
+
+impl<'a> RelayScope<'a> {
+    const JOIN_MS: u32 = 1000;
+    /// Stop waiting only after all output relays are idle for this long.
+    const IDLE_MS: u64 = 5000;
+    /// Overall cap so a pathological one-byte-forever trickle still returns.
+    const ABSOLUTE_CAP_MS: u64 = 60_000;
+
+    fn new(process: &'a IsoSessionProcess, stop_event: HANDLE) -> Self {
+        Self {
+            process,
+            stop_event,
+            stdout: None,
+            stderr: None,
+            stdin: None,
+            stdin_canceller: None,
+            finished: false,
+        }
+    }
+
+    fn signal_stop(&self) {
+        // SAFETY: the event outlives this scope.
+        unsafe {
+            let _ = SetEvent(self.stop_event);
+        }
+    }
+
+    fn cancel_stdin_read(&self) {
+        if let Some(canceller) = &self.stdin_canceller {
+            canceller.close();
+        }
+    }
+
+    /// Whether the relay exited. An absent relay was never spawned.
+    fn join(relay: Option<&OwnedHandle>, timeout_ms: u32) -> bool {
+        wait_for_relay(relay, timeout_ms).unwrap_or(false)
+    }
+
+    fn join_output(relay: &Option<PipeRelay>, timeout_ms: u32) -> bool {
+        Self::join(relay.as_ref().map(PipeRelay::thread), timeout_ms)
+    }
+
+    fn output_relays(&self) -> Vec<&PipeRelay> {
+        [&self.stdout, &self.stderr]
+            .into_iter()
+            .filter_map(Option::as_ref)
+            .collect()
+    }
+
+    /// Release the process's handles. A still-running relay owns its duplicates
+    /// until it exits.
+    fn close_handles(&self) {
+        let _ = self.process.Close();
+    }
+
+    fn stop_stdin(&mut self) -> Result<bool, IsolationSessionError> {
+        self.signal_stop();
+        self.cancel_stdin_read();
+        let exited = wait_for_relay(self.stdin.as_ref(), Self::JOIN_MS)?;
+        if exited {
+            self.stdin = None;
+            self.stdin_canceller = None;
+        }
+        Ok(exited)
+    }
+
+    /// Teardown for a workload that has already exited.
+    fn finish(&mut self) -> Result<(), IsolationSessionError> {
+        self.signal_stop();
+        self.cancel_stdin_read();
+        let output_relays = self.output_relays();
+        let output_drain = drain_output_relays_within(
+            &output_relays,
+            Duration::from_millis(Self::IDLE_MS),
+            Duration::from_millis(Self::ABSOLUTE_CAP_MS),
+        )
+        .map_err(|error| lifecycle_err(format!("drain output relays: {error}")))?;
+        if output_drain == OutputRelayDrain::GaveUp {
+            Self::join_output(&self.stdout, Self::JOIN_MS);
+            Self::join_output(&self.stderr, Self::JOIN_MS);
+        }
+        Self::join(self.stdin.as_ref(), Self::JOIN_MS);
+        self.close_handles();
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for RelayScope<'_> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.signal_stop();
+        self.cancel_stdin_read();
+        for relay in self.output_relays() {
+            relay.cancel_read();
+        }
+        let _ = self.process.Terminate();
+        Self::join_output(&self.stdout, Self::JOIN_MS);
+        Self::join_output(&self.stderr, Self::JOIN_MS);
+        Self::join(self.stdin.as_ref(), Self::JOIN_MS);
+        self.close_handles();
+    }
+}
+
+/// A [`StartedProcess`] that releases the session process's pipe handles when
+/// it goes out of scope.
+///
+/// Close-on-drop is **opt-in per consumer** rather than a property of
+/// [`StartedProcess`] itself, because the two topologies need opposite things:
+///
+/// - The streaming consumer has no other teardown point — it hands the handles
+///   to an in-process caller and never returns to this crate — so without this
+///   a long-lived host would leak three handles per exec, and that host is
+///   exactly who the streaming path exists for.
+/// - [`IsolationSessionManager::create_process`] must **not** close on the way
+///   out: `RelayScope` owns that teardown and runs it once the relays are done.
+pub(super) struct ClosingProcess {
+    started: StartedProcess,
+    /// The impersonation of the manager that started the process.
+    impersonation: Impersonation,
+    /// Keeps the apartment alive: the threads that use the object may have none.
+    _mta: MtaReference,
+}
+
+impl ClosingProcess {
+    pub(super) fn new(
+        started: StartedProcess,
+        impersonation: Impersonation,
+        mta: MtaReference,
+    ) -> Self {
+        Self {
+            started,
+            impersonation,
+            _mta: mta,
+        }
+    }
+
+    pub(super) fn resize_console(
+        &self,
+        columns: u16,
+        rows: u16,
+    ) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            self.process
+                .ResizeConsole(columns, rows)
+                .map_err(|error| lifecycle_err(format!("ResizeConsole failed: {error}")))
+        })
+    }
+
+    pub(super) fn close_standard_input(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || {
+            self.process
+                .CloseStandardInput()
+                .map_err(|error| lifecycle_err(format!("CloseStandardInput failed: {error}")))
+        })
+    }
+
+    pub(super) fn wait_for_exit(
+        &self,
+        timeout_ms: u32,
+    ) -> Result<ExecOutcome, IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || self.wait(timeout_ms, || Ok(true)))
+    }
+
+    pub(super) fn terminate_process(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || self.terminate())
+    }
+
+    pub(super) fn terminate_and_confirm_process(&self) -> Result<(), IsolationSessionError> {
+        owned_thread::call(&self.impersonation, || self.terminate_and_confirm())
+    }
+}
+
+impl std::ops::Deref for ClosingProcess {
+    type Target = StartedProcess;
+
+    fn deref(&self) -> &Self::Target {
+        &self.started
+    }
+}
+
+impl Drop for ClosingProcess {
+    fn drop(&mut self) {
+        let process = &self.started.process;
+        let _ = owned_thread::call(&self.impersonation, || {
+            let _ = process.Close();
+            Ok(())
+        });
+    }
+}
+
+/// `STILL_ACTIVE` (0x103) is exposed by the `windows` crate as
+/// `STATUS_PENDING: NTSTATUS` — same numeric value, different name. A process
+/// whose `ExitCode()` reads this has not exited.
+///
+/// **Not sufficient on its own to prove a process is running.** 259 is a legal
+/// exit code, so a workload that exits with it is indistinguishable here from
+/// one that never exited. Every liveness decision in this file therefore pairs
+/// this with a second, independent signal; see [`StartedProcess::wait`].
+const STILL_ACTIVE: i32 = windows::Win32::Foundation::STATUS_PENDING.0;
+
+/// What `WaitForExit` returns when the deadline elapses before the process
+/// exits. Like [`STILL_ACTIVE`] this is a legal exit code in its own right, so
+/// it is never used alone to conclude a timeout.
+pub(super) const WAIT_FOR_EXIT_TIMEOUT: i32 = -1;
+
+/// How long [`StartedProcess::terminate`] waits for a kill to land before
+/// reporting success anyway. Bounded so a failed `Terminate` cannot wedge that
+/// call; generous enough that a normal kill is observed synchronously.
+const TERMINATE_WAIT_MS: u32 = 5_000;
+
+fn termination_is_confirmed(waited: i32, exit_code: Option<i32>) -> bool {
+    waited != WAIT_FOR_EXIT_TIMEOUT || exit_code.is_some_and(|code| code != STILL_ACTIVE)
+}
+
+/// What [`StartedProcess::wait`] should do once its wait has returned.
+///
+/// A value rather than a branch inside `wait`, because `wait` needs a live COM
+/// process object and cannot be exercised on a host without the OS-side
+/// service — so the decision it hinges on would otherwise be untestable, and a
+/// regression in it silently undetectable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WaitPlan {
+    /// The process exited within its deadline, or there was no deadline. This
+    /// is its exit code. **The shutdown ladder must not run** — it cannot
+    /// distinguish a 259 exit from a live process.
+    Exited(i32),
+    /// The deadline elapsed and the process is **still running**. It must be
+    /// killed and confirmed dead before a timeout is reported.
+    KillThenReportTimeout,
+    /// The deadline elapsed, and the process then exited on its own before it
+    /// could be sampled. There is nothing left to kill — the exit-code read is
+    /// itself the confirmation the process is gone — but the outcome is still a
+    /// timeout, because the caller's deadline was spent while it ran.
+    ///
+    /// Reporting the later-observed exit code here instead would hide a missed
+    /// deadline. The sibling WSLc backend makes the same distinction, tracking
+    /// `deadline_elapsed` separately from `timed_out` so a spent deadline is
+    /// "reported stickily rather than a later-observed exit code".
+    TimedOutAfterDeadline,
+}
+
+/// Decides what a completed `WaitForExit` means.
+///
+/// Split out from [`StartedProcess::wait`] so the rule is exercisable without an
+/// OS-side isolation session: every input here is a plain integer, while the
+/// call it guards needs a live process object.
+///
+/// `exit_code` is a closure rather than a value so the ordinary case costs no
+/// extra COM round-trip — it is consulted only for the one `waited` value that
+/// could mean a timeout. See [`StartedProcess::wait`] for why one signal alone
+/// is not enough.
+fn plan_wait(
+    timeout_ms: u32,
+    waited: i32,
+    exit_code: impl FnOnce() -> Result<i32, IsolationSessionError>,
+) -> Result<WaitPlan, IsolationSessionError> {
+    // INFINITE: there was no deadline to miss, so the wait returned because the
+    // process exited, and `waited` is its code.
+    if timeout_ms == 0 || waited != WAIT_FOR_EXIT_TIMEOUT {
+        return Ok(WaitPlan::Exited(waited));
+    }
+    // The sentinel alone proves nothing — a workload may exit with -1 — so the
+    // exit code is the second, independent signal.
+    let code = exit_code()?;
+    match code {
+        // Still running: the deadline is spent and the process must be killed.
+        STILL_ACTIVE => Ok(WaitPlan::KillThenReportTimeout),
+        // Genuinely ambiguous, and the one case that cannot be resolved: the
+        // wait returned -1 and the process's code *is* -1, so the sentinel is
+        // indistinguishable from a natural exit. Read as the exit.
+        WAIT_FOR_EXIT_TIMEOUT => Ok(WaitPlan::Exited(WAIT_FOR_EXIT_TIMEOUT)),
+        // The process is gone, and its code is not -1 — so the -1 the wait
+        // returned cannot have been that code, and was therefore the timeout
+        // sentinel. The deadline provably elapsed while the process ran, and it
+        // exited in the window before this sample.
+        _ => Ok(WaitPlan::TimedOutAfterDeadline),
+    }
+}
+
+fn wait_for_relay(
+    relay: Option<&OwnedHandle>,
+    timeout_ms: u32,
+) -> Result<bool, IsolationSessionError> {
+    let Some(relay) = relay else {
+        return Ok(true);
+    };
+    // SAFETY: the relay's owned thread handle remains valid throughout the wait.
+    match unsafe { WaitForSingleObject(relay.get(), timeout_ms) } {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        _ => Err(lifecycle_err(format!(
+            "waiting for relay failed: {}",
+            std::io::Error::last_os_error()
+        ))),
+    }
+}
+
+/// Three-tier graceful shutdown for an `IsoSessionProcess` that's still
+/// running after `WaitForExit(timeout_ms)` returns. Tier 1 asks the platform
+/// to close stdin, tier 2 tries `SendCtrlClose` (ConPTY-only; `E_NOTIMPL`
+/// outside ConPTY is benign), and tier 3 force-terminates, then waits
+/// infinitely (`WaitForExit(0)` = INFINITE) for the kill to land.
+/// Tier 1 is skipped if the caller's stdin relay has not exited.
+///
+/// The first `ExitCode()` query is `?`-propagated: a failure there means
+/// the kernel handle is broken, and the cleanup methods on the same
+/// handle are unlikely to make progress — better to surface the COM error
+/// than to fire blind. Per-tier subsequent queries fall back to
+/// `STILL_ACTIVE` so a transient read failure does not short-circuit the
+/// escalation.
+///
+/// # What this does not tell you
+///
+/// The returned code cannot distinguish a process that exited with 259 from
+/// one that is still running, because `ExitCode()` reports 259 for both. A
+/// caller that needs that distinction must establish it separately —
+/// [`StartedProcess::wait`] does, which is why it only calls this once it has
+/// independently determined the process was still running.
+fn wait_with_graceful_shutdown(
+    process: &IsoSessionProcess,
+    stdin_released: bool,
+) -> Result<(i32, Option<i32>), IsolationSessionError> {
+    let mut exit_code = process
+        .ExitCode()
+        .map_err(|e| transport_err(op::RUN_PROCESS, "get ExitCode failed", &e))?;
+    if exit_code != STILL_ACTIVE {
+        return Ok((exit_code, None));
+    }
+
+    // A live relay can still hold a writer, so closing platform stdin alone
+    // cannot deliver EOF. Skip that grace period if the relay did not stop.
+    if stdin_released {
+        let _ = process.CloseStandardInput();
+        let _ = process.WaitForExit(5000);
+        exit_code = process.ExitCode().unwrap_or(STILL_ACTIVE);
+        if exit_code != STILL_ACTIVE {
+            return Ok((exit_code, None));
+        }
+    }
+
+    let _ = process.SendCtrlClose();
+    let _ = process.WaitForExit(3000);
+    exit_code = process.ExitCode().unwrap_or(STILL_ACTIVE);
+    if exit_code != STILL_ACTIVE {
+        return Ok((exit_code, None));
+    }
+
+    let terminate_error = process.Terminate().err().map(|error| error.code().0);
+    let _ = process.WaitForExit(0);
+    // Unchanged from before the exec-handle reshape: this path serves the
+    // executor, which needs an exit code and has no timeout channel. Failing
+    // here on a 259 read would turn a workload that legitimately exited with
+    // 259 into a backend error on the CLI.
+    Ok((process.ExitCode().unwrap_or(-1), terminate_error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_stdin_test_payload(handle: HANDLE, size: usize) -> Vec<u8> {
+        use std::time::{Duration, Instant};
+        use windows::Win32::Storage::FileSystem::ReadFile;
+        use windows::Win32::System::Pipes::PeekNamedPipe;
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut available = 0;
+            unsafe { PeekNamedPipe(handle, None, 0, None, Some(&mut available), None) }
+                .expect("destination pipe should remain readable");
+            if available as usize >= size {
+                let mut payload = vec![0; size];
+                let mut read = 0;
+                unsafe { ReadFile(handle, Some(&mut payload), Some(&mut read), None) }.unwrap();
+                payload.truncate(read as usize);
+                return payload;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "selected stdin relay did not deliver the payload"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn stdin_routing_delivers_pipe_input_and_releases_writer_for_both_output_modes() {
+        use crate::mxc_common::process_util::{create_local_pipe, PipeWriter};
+        use std::io::Write;
+        use windows::Win32::Foundation::ERROR_BROKEN_PIPE;
+        use windows::Win32::System::Pipes::PeekNamedPipe;
+
+        for interactive in [true, false] {
+            let (source_read, source_write) = create_local_pipe().unwrap();
+            let mut source_write = PipeWriter::new(source_write);
+            let (dest_read, dest_write) = create_local_pipe().unwrap();
+            let stop = OwnedHandle::new(unsafe {
+                CreateEventW(None, true, false, PCWSTR::null()).unwrap()
+            });
+            // SAFETY: all handles remain valid until the relay has exited.
+            let (relay, canceller) = unsafe {
+                create_stdin_relay(
+                    source_read.get(),
+                    dest_write.get(),
+                    stop.get(),
+                    interactive,
+                    |_, _| panic!("pipe input must not handle console resize"),
+                )
+            }
+            .unwrap();
+
+            let payload = b"stdin payload\r\n";
+            source_write.write_all(payload).unwrap();
+            let received = read_stdin_test_payload(dest_read.get(), payload.len());
+            assert!(!wait_for_relay(Some(&relay), 0).unwrap());
+            canceller
+                .expect("pipe input must have a read canceller")
+                .close();
+            assert!(wait_for_relay(Some(&relay), 5000).unwrap());
+            assert_eq!(received, payload);
+
+            // Keep the caller's source open; close only the platform's writer.
+            drop(dest_write);
+            let error = unsafe { PeekNamedPipe(dest_read.get(), None, 0, None, None, None) }
+                .expect_err("the selected relay must release its write duplicate");
+            assert_eq!(error.code(), ERROR_BROKEN_PIPE.to_hresult());
+        }
+    }
+
+    #[test]
+    fn stdin_routing_delivers_file_input_for_both_output_modes() {
+        use crate::mxc_common::process_util::create_local_pipe;
+        use std::io::{Seek, Write};
+        use std::os::windows::io::AsRawHandle;
+
+        for interactive in [true, false] {
+            let mut input = tempfile::tempfile().unwrap();
+            let payload = b"file input\r\n";
+            input.write_all(payload).unwrap();
+            input.rewind().unwrap();
+            let (dest_read, dest_write) = create_local_pipe().unwrap();
+            let stop = OwnedHandle::new(unsafe {
+                CreateEventW(None, true, false, PCWSTR::null()).unwrap()
+            });
+            // SAFETY: all handles remain valid until the relay has exited.
+            let (relay, canceller) = unsafe {
+                create_stdin_relay(
+                    HANDLE(input.as_raw_handle()),
+                    dest_write.get(),
+                    stop.get(),
+                    interactive,
+                    |_, _| panic!("file input must not handle console resize"),
+                )
+            }
+            .unwrap();
+            let received = read_stdin_test_payload(dest_read.get(), payload.len());
+            assert!(wait_for_relay(Some(&relay), 5000).unwrap());
+            assert!(
+                canceller.is_some(),
+                "file input must select the cancellable relay"
+            );
+            assert_eq!(received, payload);
+        }
+    }
+
+    #[test]
+    fn stdin_routing_console_uses_stop_event_for_both_output_modes() {
+        use crate::mxc_common::process_util::create_local_pipe;
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+        use windows::Win32::System::Threading::CREATE_NEW_CONSOLE;
+
+        const CHILD: &str = "MXC_STDIN_ROUTING_CONSOLE_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            // Restart this test with a real console; the runner may have none.
+            let test_name = "backend_modules::isolation_session::common::manager::tests::\
+                stdin_routing_console_uses_stop_event_for_both_output_modes";
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test_name])
+                .env(CHILD, "1")
+                .creation_flags(CREATE_NEW_CONSOLE.0)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while child.try_wait().unwrap().is_none() {
+                if Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    let output = child.wait_with_output().unwrap();
+                    panic!("console routing child timed out: {output:?}");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "console routing child failed: {output:?}"
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+            return;
+        }
+
+        let console = OwnedHandle::new(unsafe {
+            CreateFileW(
+                windows_core::w!("CONIN$"),
+                GENERIC_READ.0 | GENERIC_WRITE.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )
+            .unwrap()
+        });
+        assert_eq!(
+            classify_stdin_handle(console.get()),
+            StdinHandleKind::Console
+        );
+        for interactive in [true, false] {
+            let (_dest_read, dest_write) = create_local_pipe().unwrap();
+            let stop = OwnedHandle::new(unsafe {
+                CreateEventW(None, true, false, PCWSTR::null()).unwrap()
+            });
+            // SAFETY: the private console and pipes outlive the relay.
+            let (relay, canceller) = unsafe {
+                create_stdin_relay(
+                    console.get(),
+                    dest_write.get(),
+                    stop.get(),
+                    interactive,
+                    |_, _| {},
+                )
+            }
+            .unwrap();
+            assert!(canceller.is_none(), "console input must use the stop event");
+            unsafe { SetEvent(stop.get()).unwrap() };
+            assert!(wait_for_relay(Some(&relay), 5000).unwrap());
+        }
+    }
+
+    #[test]
+    fn stdin_shutdown_reports_wait_failure() {
+        let invalid = OwnedHandle::new(HANDLE::default());
+        let error = wait_for_relay(Some(&invalid), 0).unwrap_err();
+        assert!(error.to_string().contains("waiting for relay failed"));
+        assert!(wait_for_relay(None, 0).unwrap());
+    }
+
+    #[test]
+    fn bounded_termination_requires_confirmation_after_a_timeout_sentinel() {
+        assert!(termination_is_confirmed(0, None));
+        assert!(termination_is_confirmed(
+            WAIT_FOR_EXIT_TIMEOUT,
+            Some(WAIT_FOR_EXIT_TIMEOUT)
+        ));
+        assert!(!termination_is_confirmed(
+            WAIT_FOR_EXIT_TIMEOUT,
+            Some(STILL_ACTIVE)
+        ));
+    }
+
+    #[test]
+    fn teardown_status_distinguishes_failure_success_and_skipped() {
+        assert_eq!(TeardownOutcome::default().status(), TeardownStatus::Skipped);
+        assert_eq!(
+            TeardownOutcome {
+                session_stopped: Some(true),
+                agent_user_deprovisioned: Some(true),
+            }
+            .status(),
+            TeardownStatus::Success
+        );
+        assert_eq!(
+            TeardownOutcome {
+                session_stopped: Some(true),
+                ..Default::default()
+            }
+            .status(),
+            TeardownStatus::Success
+        );
+        assert_eq!(
+            TeardownOutcome {
+                session_stopped: Some(true),
+                agent_user_deprovisioned: Some(false),
+            }
+            .status(),
+            TeardownStatus::Failure
+        );
+    }
+
+    #[test]
+    fn teardown_record_satisfies_the_requirement_contract() {
+        let outcome = TeardownOutcome {
+            session_stopped: Some(true),
+            agent_user_deprovisioned: Some(false),
+        };
+        let event = AuditEvent::new(AuditEventName::SandboxTornDown)
+            .str("backend", "isolation_session")
+            .str("identity", AGENT_IDENTITY_MARKER)
+            .str("phase", "deprovision")
+            .str("status", outcome.status().as_str())
+            .bool("agent_user_deprovisioned", false);
+        assert!(event.missing_required_fields().is_empty());
+        assert!(event.to_json_line().contains(r#""status":"failure""#));
+    }
+
+    /// The exit code a timed-out process reads, paired with the `WaitForExit`
+    /// return that accompanies it.
+    fn probe(value: i32) -> impl FnOnce() -> Result<i32, IsolationSessionError> {
+        move || Ok(value)
+    }
+
+    #[test]
+    fn timeout_needs_both_signals_not_either() {
+        // The real timeout: both signals present, and the ladder must run.
+        assert_eq!(
+            plan_wait(5_000, WAIT_FOR_EXIT_TIMEOUT, probe(STILL_ACTIVE)).unwrap(),
+            WaitPlan::KillThenReportTimeout
+        );
+
+        // A workload that exits with the wait sentinel's value. `WaitForExit`
+        // reports the code rather than -1, so this is an exit.
+        assert_eq!(
+            plan_wait(5_000, -1, probe(-1)).unwrap(),
+            WaitPlan::Exited(-1)
+        );
+
+        // A workload that exits 259 — the value `STILL_ACTIVE` also has. The
+        // wait returned the code, not the sentinel, so this is an exit too.
+        // Critically it must NOT be planned for the ladder: the ladder reads
+        // 259 from `ExitCode()` and cannot tell it from a live process, which
+        // is how a clean exit-259 became a backend error.
+        assert_eq!(
+            plan_wait(5_000, STILL_ACTIVE, probe(STILL_ACTIVE)).unwrap(),
+            WaitPlan::Exited(STILL_ACTIVE)
+        );
+
+        // An ordinary exit.
+        assert_eq!(plan_wait(5_000, 0, probe(0)).unwrap(), WaitPlan::Exited(0));
+    }
+
+    /// The sentinel with a non-`STILL_ACTIVE`, non-`-1` code means the deadline
+    /// was spent and the process then exited on its own.
+    ///
+    /// The regression this pins: reporting that later-observed exit code hides
+    /// a missed deadline. The `-1` the wait returned cannot have been the
+    /// process's code (its code is 7), so it was the timeout sentinel and the
+    /// deadline provably elapsed while the process ran.
+    #[test]
+    fn a_deadline_spent_before_a_late_exit_is_still_a_timeout() {
+        assert_eq!(
+            plan_wait(5_000, WAIT_FOR_EXIT_TIMEOUT, probe(7)).unwrap(),
+            WaitPlan::TimedOutAfterDeadline
+        );
+        assert_eq!(
+            plan_wait(5_000, WAIT_FOR_EXIT_TIMEOUT, probe(0)).unwrap(),
+            WaitPlan::TimedOutAfterDeadline,
+            "a clean exit past the deadline is still a missed deadline"
+        );
+    }
+
+    /// The one irreducible collision: sentinel and exit code are both `-1`, so
+    /// nothing distinguishes a timeout from a workload that exited with `-1`.
+    #[test]
+    fn the_sentinel_colliding_with_a_real_minus_one_exit_is_read_as_the_exit() {
+        assert_eq!(
+            plan_wait(5_000, WAIT_FOR_EXIT_TIMEOUT, probe(-1)).unwrap(),
+            WaitPlan::Exited(-1)
+        );
+    }
+
+    #[test]
+    fn infinite_timeout_can_never_be_a_timeout() {
+        // 0 means INFINITE. Even with the sentinel apparently present, a wait
+        // with no deadline did not miss one. This is the default, so the guard
+        // covers the common configuration rather than an exotic one.
+        assert_eq!(
+            plan_wait(0, WAIT_FOR_EXIT_TIMEOUT, probe(STILL_ACTIVE)).unwrap(),
+            WaitPlan::Exited(WAIT_FOR_EXIT_TIMEOUT)
+        );
+    }
+
+    #[test]
+    fn exit_code_is_not_queried_unless_it_could_change_the_answer() {
+        let calls = std::cell::Cell::new(0);
+        let counting = || {
+            calls.set(calls.get() + 1);
+            Ok(STILL_ACTIVE)
+        };
+        assert_eq!(plan_wait(5_000, 0, counting).unwrap(), WaitPlan::Exited(0));
+        assert_eq!(calls.get(), 0, "no COM round-trip for a plain exit");
+    }
+
+    #[test]
+    fn unreadable_exit_code_propagates_rather_than_guessing() {
+        let err = plan_wait(5_000, WAIT_FOR_EXIT_TIMEOUT, || {
+            Err(lifecycle_err("handle is broken"))
+        });
+        assert!(
+            err.is_err(),
+            "a failed probe must not be reported as an exit"
+        );
+    }
+
+    #[test]
+    fn feature_unavailable_returns_clean_error() {
+        // Initialize COM (required for WinRT activation).
+        let _ = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            )
+        };
+
+        match check_service_available_and_activate() {
+            Ok(_ops) => {
+                // Service IS available on this machine (e.g., a test VM
+                // with the feature enabled). The test is not applicable
+                // — skip.
+            }
+            Err(IsolationSessionError::ServiceUnavailable(failure)) => {
+                // Service is NOT available. Verify the error is clean and
+                // descriptive (not a panic or cryptic COM error), and that
+                // it names the activation operation it failed on.
+                assert!(
+                    failure.message.contains("not available")
+                        || failure.message.contains("activation failed"),
+                    "Expected descriptive error message, got: {}",
+                    failure.message
+                );
+                assert_eq!(failure.operation, op::ACTIVATE);
+                assert!(
+                    failure.code.is_some(),
+                    "activation failure carries no HRESULT"
+                );
+            }
+            Err(other) => {
+                panic!("expected ServiceUnavailable variant, got: {:?}", other);
+            }
+        }
+    }
+
+    #[test]
+    fn feature_support_requires_a_positive_feature_level() {
+        // Supported: any positive level.
+        assert!(feature_supported_from(Ok(1)));
+        assert!(feature_supported_from(Ok(7)));
+
+        // Not supported: the host knows the feature but does not offer it.
+        assert!(!feature_supported_from(Ok(0)));
+        assert!(!feature_supported_from(Ok(-1)));
+
+        // Not supported: an older host rejects the unknown feature value.
+        assert!(!feature_supported_from(Err(
+            windows_core::Error::from_hresult(
+                windows_core::HRESULT(0x8007_0057u32 as i32), // E_INVALIDARG
+            )
+        )));
+    }
+}
