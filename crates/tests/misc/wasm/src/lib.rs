@@ -105,6 +105,6 @@ pub fn first(
 }
 
 /// Pure Rust numerics, no imports.
-pub fn length(x: f32, y: f32) -> f32 {
-    windows_numerics::Vector2::new(x, y).length()
+pub fn length_squared(x: f32, y: f32) -> f32 {
+    windows_numerics::Vector2::new(x, y).length_squared()
 }
