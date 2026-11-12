@@ -1,0 +1,157 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+use anyhow::{Context as _, Result};
+use clap::Parser;
+use litebox_common_optee::UteeEntryFunc;
+use litebox_platform_linux_userland::LinuxUserland as Platform;
+use litebox_shim_optee::msg_handler::TaRequestInfo;
+use litebox_shim_optee::session::SessionManager;
+use std::path::PathBuf;
+
+mod tests;
+
+#[derive(Parser, Debug)]
+pub struct CliArgs {
+    /// ldelf
+    #[arg(required = true, value_hint = clap::ValueHint::ExecutablePath)]
+    pub ldelf: String,
+    /// Trusted Application (TA)
+    #[arg(required = true, value_hint = clap::ValueHint::ExecutablePath)]
+    pub program: String,
+    /// JSON-formatted command sequence to pass to the TA
+    #[arg(required = true, value_hint = clap::ValueHint::FilePath)]
+    pub command_sequence: String,
+    /// Allow using unstable options
+    #[arg(short = 'Z', long = "unstable")]
+    pub unstable: bool,
+    /// Apply syscall-rewriter to the ELF file before running it
+    ///
+    /// This is meant as a convenience feature; real deployments would likely prefer ahead-of-time
+    /// rewrite things to amortize costs.
+    #[arg(
+        long = "rewrite-syscalls",
+        requires = "unstable",
+        help_heading = "Unstable Options"
+    )]
+    pub rewrite_syscalls: bool,
+}
+
+/// Test OP-TEE TAs with LiteBox on unmodified Linux
+///
+/// # Panics
+///
+/// Can panic if any particulars of the environment are not set up as expected. Ideally, would not
+/// panic. If it does actually panic, then ping the authors of LiteBox, and likely a better error
+/// message could be thrown instead.
+pub fn run(cli_args: CliArgs) -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_timer(tracing_subscriber::fmt::time::uptime())
+        .with_level(true)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_env_var("LITEBOX_LOG")
+                .from_env_lossy(),
+        )
+        .init();
+
+    let ldelf_data: Vec<u8> = {
+        let ldelf = PathBuf::from(&cli_args.ldelf);
+        let data =
+            std::fs::read(&ldelf).with_context(|| format!("failed to read {}", cli_args.ldelf))?;
+        if cli_args.rewrite_syscalls {
+            litebox_syscall_rewriter::hook_syscalls_in_elf(&data, None)
+                .with_context(|| format!("failed to rewrite {}", cli_args.ldelf))?
+        } else {
+            data
+        }
+    };
+
+    // The shim requires embedded TAs to be `'static`.
+    let prog_data: &'static [u8] = Vec::leak({
+        let prog = PathBuf::from(&cli_args.program);
+        let data =
+            std::fs::read(&prog).with_context(|| format!("failed to read {}", cli_args.program))?;
+        if cli_args.rewrite_syscalls {
+            litebox_syscall_rewriter::hook_syscalls_in_elf(&data, None)
+                .with_context(|| format!("failed to rewrite {}", cli_args.program))?
+        } else {
+            data
+        }
+    });
+
+    // TODO(jb): Clean up platform initialization once we have https://github.com/MSRSSP/litebox/issues/24
+    let platform = Platform::new(None);
+    // Leaked because the shim requires a `'static` session manager.
+    let session_manager: &'static SessionManager<Platform> =
+        Box::leak(Box::new(SessionManager::new()));
+    let shim_builder = litebox_shim_optee::OpteeShimBuilder::new(platform, session_manager);
+    let _litebox = shim_builder.litebox();
+    let shim = shim_builder.build();
+
+    platform.initialize_boot_specific_kdf_support();
+
+    if cli_args.command_sequence.is_empty() {
+        run_ta_with_default_commands(&shim, ldelf_data.as_slice(), prog_data);
+    } else {
+        tests::run_ta_with_test_commands(
+            &shim,
+            ldelf_data.as_slice(),
+            prog_data,
+            cli_args.program.as_str(),
+            &PathBuf::from(&cli_args.command_sequence),
+        );
+    }
+    Ok(())
+}
+
+/// This function simply opens and closes a session to the TA to verify that
+/// it can be loaded and run. Note that an OP-TEE TA does nothing without
+/// a client invoking commands on it.
+fn run_ta_with_default_commands(
+    shim: &litebox_shim_optee::OpteeShim<Platform>,
+    ldelf_bin: &[u8],
+    ta_bin: &'static [u8],
+) {
+    let ta_uuid = litebox_common_optee::parse_ta_head(ta_bin)
+        .expect("Failed to parse TA header from ta_bin")
+        .uuid;
+    assert!(shim.store_embedded_ta_bin(ta_bin));
+    for func_id in [UteeEntryFunc::OpenSession, UteeEntryFunc::CloseSession] {
+        if func_id == UteeEntryFunc::OpenSession {
+            let session_token = shim
+                .session_manager()
+                .try_acquire_open_session_token()
+                .unwrap();
+            let session_id = session_token.session_id().unwrap();
+            let loaded_program = shim
+                .load_ldelf(ldelf_bin, ta_uuid, None)
+                .map_err(|_| {
+                    panic!("Failed to load ldelf");
+                })
+                .unwrap();
+            let entrypoints = loaded_program.entrypoints.as_ref().unwrap();
+            unsafe {
+                litebox_platform_linux_userland::run_thread_ref(
+                    entrypoints,
+                    &mut litebox_common_linux::PtRegs::default(),
+                );
+            }
+
+            // In OP-TEE TA, each command invocation is like (re)starting the TA with a new stack with
+            // loaded binary and heap. In that sense, we can create (and destroy) a stack
+            // for each command freely.
+            let mut request = TaRequestInfo::new(func_id, session_id, 0);
+            entrypoints
+                .load_ta_context(&mut request)
+                .expect("Failed to load TA context");
+            unsafe {
+                litebox_platform_linux_userland::reenter_thread(
+                    entrypoints,
+                    &mut litebox_common_linux::PtRegs::default(),
+                );
+            }
+        } else if func_id == UteeEntryFunc::CloseSession {
+        }
+    }
+}

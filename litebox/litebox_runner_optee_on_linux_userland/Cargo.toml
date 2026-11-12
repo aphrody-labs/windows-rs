@@ -1,0 +1,29 @@
+[package]
+name = "litebox_runner_optee_on_linux_userland"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/microsoft/litebox"
+description = "Run OP-TEE Trusted Applications with LiteBox on userland Linux"
+# Keep the crate MIT-only: tests/ needs BSD-2-Clause TA fixtures.
+exclude = ["tests/"]
+
+[dependencies]
+anyhow = "1.0.97"
+base64 = "0.22.1"
+clap = { version = "4.5.33", features = ["derive"] }
+litebox = { version = "0.1.0", path = "../litebox" }
+litebox_common_linux = { version = "0.1.0", path = "../litebox_common_linux" }
+litebox_common_optee = { version = "0.1.0", path = "../litebox_common_optee" }
+litebox_platform_linux_userland = { version = "0.1.0", path = "../litebox_platform_linux_userland", default-features = false, features = ["optee_syscall"] }
+litebox_shim_optee = { version = "0.1.0", path = "../litebox_shim_optee", default-features = false }
+litebox_syscall_rewriter = { version = "0.1.0", path = "../litebox_syscall_rewriter" }
+litebox_util_log = { version = "0.1.0", path = "../litebox_util_log", features = ["backend_tracing"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+serde = { version = "1.0.142", features = ["derive"] }
+serde_json = "1.0.142"
+
+[dev-dependencies]
+
+[lints]
+workspace = true

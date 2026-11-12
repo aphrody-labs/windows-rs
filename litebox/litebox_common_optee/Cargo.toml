@@ -1,0 +1,17 @@
+[package]
+name = "litebox_common_optee"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/microsoft/litebox"
+description = "Common OP-TEE-related definitions shared across LiteBox shims, platforms, and runners"
+
+[dependencies]
+bitflags = "2.9.0"
+elf = { version = "0.8.0", default-features = false }
+litebox = { path = "../litebox/", version = "0.1.0" }
+num_enum = { version = "0.7.3", default-features = false }
+zerocopy = { version = "0.8", features = ["derive"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,1778 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{boxed::Box, vec, vec::Vec};
+use core::panic::PanicInfo;
+use litebox::utils::{ReinterpretSignedExt, TruncateExt};
+use litebox_common_linux::errno::Errno;
+use litebox_common_lvbs::PAGE_SIZE;
+use litebox_common_lvbs::{NUM_VTLCALL_PARAMS, VsmError, VsmFunction};
+use litebox_common_optee::{
+    OpteeMessageCommand, OpteeMsgArgs, OpteeMsgParamRmem, OpteeRpcArgs, OpteeRpcCommand,
+    OpteeRpcShmType, OpteeSmcArgs, OpteeSmcFunction, OpteeSmcResult, OpteeSmcReturnCode, TeeOrigin,
+    TeeResult, UteeEntryFunc, optee_msg_args_total_size,
+};
+use litebox_platform_lvbs::host::LvbsLinuxKernel as Platform;
+use litebox_platform_lvbs::mshv::vsm::{LvbsVtl0Gate, LvbsVtl0PrivilegedWriter, LvbsVtl1Gate};
+use litebox_platform_lvbs::{
+    arch::{gdt, interrupts, timer},
+    debug_serial_println,
+    host::{bootparam::get_vtl1_memory_info, per_cpu_variables},
+    mm::MemoryProvider,
+    mshv::{
+        hvcall,
+        vtl_switch::{vtl_switch, vtl_switch_init},
+        vtl1_mem_layout::{
+            VSM_SK_PTE_PAGES_COUNT, VTL1_INIT_HEAP_SIZE, VTL1_INIT_HEAP_START_PAGE,
+            VTL1_PML4E_PAGE, VTL1_PRE_POPULATED_MEMORY_SIZE, VTL1_PTE_0_PAGE, VTL1_REMAP_PDE_PAGE,
+            VTL1_REMAP_PDPT_PAGE, VTL1_VAULT_PAGES, VTL1_VAULT_START_PAGE, get_heap_start_address,
+            get_memory_base_address, get_rela_end_address, get_rela_start_address,
+            get_rodata_end_address, get_rodata_start_address, get_text_end_address,
+            get_text_start_address,
+        },
+    },
+};
+use litebox_platform_lvbs::{mshv::vsm_intercept::panic_to_vtl0, serial_println};
+use litebox_shim_optee::ClientPta;
+use litebox_shim_optee::session::{OpenSessionTarget, SessionManager, TaInstance};
+use litebox_shim_optee::{NormalWorldConstPtr, NormalWorldMutPtr};
+use litebox_shim_optee::{
+    msg_handler::{
+        TaRequestInfo, checked_memref_size, decode_ta_request, handle_optee_msg_args,
+        handle_optee_smc_args, read_optee_msg_args_from_regd_shm, read_rpc_shm, register_rpc_shm,
+        unregister_rpc_shm, update_optee_msg_args, write_rpc_args_to_regd_shm,
+    },
+    rpc_context::{RpcCompletion, RpcContext, rpc_context_map},
+};
+
+/// The session registry shared by all shims in this runner.
+fn session_manager() -> &'static SessionManager<Platform> {
+    static SESSION_MANAGER: once_cell::race::OnceBox<SessionManager<Platform>> =
+        once_cell::race::OnceBox::new();
+    SESSION_MANAGER.get_or_init(|| alloc::boxed::Box::new(SessionManager::new()))
+}
+
+/// Seed the initial heap regions so the global allocator has enough memory
+/// for slab-backed allocations (the slab needs >= 2 MB backing pages).
+pub fn seed_initial_heap() {
+    let vtl1_base_va = get_memory_base_address();
+    let vtl1_start = Platform::va_to_pa(x86_64::VirtAddr::new(vtl1_base_va));
+
+    let mem_fill_start =
+        TruncateExt::<usize>::trunc(vtl1_base_va) + VTL1_INIT_HEAP_START_PAGE * PAGE_SIZE;
+    unsafe {
+        Platform::mem_fill_pages(mem_fill_start, VTL1_INIT_HEAP_SIZE);
+    }
+    debug_serial_println!(
+        "heap: seed init region (pages {}..+{:#x}): VA {:#x}, size {:#x}",
+        VTL1_INIT_HEAP_START_PAGE,
+        VTL1_INIT_HEAP_SIZE,
+        mem_fill_start,
+        VTL1_INIT_HEAP_SIZE
+    );
+
+    // Add pre-populated region (_heap_start .. end of Phase 1 mapping).
+    let heap_va = get_heap_start_address();
+    let mem_fill_start: usize = heap_va.trunc();
+    let heap_phys = Platform::va_to_pa(x86_64::VirtAddr::new(heap_va)).as_u64();
+    let heap_offset: usize = TruncateExt::<usize>::trunc(heap_phys - vtl1_start.as_u64());
+    let mem_fill_size = VTL1_PRE_POPULATED_MEMORY_SIZE - heap_offset;
+    unsafe {
+        Platform::mem_fill_pages(mem_fill_start, mem_fill_size);
+    }
+    debug_serial_println!(
+        "heap: add pre-populated region (_heap_start..Phase 1 end): VA {:#x}, size {:#x}",
+        mem_fill_start,
+        mem_fill_size
+    );
+}
+
+/// Initialize the current core and yield the platform it should run against.
+///
+/// When `is_bsp` is `true`, creates the platform, sets up page tables, and
+/// reclaims early memory.
+/// All cores then initialize hypercalls, GDT, IDT, interrupts, and syscall
+/// support.
+///
+/// The BSP constructs the platform, and every AP recovers the same instance here.
+///
+/// # Panics
+///
+/// Panics if VTL1 memory info is unavailable (BSP) or if hypercall
+/// initialization fails.
+pub fn init(is_bsp: bool) -> &'static Platform {
+    // The AP entry ABI cannot pass the platform, so the BSP publishes it here.
+    // Everything else takes `&'static Platform` as an argument.
+    static BOOT_PLATFORM: once_cell::race::OnceRef<'static, Platform> =
+        once_cell::race::OnceRef::new();
+
+    if is_bsp {
+        let (start, size) = get_vtl1_memory_info().expect("Failed to get memory info");
+        let min_vtl1_size = ((VTL1_VAULT_START_PAGE + VTL1_VAULT_PAGES) * PAGE_SIZE) as u64;
+        assert!(
+            size >= min_vtl1_size,
+            "VTL1 memory size is too small for fixed boot layout"
+        );
+        let vtl1_start = x86_64::PhysAddr::new(start);
+        // this `checked_add` covers all `vtl1_start + offset` calculations within this function.
+        let vtl1_end = x86_64::PhysAddr::new(
+            start
+                .checked_add(size)
+                .expect("VTL1 memory range overflow in init()"),
+        );
+
+        // Re-compute the pre-populated region bounds needed for the
+        // remaining-memory add after `Platform::new()` below.
+        let heap_va = get_heap_start_address();
+        let mem_fill_start: usize = heap_va.trunc();
+        let heap_phys = Platform::va_to_pa(x86_64::VirtAddr::new(heap_va)).as_u64();
+        let heap_offset: usize = TruncateExt::<usize>::trunc(heap_phys - start);
+        let mem_fill_size = VTL1_PRE_POPULATED_MEMORY_SIZE - heap_offset;
+
+        // Text section boundaries. These are used by the platform to mark
+        // code pages executable and everything else NO_EXECUTE (DEP).
+        // After two-phase relocation, linker symbols return
+        // high-canonical VAs; convert to PA for the page table mapper.
+        let text_phys_start = Platform::va_to_pa(x86_64::VirtAddr::new(get_text_start_address()));
+        let text_phys_end = Platform::va_to_pa(x86_64::VirtAddr::new(get_text_end_address()));
+
+        let rodata_phys_start =
+            Platform::va_to_pa(x86_64::VirtAddr::new(get_rodata_start_address()));
+        let rodata_phys_end = Platform::va_to_pa(x86_64::VirtAddr::new(get_rodata_end_address()));
+
+        // Reclaim .rela.dyn section memory now that relocations have been applied
+        // and we are running at high-canonical addresses.
+        // After two-phase relocation, `get_rela_start/end_address()` return
+        // high-canonical VAs. Use directly for the allocator.
+        let rela_va = get_rela_start_address();
+        let rela_size: usize = (get_rela_end_address() - rela_va).trunc();
+        if rela_size > 0 {
+            let rela_virt: usize = rela_va.trunc();
+            unsafe {
+                Platform::mem_fill_pages(rela_virt, rela_size);
+            }
+            debug_serial_println!(
+                "heap: reclaim .rela.dyn section: VA {:#x}, size {:#x}",
+                rela_virt,
+                rela_size
+            );
+        }
+
+        let platform = Platform::new(
+            vtl1_start,
+            vtl1_end,
+            text_phys_start,
+            text_phys_end,
+            rodata_phys_start,
+            rodata_phys_end,
+        );
+        assert!(
+            BOOT_PLATFORM.set(platform).is_ok(),
+            "the BSP must publish the platform exactly once"
+        );
+
+        // Reclaim Phase 1 / VTL0 page table frames now that Platform::new()
+        // has loaded a fresh base page table (excluding the vault reservation).
+        // These physical pages are no longer referenced by CR3.
+        {
+            // Reclaim pages 2–12 (PML4, PDPT, PDE, 8 PTE pages)
+            let early_pt_pa = vtl1_start + (VTL1_PML4E_PAGE * PAGE_SIZE) as u64;
+            let early_pt_start: usize =
+                TruncateExt::<usize>::trunc(Platform::pa_to_va(early_pt_pa).as_u64());
+            let early_pt_size: usize =
+                (VTL1_PTE_0_PAGE + VSM_SK_PTE_PAGES_COUNT - VTL1_PML4E_PAGE) * PAGE_SIZE;
+            // Safety: the early page table frames are no longer referenced
+            // (CR3 now points to the Phase 2 base page table).
+            unsafe {
+                Platform::mem_fill_pages(early_pt_start, early_pt_size);
+            }
+            debug_serial_println!(
+                "heap: reclaim early page table frames (pages {}..{}): VA {:#x}, size {:#x}",
+                VTL1_PML4E_PAGE,
+                VTL1_PML4E_PAGE + (early_pt_size / PAGE_SIZE),
+                early_pt_start,
+                early_pt_size
+            );
+
+            // NOTE: The boot stack page (VTL1_KERNEL_STACK_PAGE) MUST NOT be
+            // reclaimed here. APs reuse it as their initial RSP when they
+            // enter VTL1 via `hvcall_enable_vp_vtl`.
+
+            // Reclaim Phase 1 PDPT and PDE pages
+            let remap_pt_pa = vtl1_start + (VTL1_REMAP_PDPT_PAGE * PAGE_SIZE) as u64;
+            let remap_pt_start: usize =
+                TruncateExt::<usize>::trunc(Platform::pa_to_va(remap_pt_pa).as_u64());
+            let remap_pt_size: usize = (VTL1_REMAP_PDE_PAGE - VTL1_REMAP_PDPT_PAGE + 1) * PAGE_SIZE;
+            unsafe {
+                Platform::mem_fill_pages(remap_pt_start, remap_pt_size);
+            }
+            debug_serial_println!(
+                "heap: reclaim Phase 1 remap PT frames (pages {}..{}): VA {:#x}, size {:#x}",
+                VTL1_REMAP_PDPT_PAGE,
+                VTL1_REMAP_PDE_PAGE + 1,
+                remap_pt_start,
+                remap_pt_size
+            );
+        }
+
+        // Add the rest of the VTL1 memory to the global allocator once they are mapped to the base page table.
+        let mem_fill_start = mem_fill_start + mem_fill_size;
+        let vtl1_base_va = Platform::pa_to_va(vtl1_start).as_u64();
+        let mem_fill_size = TruncateExt::<usize>::trunc(
+            size.checked_sub((mem_fill_start as u64) - vtl1_base_va)
+                .expect("remaining VTL1 memory size underflow in init()"),
+        );
+        unsafe {
+            Platform::mem_fill_pages(mem_fill_start, mem_fill_size);
+        }
+        debug_serial_println!(
+            "heap: add remaining VTL1 memory (post Phase 2): VA {:#x}, size {:#x}",
+            mem_fill_start,
+            mem_fill_size
+        );
+    }
+
+    let platform = BOOT_PLATFORM
+        .get()
+        .expect("init must publish the platform before any core uses it");
+    // Allocate XSAVE areas now that we are on the kernel stack (the CPUID
+    // queries and aligned-vec allocations need a lot of stack space).
+    per_cpu_variables::allocate_xsave_area();
+
+    if let Err(e) = hvcall::init(is_bsp) {
+        panic!("Err: {e:?}");
+    }
+    gdt::init();
+    interrupts::init_idt();
+    // Join shootdowns before unmapping shared guard pages.
+    vtl_switch_init();
+    per_cpu_variables::unmap_per_cpu_stack_guards(platform.page_table_manager());
+    x86_64::instructions::interrupts::enable();
+    Platform::enable_syscall_support();
+
+    // Configure this CPU's STIMER preemption timer (VTL1 self-preemption).
+    // Per-CPU; safe to call on BSP and APs.
+    timer::init(is_bsp);
+
+    if is_bsp {
+        let shim = litebox_shim_optee::OpteeShimBuilder::new(platform, session_manager())
+            .with_ta_signing_cert(TA_SIGNING_CERT_DER)
+            .build();
+        register_embedded_tas(&shim);
+    }
+    platform
+}
+
+pub fn run(platform: &'static Platform) -> ! {
+    let mut return_value: Option<i64> = None;
+    loop {
+        let params = vtl_switch(return_value);
+        return_value = Some(vtlcall_dispatch(platform, &params));
+    }
+}
+
+/// Dispatch VTL call based on the function ID in params[0] and return the result.
+///
+/// VTL call is with up to four u64 parameters and returns an i64 result.
+/// The first parameter (params[0]) is the VSM function ID to identify the requested service.
+/// The remaining parameters (params[1] to params[3]) are function-specific arguments.
+///
+/// TODO: Consider unified interface signature and naming
+/// VTL call is Hyper-V specific. However, in general, there is no fundamental difference
+/// between VTL call and TrustZone SMC call, TDX TDCALL, etc.
+fn vtlcall_dispatch(platform: &'static Platform, params: &[u64; NUM_VTLCALL_PARAMS]) -> i64 {
+    let func_id: u32 = params[0].trunc();
+    let Ok(func_id) = VsmFunction::try_from(func_id) else {
+        return Errno::EINVAL.as_neg().into();
+    };
+    match func_id {
+        VsmFunction::OpteeMessage => {
+            let smc_args_pfn = params[1];
+            optee_smc_handler_entry(platform, smc_args_pfn)
+        }
+        VsmFunction::GenerateIdentitySigningKey => {
+            let public_key_pa = params[1];
+            let key_alg = params[2];
+            litebox_shim_optee::idk::generate_identity_signing_key(platform, public_key_pa, key_alg)
+        }
+        _ => vsm_dispatch(platform, func_id, &params[1..]),
+    }
+}
+
+/// Returns this VTL1 kernel's HEKI service: a single long-lived instance owned
+/// by the runner (the VSM composition root), initialized on first access.
+///
+/// This is where the abstract service is bound to the concrete platform gate;
+/// the service holds it for its lifetime, so handlers need no gate argument.
+fn heki(platform: &'static Platform) -> &'static litebox_service_heki::Heki<LvbsVtl0Gate> {
+    static HEKI: spin::Once<litebox_service_heki::Heki<LvbsVtl0Gate>> = spin::Once::new();
+    HEKI.call_once(|| litebox_service_heki::Heki::new(LvbsVtl0Gate::mint(platform)))
+}
+
+/// Dispatch a VSM function to its handler and return the result.
+///
+/// Routes each call to the subsystem that owns it: HEKI (VTL0 protection) to
+/// the service, which only gets `Vtl0Gate`, and VTL1 setup `Vtl1Gate`.
+/// The Hyper-V mechanics behind both stay inside the platform, so nothing
+/// here talks to the hypervisor. As the VSM composition root, the runner
+/// mints the gate and owns the HEKI service.
+fn vsm_dispatch(platform: &'static Platform, func_id: VsmFunction, params: &[u64]) -> i64 {
+    use litebox_common_lvbs::Vtl1Gate as _;
+
+    let vtl1 = LvbsVtl1Gate::mint(platform);
+    let heki = heki(platform);
+    let result: Result<i64, VsmError> = match func_id {
+        VsmFunction::EnableAPsVtl => vtl1.enable_aps_vtl(params[0]).map(|()| 0),
+        VsmFunction::BootAPs => vtl1.boot_aps(params[0]).map(|()| 0),
+        VsmFunction::LockRegs => heki.lock_regs(),
+        VsmFunction::SignalEndOfBoot => {
+            vtl1.signal_end_of_boot();
+            Ok(0)
+        }
+        VsmFunction::ProtectMemory => heki.protect_memory(params[0], params[1]),
+        VsmFunction::LoadKData => heki.load_kdata(params[0], params[1]),
+        VsmFunction::ValidateModule => heki.validate_guest_module(params[0], params[1], params[2]),
+        VsmFunction::FreeModuleInit => {
+            heki.free_guest_module_init(params[0].reinterpret_as_signed())
+        }
+        VsmFunction::UnloadModule => heki.unload_guest_module(params[0].reinterpret_as_signed()),
+        VsmFunction::CopySecondaryKey => heki.copy_secondary_key(params[0], params[1]),
+        VsmFunction::KexecValidate => heki.kexec_validate(params[0], params[1], params[2]),
+        VsmFunction::PatchText => heki.patch_text(
+            &LvbsVtl0PrivilegedWriter::mint(platform),
+            params[0],
+            params[1],
+        ),
+        VsmFunction::AllocateRingbufferMemory => {
+            heki.allocate_ringbuffer_memory(params[0], params[1])
+        }
+        VsmFunction::SetPlatformRootKey => vtl1.set_platform_root_key(params[0]).map(|()| 0),
+        VsmFunction::GenerateIdentitySigningKey => {
+            Err(VsmError::OperationNotSupported("Identity key generation"))
+        }
+        VsmFunction::OpteeMessage => Err(VsmError::OperationNotSupported("OP-TEE communication")),
+    };
+    match result {
+        Ok(value) => value,
+        Err(e) => vsm_error_to_errno(e).as_neg().into(),
+    }
+}
+
+fn vsm_error_to_errno(error: VsmError) -> Errno {
+    use litebox_common_lvbs::VerificationError;
+
+    match error {
+        // Address/pointer errors and memory copy failures - memory access fault
+        VsmError::InvalidInputAddress
+        | VsmError::InvalidPhysicalAddress
+        | VsmError::InvalidVirtualAddress
+        | VsmError::CpuOnlineMaskCopyFailed
+        | VsmError::HekiPagesCopyFailed
+        | VsmError::Vtl0CopyFailed => Errno::EFAULT,
+
+        // Not found errors
+        VsmError::SystemCertificatesNotFound
+        | VsmError::KernelSymbolTableNotFound
+        | VsmError::PrecomputedPatchNotFound => Errno::ENOENT,
+
+        // Operation not permitted after end of boot
+        VsmError::OperationAfterEndOfBoot(_) => Errno::EPERM,
+
+        // Unsupported operation
+        VsmError::OperationNotSupported(_) => Errno::ENOTSUP,
+
+        // Security/verification failures - access denied
+        VsmError::TextPatchSuspicious
+        | VsmError::SystemCertificatesInvalid
+        | VsmError::SystemCertificatesNotLoaded => Errno::EACCES,
+
+        // Size/range errors
+        VsmError::BufferTooSmall(_)
+        | VsmError::KexecSegmentRangeInvalid
+        | VsmError::ModuleElfSizeExceeded { .. }
+        | VsmError::CodePageOffsetOverflow
+        | VsmError::IntegerOverflow
+        | VsmError::SymbolNameTooLong
+        | VsmError::SymbolTableOutOfRange => Errno::ERANGE,
+
+        // Init/hardware failures - I/O error
+        VsmError::ApInitFailed(_) | VsmError::HypercallFailed(_) => Errno::EIO,
+        VsmError::OutOfMemory => Errno::ENOMEM,
+
+        // True format/validation errors - invalid argument
+        VsmError::AddressNotPageAligned
+        | VsmError::MemoryAttributeInvalid
+        | VsmError::KernelDataTypeInvalid
+        | VsmError::ModuleMemoryTypeInvalid
+        | VsmError::ModuleRelocationInvalid
+        | VsmError::ModuleTokenInvalid
+        | VsmError::ProtectedFrameOverlap
+        | VsmError::KexecTypeInvalid
+        | VsmError::KexecImageSegmentsInvalid
+        | VsmError::SymbolTableEmpty
+        | VsmError::SymbolTableLengthInvalid
+        | VsmError::SymbolNameOffsetInvalid
+        | VsmError::SymbolNameInvalidUtf8
+        | VsmError::SymbolNameNoTerminator
+        | VsmError::CertificateDerLengthInvalid { .. }
+        | VsmError::CertificateParseFailed => Errno::EINVAL,
+
+        // Signature verification failures delegate to VerificationError's Errno mapping
+        VsmError::SignatureVerificationFailed(error) => match error {
+            VerificationError::AuthenticationFailed => Errno::EKEYREJECTED,
+            VerificationError::SignatureNotFound => Errno::ENODATA,
+            VerificationError::Unsupported => Errno::ENOPKG,
+            VerificationError::InvalidCertificate => Errno::ENOKEY,
+            VerificationError::InvalidSignature | VerificationError::ParseFailed => Errno::ELIBBAD,
+            _ => Errno::EINVAL,
+        },
+
+        // Future VSM errors default to an invalid request and are logged so they can be mapped.
+        unmapped => {
+            debug_serial_println!("Unmapped VSM error: {unmapped:?}");
+            Errno::EINVAL
+        }
+    }
+}
+
+/// An entry point function to handle OP-TEE SMC call.
+fn optee_smc_handler_entry(platform: &'static Platform, smc_args_pfn: u64) -> i64 {
+    match optee_smc_handler_entry_inner(platform, smc_args_pfn) {
+        Ok(res) => res,
+        Err(e) => e.as_neg().into(),
+    }
+}
+
+fn optee_smc_handler_entry_inner(
+    platform: &'static Platform,
+    smc_args_pfn: u64,
+) -> Result<i64, litebox_common_linux::errno::Errno> {
+    let smc_args_pfn: usize = smc_args_pfn.trunc();
+    let smc_args_addr = smc_args_pfn
+        .checked_mul(1usize << litebox_platform_lvbs::mshv::vtl1_mem_layout::PAGE_SHIFT)
+        .ok_or(litebox_common_linux::errno::Errno::EINVAL)?;
+    let smc_args_updated = optee_smc_handler(platform, smc_args_addr);
+
+    // Write back the SMC arguments page to normal world memory.
+    // All OP-TEE return codes (success or error) are delivered via smc_args.args[0].
+    let smc_args_ptr =
+        NormalWorldMutPtr::<Platform, OpteeSmcArgs, PAGE_SIZE>::with_usize(platform, smc_args_addr)
+            .map_err(|_| litebox_common_linux::errno::Errno::EINVAL)?;
+    smc_args_ptr
+        .write_at_offset(0, smc_args_updated)
+        .map_err(|_| litebox_common_linux::errno::Errno::EFAULT)?;
+    Ok(0)
+}
+
+/// Switch to the base page table.
+///
+/// This must be called before returning to VTL0 to ensure VTL1 reentry is
+/// always done with the base page table.
+///
+/// # Safety
+///
+/// The caller must ensure that no references to user-space memory are held
+/// after the switch.
+#[inline]
+unsafe fn switch_to_base_page_table(platform: &'static Platform) {
+    // Safety: We're switching to base page table which contains valid mappings
+    // for all kernel memory that will be accessed after the switch.
+    unsafe {
+        platform.page_table_manager().load_base();
+    }
+}
+
+/// Creates a new task-specific page table.
+#[inline]
+fn create_task_page_table(platform: &'static Platform) -> Result<usize, OpteeSmcReturnCode> {
+    platform
+        .create_task_page_table()
+        .map_err(|_| OpteeSmcReturnCode::ENomem)
+}
+
+/// Switches to a task-specific page table.
+///
+/// # Safety
+///
+/// The caller must ensure that no references to user-space memory from a different
+/// task's address space are held after the switch.
+#[inline]
+unsafe fn switch_to_task_page_table(
+    platform: &'static Platform,
+    task_pt_id: usize,
+) -> Result<(), OpteeSmcReturnCode> {
+    // Safety: We're switching to a task page table which contains valid mappings
+    // for both kernel memory and the specific task's user-space memory.
+    unsafe {
+        platform
+            .page_table_manager()
+            .load_task(task_pt_id)
+            .map_err(|_| OpteeSmcReturnCode::EBadCmd)
+    }
+}
+
+/// Enforces the invariant that the core must be on the base (kernel) page
+/// table before returning to VTL0: the guard switches to the TA's task
+/// page table on entry and switches back on drop, covering early-return
+/// and `?` paths.
+///
+/// `switch_to_base_page_table` is an idempotent CR3 write, so teardown
+/// paths that switch to base internally before deleting the task page
+/// table can run before this guard's `Drop` — the redundant write at
+/// drop time is benign.
+struct TaskPageTableGuard {
+    platform: &'static Platform,
+}
+
+impl TaskPageTableGuard {
+    fn enter(platform: &'static Platform, task_pt_id: usize) -> Result<Self, OpteeSmcReturnCode> {
+        unsafe { switch_to_task_page_table(platform, task_pt_id)? };
+        Ok(Self { platform })
+    }
+}
+
+impl Drop for TaskPageTableGuard {
+    fn drop(&mut self) {
+        unsafe { switch_to_base_page_table(self.platform) };
+    }
+}
+
+/// Switches to base and unregisters the task table.
+///
+/// All user-memory accesses on this core must be complete.
+fn teardown_ta_page_table(platform: &'static Platform, task_pt_id: usize) {
+    // Safety: no user-memory references remain.
+    unsafe { switch_to_base_page_table(platform) };
+    // Safety: OP-TEE has no shared/COW user-page mappings, and active access
+    // retains an owning page-table handle.
+    if let Err(error) = unsafe { platform.unregister_task_page_table(task_pt_id) } {
+        debug_serial_println!("Failed to unregister task page table {task_pt_id:#x}: {error:?}");
+    }
+}
+
+/// Handler for OP-TEE SMC calls.
+///
+/// This function processes SMC calls from the normal world (VTL0) and dispatches them
+/// to the appropriate handlers based on the command type.
+///
+/// For TA requests (OpenSession, InvokeCommand, CloseSession), it uses `decode_ta_request`
+/// to extract the TA request information and load/run it using `OpteeShim`.
+///
+/// OpenSession for multi-instance TA creates:
+/// - A new task page table for memory isolation
+/// - A new TA instance with its own state
+/// - An entry in the global session map
+///
+/// OpenSession for single-instance TA reuses existing TA instance if available,
+/// otherwise creates a new one.
+///
+/// InvokeCommand looks up the session and switches to its page table.
+/// CloseSession removes the session and cleans up its page table if no more sessions use it.
+///
+/// Before returning to VTL0, we always switch back to the base page table.
+///
+/// # Panics
+///
+/// Panics if `loaded_program.entrypoints` is `None` when attempting to run the TA.
+/// This should not happen in normal operation as `entrypoints` is always `Some` after
+/// loading.
+///
+/// # Return Value
+///
+/// This function always returns `OpteeSmcArgs` with the result code in `args[0]`.
+/// The OP-TEE driver expects all return codes (success or error) to be delivered via
+/// `smc_args.args[0]`.
+fn optee_smc_handler(platform: &'static Platform, smc_args_addr: usize) -> OpteeSmcArgs {
+    use OpteeMessageCommand::{CloseSession, InvokeCommand, OpenSession};
+
+    // Helper to create error response when we don't read smc_args from the normal world yet
+    let make_error_response = |code: OpteeSmcReturnCode| -> OpteeSmcArgs {
+        let mut args = OpteeSmcArgs::default();
+        args.set_return_code(code);
+        args
+    };
+
+    let Ok(smc_args_ptr) = NormalWorldConstPtr::<Platform, OpteeSmcArgs, PAGE_SIZE>::with_usize(
+        platform,
+        smc_args_addr,
+    ) else {
+        return make_error_response(OpteeSmcReturnCode::EBadAddr);
+    };
+    let Ok(mut smc_args) = smc_args_ptr.read_at_offset(0) else {
+        return make_error_response(OpteeSmcReturnCode::EBadAddr);
+    };
+    let (smc_result, rpc_context) = if smc_args.func_id() == Ok(OpteeSmcFunction::ReturnFromRpc) {
+        let context_id = match smc_args.get_rpc_context_id() {
+            Ok(context_id) => context_id,
+            Err(error) => {
+                smc_args.set_return_code(error);
+                return *smc_args;
+            }
+        };
+        let Some(context) = rpc_context_map().take(context_id) else {
+            smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+            return *smc_args;
+        };
+        let common = match &context {
+            RpcContext::LoadTaSize { common }
+            | RpcContext::ShmAlloc { common, .. }
+            | RpcContext::LoadTaBinary { common, .. }
+            | RpcContext::ShmFree { common, .. } => common,
+        };
+        let result = match read_optee_msg_args_from_regd_shm(
+            platform,
+            common.registered_shm_ref,
+            common.regd_shm_offset,
+        ) {
+            Ok((msg_args, Some(rpc_args), msg_args_phys_addr)) => {
+                Ok(OpteeSmcResult::ReturnFromRpc {
+                    msg_args,
+                    rpc_args,
+                    msg_args_phys_addr,
+                })
+            }
+            Ok((_msg_args, None, _msg_args_phys_addr)) => Err(OpteeSmcReturnCode::EBadAddr),
+            Err(error) => Err(error),
+        };
+        if result.is_err() {
+            if let RpcContext::LoadTaBinary { shm_ref, .. } = &context {
+                let _ = unregister_rpc_shm(*shm_ref);
+            }
+            rpc_context_map().release(context_id);
+        }
+        (result, Some((context_id, context)))
+    } else {
+        (handle_optee_smc_args(platform, &mut smc_args), None)
+    };
+    let Ok(smc_result) = smc_result else {
+        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+        return *smc_args;
+    };
+    match smc_result {
+        OpteeSmcResult::CallWithArg {
+            msg_args,
+            mut rpc_args,
+            msg_args_phys_addr,
+        } => {
+            let mut msg_args = *msg_args;
+            debug_serial_println!("OP-TEE SMC with MsgArgs Command: {:?}", msg_args.cmd);
+            let result = match msg_args.cmd {
+                OpenSession => handle_open_session(
+                    platform,
+                    &mut msg_args,
+                    &mut rpc_args,
+                    msg_args_phys_addr,
+                    &mut None,
+                ),
+                InvokeCommand => handle_invoke_command(platform, &mut msg_args, msg_args_phys_addr),
+                CloseSession => handle_close_session(platform, &mut msg_args, msg_args_phys_addr),
+                _ => {
+                    let r = handle_optee_msg_args(platform, &msg_args);
+                    if r.is_ok() {
+                        msg_args.ret = TeeResult::Success;
+                    } else {
+                        msg_args.ret = TeeResult::BadParameters;
+                    }
+                    msg_args.ret_origin = TeeOrigin::Tee;
+                    let _ = write_non_ta_msg_args_to_normal_world(
+                        platform,
+                        &msg_args,
+                        msg_args_phys_addr,
+                    );
+                    r
+                }
+            };
+
+            // Always switch back to base page table before returning to VTL0
+            // Safety: No user-space memory references are held after this point
+            unsafe { switch_to_base_page_table(platform) };
+
+            if let Err(e) = result {
+                if e == OpteeSmcReturnCode::RpcCmd {
+                    debug_serial_println!("OP-TEE SMC returning RPC command to normal world");
+
+                    // Dynamic TA RPC continuation requires CallWithRegdArg because the request
+                    // buffer must be identified by a registered SHM reference and offset.
+                    // CallWithArg and CallWithRpcArg do not provide that registered-SHM identity.
+                    if smc_args.func_id() != Ok(OpteeSmcFunction::CallWithRegdArg) {
+                        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                        return *smc_args;
+                    }
+                    let Some(rpc_args_ref) = rpc_args.as_ref() else {
+                        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                        return *smc_args;
+                    };
+
+                    let (registered_shm_ref, regd_shm_offset) =
+                        match smc_args.optee_regd_shm_ref_and_offset() {
+                            Ok(location) => location,
+                            Err(error) => {
+                                smc_args.set_return_code(error);
+                                return *smc_args;
+                            }
+                        };
+                    let Some(ta_uuid) = decode_ta_request(platform, &msg_args)
+                        .ok()
+                        .and_then(|request| request.uuid)
+                    else {
+                        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                        return *smc_args;
+                    };
+                    let context_id = match rpc_context_map().allocate(
+                        ta_uuid,
+                        registered_shm_ref,
+                        regd_shm_offset,
+                    ) {
+                        Ok(context_id) => context_id,
+                        Err(error) => {
+                            debug_serial_println!(
+                                "Failed to allocate RPC context for LOAD_TA request: {:?}",
+                                error
+                            );
+                            smc_args.set_return_code(OpteeSmcReturnCode::EThreadLimit);
+                            return *smc_args;
+                        }
+                    };
+                    smc_args.set_rpc_context_id(context_id);
+
+                    if let Err(e) = write_rpc_args_to_regd_shm(
+                        platform,
+                        registered_shm_ref,
+                        regd_shm_offset,
+                        msg_args.num_params,
+                        rpc_args_ref,
+                    ) {
+                        let _ = rpc_context_map().take(context_id);
+                        rpc_context_map().release(context_id);
+                        smc_args.set_return_code(e);
+                    } else {
+                        smc_args.set_return_code(OpteeSmcReturnCode::RpcCmd);
+                    }
+                } else {
+                    debug_serial_println!("OP-TEE SMC returning error code: {:?}", e);
+                    smc_args.set_return_code(e);
+                }
+            } else {
+                smc_args.set_return_code(OpteeSmcReturnCode::Ok);
+            }
+            *smc_args
+        }
+        OpteeSmcResult::ReturnFromRpc {
+            msg_args,
+            rpc_args,
+            msg_args_phys_addr,
+        } => {
+            let mut msg_args = *msg_args;
+            let mut rpc_args = *rpc_args;
+
+            let Some((context_id, context)) = rpc_context else {
+                smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                return *smc_args;
+            };
+            let next_context = match context {
+                RpcContext::LoadTaSize { common } => {
+                    handle_return_from_load_ta_rpc(common, &mut rpc_args)
+                }
+                RpcContext::ShmAlloc {
+                    common,
+                    requested_size,
+                } => handle_return_from_shm_alloc_rpc(
+                    platform,
+                    common,
+                    requested_size,
+                    &mut rpc_args,
+                ),
+                RpcContext::LoadTaBinary {
+                    common,
+                    requested_size,
+                    shm_ref,
+                } => handle_return_from_load_ta_binary_rpc(
+                    platform,
+                    common,
+                    requested_size,
+                    shm_ref,
+                    &mut rpc_args,
+                ),
+                RpcContext::ShmFree {
+                    common,
+                    shm_ref,
+                    mut completion,
+                } => {
+                    let return_code = handle_return_from_shm_free_rpc(
+                        platform,
+                        &mut msg_args,
+                        &rpc_args,
+                        msg_args_phys_addr,
+                        &mut completion,
+                    );
+                    if return_code == OpteeSmcReturnCode::EThreadLimit {
+                        debug_assert!(
+                            !matches!(completion, RpcCompletion::OpenSession { ta_binary: None }),
+                            "EThreadLimit after the TA binary was taken; the retry needs it"
+                        );
+                        if rpc_context_map()
+                            .insert(
+                                context_id,
+                                RpcContext::ShmFree {
+                                    common,
+                                    shm_ref,
+                                    completion,
+                                },
+                            )
+                            .is_err()
+                        {
+                            smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                        } else {
+                            smc_args.set_return_code(return_code);
+                        }
+                    } else {
+                        rpc_context_map().release(context_id);
+                        smc_args.set_return_code(return_code);
+                    }
+                    return *smc_args;
+                }
+            };
+            match next_context {
+                Err(error) => {
+                    rpc_context_map().release(context_id);
+                    smc_args.set_return_code(error);
+                }
+                Ok(context) => {
+                    let (RpcContext::ShmAlloc { common, .. }
+                    | RpcContext::LoadTaBinary { common, .. }
+                    | RpcContext::ShmFree { common, .. }) = &context
+                    else {
+                        rpc_context_map().release(context_id);
+                        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                        return *smc_args;
+                    };
+                    let cleanup_shm_ref = match &context {
+                        RpcContext::LoadTaBinary { shm_ref, .. } => Some(*shm_ref),
+                        _ => None,
+                    };
+                    let result = match write_rpc_args_to_regd_shm(
+                        platform,
+                        common.registered_shm_ref,
+                        common.regd_shm_offset,
+                        msg_args.num_params,
+                        &rpc_args,
+                    ) {
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(error),
+                    };
+                    if let Err(error) = result {
+                        if let Some(shm_ref) = cleanup_shm_ref {
+                            let _ = unregister_rpc_shm(shm_ref);
+                        }
+                        rpc_context_map().release(context_id);
+                        smc_args.set_return_code(error);
+                    } else if rpc_context_map().insert(context_id, context).is_err() {
+                        if let Some(shm_ref) = cleanup_shm_ref {
+                            let _ = unregister_rpc_shm(shm_ref);
+                        }
+                        smc_args.set_return_code(OpteeSmcReturnCode::EBadCmd);
+                    } else {
+                        smc_args.set_return_code(OpteeSmcReturnCode::RpcCmd);
+                    }
+                }
+            }
+            *smc_args
+        }
+        _ => smc_result.into(),
+    }
+}
+
+fn handle_return_from_load_ta_rpc(
+    common: litebox_shim_optee::rpc_context::RpcCommon,
+    rpc_args: &mut OpteeRpcArgs,
+) -> Result<RpcContext, OpteeSmcReturnCode> {
+    let ta_size = rpc_args.load_ta_size_response()?;
+    debug_serial_println!("First LOAD_TA request, TA size: {}", ta_size);
+    if checked_memref_size(ta_size).is_err() {
+        debug_serial_println!("Invalid TA size in first LOAD_TA request");
+        return Err(OpteeSmcReturnCode::EBadCmd);
+    }
+
+    rpc_args.prepare_shm_alloc_rpc(OpteeRpcShmType::Appl, ta_size)?;
+    Ok(RpcContext::ShmAlloc {
+        common,
+        requested_size: ta_size,
+    })
+}
+
+fn handle_return_from_load_ta_binary_rpc(
+    platform: &Platform,
+    common: litebox_shim_optee::rpc_context::RpcCommon,
+    requested_size: u64,
+    shm_ref: u64,
+    rpc_args: &mut OpteeRpcArgs,
+) -> Result<RpcContext, OpteeSmcReturnCode> {
+    let completion = match rpc_args.load_ta_binary_response(shm_ref, requested_size) {
+        Ok(rmem) => match checked_memref_size(rmem.size) {
+            Ok(ta_size) => {
+                // `ta_size` is normal-world controlled: allocate fallibly.
+                let mut ta_binary = Vec::new();
+                let read = if ta_binary.try_reserve_exact(ta_size).is_ok() {
+                    ta_binary.resize(ta_size, 0);
+                    read_rpc_shm(platform, rmem.shm_ref, 0, &mut ta_binary)
+                } else {
+                    Err(OpteeSmcReturnCode::ENomem)
+                };
+                match read {
+                    Ok(()) => RpcCompletion::OpenSession {
+                        ta_binary: Some(ta_binary),
+                    },
+                    Err(error) => RpcCompletion::ReturnError(error),
+                }
+            }
+            Err(error) => RpcCompletion::ReturnError(error),
+        },
+        Err(error) => RpcCompletion::ReturnError(error),
+    };
+    let _ = unregister_rpc_shm(shm_ref);
+    rpc_args.prepare_shm_free_rpc(OpteeRpcShmType::Appl, shm_ref)?;
+    Ok(RpcContext::ShmFree {
+        common,
+        shm_ref,
+        completion,
+    })
+}
+
+fn handle_return_from_shm_free_rpc(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    rpc_args: &OpteeRpcArgs,
+    msg_args_phys_addr: u64,
+    completion: &mut RpcCompletion,
+) -> OpteeSmcReturnCode {
+    if rpc_args.cmd != OpteeRpcCommand::ShmFree
+        || rpc_args.ret != TeeResult::Success
+        || rpc_args.num_params != 1
+    {
+        return OpteeSmcReturnCode::EBadCmd;
+    }
+
+    match completion {
+        RpcCompletion::OpenSession { ta_binary } => {
+            let mut no_rpc_args = None;
+            handle_open_session(
+                platform,
+                msg_args,
+                &mut no_rpc_args,
+                msg_args_phys_addr,
+                ta_binary,
+            )
+            .err()
+            .unwrap_or(OpteeSmcReturnCode::Ok)
+        }
+        RpcCompletion::ReturnError(error) => *error,
+    }
+}
+
+fn handle_return_from_shm_alloc_rpc(
+    platform: &Platform,
+    common: litebox_shim_optee::rpc_context::RpcCommon,
+    requested_size: u64,
+    rpc_args: &mut OpteeRpcArgs,
+) -> Result<RpcContext, OpteeSmcReturnCode> {
+    let tmem = rpc_args.shm_alloc_response(requested_size)?;
+    let mut registered = false;
+    let load_result =
+        if checked_memref_size(tmem.size).is_err() || register_rpc_shm(platform, &tmem).is_err() {
+            Err(OpteeSmcReturnCode::EBadCmd)
+        } else {
+            registered = true;
+            rpc_args.prepare_load_ta_rpc(
+                common.ta_uuid,
+                Some(OpteeMsgParamRmem {
+                    offs: 0,
+                    size: requested_size,
+                    shm_ref: tmem.shm_ref,
+                }),
+            )
+        };
+    match load_result {
+        Ok(()) => Ok(RpcContext::LoadTaBinary {
+            common,
+            requested_size,
+            shm_ref: tmem.shm_ref,
+        }),
+        Err(error) => {
+            if registered {
+                let _ = unregister_rpc_shm(tmem.shm_ref);
+            }
+            rpc_args.prepare_shm_free_rpc(OpteeRpcShmType::Appl, tmem.shm_ref)?;
+            Ok(RpcContext::ShmFree {
+                common,
+                shm_ref: tmem.shm_ref,
+                completion: RpcCompletion::ReturnError(error),
+            })
+        }
+    }
+}
+
+/// Handle OpenSession command.
+///
+/// For multi-instance TAs, creates a new task page table and loads ldelf/TA into it.
+/// For single-instance TAs (TA_FLAG_SINGLE_INSTANCE), reuses existing TA instance.
+///
+/// On success, the session is registered and msg_args is updated with the session ID.
+/// On failure (including TA returning error), msg_args is updated with the error code
+/// and appropriate cleanup is performed (page table teardown for new instances,
+/// instance cleanup for TARGET_DEAD on single-instance TAs).
+fn handle_open_session(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    rpc_args: &mut Option<Box<OpteeRpcArgs>>,
+    msg_args_phys_addr: u64,
+    ta_binary: &mut Option<Vec<u8>>,
+) -> Result<(), OpteeSmcReturnCode> {
+    let mut ta_req_info =
+        decode_ta_request(platform, msg_args).map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+    if ta_req_info.entry_func != UteeEntryFunc::OpenSession {
+        return Err(OpteeSmcReturnCode::EBadCmd);
+    }
+
+    let ta_uuid = ta_req_info.uuid.ok_or(OpteeSmcReturnCode::EBadCmd)?;
+    let client_identity = ta_req_info.client_identity;
+
+    if let Some(pta) = ClientPta::from_uuid(&ta_uuid) {
+        pta.open_session(msg_args);
+        debug_serial_println!("OpenSession on client PTA {:?}", pta);
+        return write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr);
+    }
+
+    session_manager().with_ta(&ta_uuid, |target| match target {
+        OpenSessionTarget::Sibling(instance) => open_session_single_instance(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            instance,
+            client_identity,
+            &mut ta_req_info,
+        ),
+        OpenSessionTarget::NewInstance => open_session_new_instance(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            rpc_args,
+            ta_uuid,
+            client_identity,
+            &mut ta_req_info,
+            ta_binary,
+        ),
+        OpenSessionTarget::Busy => {
+            // Single-instance TA without MULTI_SESSION already has a live
+            // session. Per OP-TEE OS `tee_ta_init_session_with_context`,
+            // return TEE_ERROR_BUSY with origin TEE via msg_args.
+            msg_args.ret = TeeResult::Busy;
+            msg_args.ret_origin = TeeOrigin::Tee;
+            write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr)?;
+            Ok(())
+        }
+    })
+}
+
+/// Open a new session on an existing single-instance TA.
+///
+/// If the TA's OpenSession entry point returns an error, the session is not registered.
+/// On TARGET_DEAD, sessions for the failed instance are marked `Dead`, the matching
+/// single-instance cache entry is evicted, and the TA instance is torn down.
+/// For cleanup semantics, see OP-TEE OS `tee_ta_open_session()` in `tee_ta_manager.c`.
+fn open_session_single_instance(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+    instance: &TaInstance<Platform>,
+    client_identity: Option<litebox_common_optee::TeeIdentity>,
+    ta_req_info: &mut TaRequestInfo<PAGE_SIZE>,
+) -> Result<(), OpteeSmcReturnCode> {
+    let task_pt_id = instance.task_page_table_id();
+    let ta_uuid = instance.uuid();
+    let ta_flags = instance.loaded_program().ta_flags;
+
+    let mut session_token = session_manager().try_acquire_open_session_token()?;
+    // Safe to unwrap: session ID has been just created.
+    let runner_session_id = session_token.session_id().unwrap();
+
+    // Record the client identity before running OpenSession
+    session_manager().set_session_client_identity(runner_session_id, client_identity);
+
+    debug_serial_println!(
+        "Reusing single-instance TA: uuid={:?}, task_pt_id={}, session_id={}",
+        ta_uuid,
+        task_pt_id,
+        runner_session_id
+    );
+
+    // Switch to the existing TA's page table
+    let _task_pt_guard = TaskPageTableGuard::enter(platform, task_pt_id)?;
+
+    // Load TA context with parameters for OpenSession - pass actual session_id
+    ta_req_info.session = runner_session_id;
+    instance
+        .loaded_program()
+        .entrypoints
+        .as_ref()
+        .ok_or(OpteeSmcReturnCode::EBadCmd)?
+        .load_ta_context(ta_req_info)
+        .map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+
+    // Run the TA's OpenSession entry point using reference-based reenter
+    let mut ctx = litebox_common_linux::PtRegs::default();
+    unsafe {
+        litebox_platform_lvbs::reenter_thread_ref(
+            instance.loaded_program().entrypoints.as_ref().unwrap(),
+            &mut ctx,
+        );
+    }
+
+    // Check the return code from the TA's OpenSession entry point
+    let return_code: u32 = ctx.rax.trunc();
+    let return_code = TeeResult::try_from(return_code).unwrap_or(TeeResult::GenericError);
+
+    // Per OP-TEE OS: if OpenSession fails, don't register the session
+    // Reference: tee_ta_open_session() in tee_ta_manager.c
+    if return_code != TeeResult::Success {
+        debug_serial_println!(
+            "OpenSession failed on single-instance TA: return_code={:?}",
+            return_code
+        );
+
+        // Write error response BEFORE switching page tables (accesses user memory).
+        // `with_ta`'s serialization keeps the instance alive so another core cannot
+        // tear down the active page table while this core is copying TA outputs.
+        let write_result = write_msg_args_to_normal_world(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            return_code,
+            None, // No session ID on failure
+            Some(ta_req_info),
+        );
+
+        // For single-instance TAs, only clean up on TARGET_DEAD (panic).
+        // Regular errors (access denied, bad params, etc.) don't mean the TA is dead -
+        // it can still serve future OpenSession requests from other clients.
+        if return_code == TeeResult::TargetDead {
+            debug_serial_println!("Single-instance TA panicked during OpenSession, cleaning up");
+
+            session_manager().mark_sessions_dead_for_instance(instance);
+            teardown_ta_page_table(platform, task_pt_id);
+
+            // TODO: Per OP-TEE OS semantics, if the TA has INSTANCE_KEEP_ALIVE but not
+            // INSTANCE_KEEP_CRASHED, we should respawn the TA here instead of just
+            // cleaning it up. Currently we always clean up on panic.
+        }
+
+        write_result?;
+        return Ok(());
+    }
+
+    // Treat write-back failure as OpenSession failure: do not publish the session.
+    let write_result = write_msg_args_to_normal_world(
+        platform,
+        msg_args,
+        msg_args_phys_addr,
+        return_code,
+        Some(runner_session_id),
+        Some(ta_req_info),
+    );
+
+    // Write-back failure: OpenSession succeeded inside the TA, but we cannot
+    // deliver the session id to the normal world, so it will never issue a
+    // matching CloseSession. For a non-keep-alive instance with no siblings
+    // we tear the whole instance down, reclaiming the TA-side state, and the
+    // session id is recycled by the token's drop. For keep-alive or shared
+    // instances the TA still holds session-local state tagged with this id,
+    // so we forget the id (disarm the token) to prevent a future OpenSession
+    // from reusing it and colliding with the orphaned TA-side bookkeeping.
+    if let Err(e) = write_result {
+        if !ta_flags.is_keep_alive() && session_manager().count_sessions_for_instance(instance) == 0
+        {
+            let _ = session_manager().evict_cached_instance(instance);
+            teardown_ta_page_table(platform, task_pt_id);
+        } else {
+            // The session id is forgotten (never recycled), so the token's drop
+            // won't clear the recorded identity. Remove the client identity here.
+            session_manager().clear_session_client_identity(runner_session_id);
+            session_token.disarm();
+        }
+        return Err(e);
+    }
+
+    // Success: register a sibling session pointing at the existing instance.
+    session_manager().register_sibling_session(runner_session_id, instance)?;
+    session_token.disarm();
+
+    debug_serial_println!(
+        "OpenSession complete on single-instance TA: session_id={}",
+        runner_session_id
+    );
+
+    Ok(())
+}
+
+/// Create a new TA instance for a session. Must be called from within a
+/// [`litebox_shim_optee::session::SessionManager::with_ta`] closure.
+///
+/// If ldelf loading or OpenSession entry point fails, the page table is torn down.
+/// Per OP-TEE OS semantics: if OpenSession returns non-success, cleanup happens.
+#[allow(clippy::too_many_arguments)]
+fn open_session_new_instance(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+    rpc_args: &mut Option<Box<OpteeRpcArgs>>,
+    ta_uuid: litebox_common_optee::TeeUuid,
+    client_identity: Option<litebox_common_optee::TeeIdentity>,
+    ta_req_info: &mut TaRequestInfo<PAGE_SIZE>,
+    ta_binary: &mut Option<Vec<u8>>,
+) -> Result<(), OpteeSmcReturnCode> {
+    let shim = litebox_shim_optee::OpteeShimBuilder::new(platform, session_manager())
+        .with_ta_signing_cert(TA_SIGNING_CERT_DER)
+        .build();
+
+    if ta_binary.is_none() && !shim.contains_embedded_ta_bin(&ta_uuid) {
+        debug_serial_println!(
+            "TA binary not found for uuid={:?}, requesting load from normal world",
+            ta_uuid
+        );
+
+        let Some(rpc) = rpc_args.as_deref_mut() else {
+            debug_serial_println!(
+                "RPC args not present in incoming request, cannot request LOAD_TA from normal world"
+            );
+            msg_args.session = 0;
+            msg_args.ret = TeeResult::ItemNotFound;
+            msg_args.ret_origin = TeeOrigin::Tee;
+            write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr)?;
+            return Ok(());
+        };
+        rpc.prepare_load_ta_rpc(ta_uuid, None)?;
+        return Err(OpteeSmcReturnCode::RpcCmd);
+    }
+
+    // Token is declared before `task_pt_guard` so it drops AFTER it.
+    // Marker only releases once CR3 is back to base. See
+    // `try_acquire_open_session_token` for why.
+    let mut session_token = session_manager().try_acquire_open_session_token()?;
+    let runner_session_id = session_token.session_id().unwrap();
+
+    let task_pt_id = create_task_page_table(platform)?;
+    debug_serial_println!("Created task page table ID: {}", task_pt_id);
+
+    let page_table = platform
+        .page_table_manager()
+        .task_page_table(task_pt_id)
+        .map_err(|_| OpteeSmcReturnCode::EBadCmd)
+        .inspect_err(|error| {
+            debug_serial_println!("Failed to acquire task page-table handle: {error:?}");
+            teardown_ta_page_table(platform, task_pt_id);
+        })?;
+
+    let _task_pt_guard = TaskPageTableGuard::enter(platform, task_pt_id).inspect_err(|error| {
+        debug_serial_println!("Failed to activate task page table: {error:?}");
+        teardown_ta_page_table(platform, task_pt_id);
+    })?;
+
+    let shim = shim.with_page_table_keepalive(page_table).ok_or_else(|| {
+        debug_serial_println!("BUG: failed to attach task page-table keepalive");
+        debug_assert!(false, "failed to attach task page-table keepalive");
+        teardown_ta_page_table(platform, task_pt_id);
+        OpteeSmcReturnCode::ENotAvail
+    })?;
+
+    // Load ldelf and TA - Box immediately to keep at fixed heap address
+    // Take `ta_binary` only after every `EThreadLimit` source: a retry needs it.
+    let loaded_program = Box::new(
+        shim.load_ldelf(LDELF_BINARY, ta_uuid, ta_binary.take())
+            .map_err(|error| {
+                teardown_ta_page_table(platform, task_pt_id);
+                match error {
+                    litebox_shim_optee::ElfLoaderError::UnverifiedTa => OpteeSmcReturnCode::EBadCmd,
+                    _ => OpteeSmcReturnCode::ENomem,
+                }
+            })?,
+    );
+
+    let ta_flags = loaded_program.ta_flags;
+
+    debug_serial_println!(
+        "TA flags: {:?}, single_instance={}",
+        ta_flags,
+        ta_flags.is_single_instance()
+    );
+
+    // Run ldelf to load the TA using reference-based run to avoid moving the shim
+    let mut ldelf_ctx = litebox_common_linux::PtRegs::default();
+    unsafe {
+        litebox_platform_lvbs::run_thread_ref(
+            loaded_program.entrypoints.as_ref().unwrap(),
+            &mut ldelf_ctx,
+        );
+    }
+
+    // Check ldelf return code (TA_CreateEntryPoint result)
+    let ldelf_return_code: u32 = ldelf_ctx.rax.trunc();
+    let ldelf_return_code =
+        TeeResult::try_from(ldelf_return_code).unwrap_or(TeeResult::GenericError);
+    if ldelf_return_code != TeeResult::Success {
+        debug_serial_println!(
+            "ldelf/TA_CreateEntryPoint failed: return_code={:?}",
+            ldelf_return_code
+        );
+
+        // Write error response back to normal world
+        let write_result = write_msg_args_to_normal_world(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            ldelf_return_code,
+            None, // No session ID on failure
+            None,
+        );
+        teardown_ta_page_table(platform, task_pt_id);
+
+        write_result?;
+        return Ok(());
+    }
+
+    // Record the client identity before running OpenSession
+    session_manager().set_session_client_identity(runner_session_id, client_identity);
+
+    // Load TA context with parameters for OpenSession - pass actual session_id
+    ta_req_info.session = runner_session_id;
+    loaded_program.entrypoints.as_ref().ok_or_else(|| {
+        teardown_ta_page_table(platform, task_pt_id);
+        OpteeSmcReturnCode::EBadCmd
+    })?;
+    loaded_program
+        .entrypoints
+        .as_ref()
+        .unwrap()
+        .load_ta_context(ta_req_info)
+        .map_err(|_| {
+            teardown_ta_page_table(platform, task_pt_id);
+            OpteeSmcReturnCode::EBadCmd
+        })?;
+
+    // Run the TA entry function using reference-based reenter to avoid moving the shim
+    let mut ctx = litebox_common_linux::PtRegs::default();
+    unsafe {
+        litebox_platform_lvbs::reenter_thread_ref(
+            loaded_program.entrypoints.as_ref().unwrap(),
+            &mut ctx,
+        );
+    }
+
+    // Check the return code from the TA's OpenSession entry point
+    let return_code: u32 = ctx.rax.trunc();
+    let return_code = TeeResult::try_from(return_code).unwrap_or(TeeResult::GenericError);
+
+    // Per OP-TEE OS: if OpenSession fails, tear down the instance
+    // Reference: tee_ta_open_session() in tee_ta_manager.c
+    if return_code != TeeResult::Success {
+        debug_serial_println!(
+            "OpenSession failed on new instance: return_code={:?}",
+            return_code
+        );
+
+        // Write error response back to normal world
+        let write_result = write_msg_args_to_normal_world(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            return_code,
+            None, // No session ID on failure
+            Some(ta_req_info),
+        );
+        teardown_ta_page_table(platform, task_pt_id);
+
+        write_result?;
+        return Ok(());
+    }
+
+    // Write back BEFORE publishing the instance. If the write fails, the
+    // session is neither registered nor cached, so we just tear down the
+    // local resources and let `session_token` recycle the ID on drop.
+    write_msg_args_to_normal_world(
+        platform,
+        msg_args,
+        msg_args_phys_addr,
+        return_code,
+        Some(runner_session_id),
+        Some(ta_req_info),
+    )
+    .inspect_err(|_| {
+        teardown_ta_page_table(platform, task_pt_id);
+    })?;
+
+    // Success: register the new session with the manager.
+    session_manager().register_new_session(
+        runner_session_id,
+        shim,
+        loaded_program,
+        task_pt_id,
+        ta_uuid,
+    );
+    session_token.disarm();
+
+    debug_serial_println!(
+        "OpenSession complete: session_id={}, single_instance={}",
+        runner_session_id,
+        ta_flags.is_single_instance()
+    );
+
+    Ok(())
+}
+
+/// Tear down a `Dead` session entry observed at Invoke/Close handler entry.
+///
+/// Must be called from within a `with_session` closure so its serialization
+/// covers the cleanup.
+fn finalize_dead_session(
+    platform: &'static Platform,
+    session_id: u32,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+    return_code: TeeResult,
+    log_prefix: &str,
+) -> Result<(), OpteeSmcReturnCode> {
+    session_manager().unregister_session(session_id);
+    msg_args.ret = return_code;
+    msg_args.ret_origin = TeeOrigin::Tee;
+    write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr)?;
+    debug_serial_println!(
+        "{}: session_id={} on dead TA session",
+        log_prefix,
+        session_id
+    );
+    Ok(())
+}
+
+/// Handle InvokeCommand.
+///
+/// Looks up the session by ID, switches to its page table, and runs the command.
+///
+/// Per OP-TEE OS semantics: if the TA panics (returns TARGET_DEAD), the session
+/// should be cleaned up. For single-instance TAs, the entire instance is destroyed.
+fn handle_invoke_command(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+) -> Result<(), OpteeSmcReturnCode> {
+    let mut ta_req_info =
+        decode_ta_request(platform, msg_args).map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+    if ta_req_info.entry_func != UteeEntryFunc::InvokeCommand {
+        return Err(OpteeSmcReturnCode::EBadCmd);
+    }
+    let session_id = ta_req_info.session;
+
+    if let Some(pta) = ClientPta::from_session_id(session_id) {
+        pta.invoke_command(platform, &ta_req_info, msg_args)?;
+        return write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr);
+    }
+
+    session_manager().with_session(session_id, |instance| {
+        let Some(instance) = instance else {
+            return finalize_dead_session(
+                platform,
+                session_id,
+                msg_args,
+                msg_args_phys_addr,
+                TeeResult::TargetDead,
+                "InvokeCommand",
+            );
+        };
+        let task_pt_id = instance.task_page_table_id();
+
+        let _task_pt_guard = TaskPageTableGuard::enter(platform, task_pt_id)?;
+
+        debug_serial_println!(
+            "InvokeCommand: session_id={}, task_pt_id={}, cmd_id={}",
+            session_id,
+            task_pt_id,
+            ta_req_info.cmd_id
+        );
+
+        // Set up the entry-point parameters for InvokeCommand.
+        let entrypoints_ref = instance.loaded_program().entrypoints.as_ref().unwrap();
+        entrypoints_ref
+            .load_ta_context(&mut ta_req_info)
+            .map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+
+        let mut ctx = litebox_common_linux::PtRegs::default();
+        unsafe {
+            litebox_platform_lvbs::reenter_thread_ref(
+                instance.loaded_program().entrypoints.as_ref().unwrap(),
+                &mut ctx,
+            );
+        }
+
+        let return_code: u32 = ctx.rax.trunc();
+        let return_code = TeeResult::try_from(return_code).unwrap_or(TeeResult::GenericError);
+
+        // Write response BEFORE switching page tables (accesses user memory).
+        // `with_session`'s serialization keeps the entry stable so another core cannot
+        // tear down the active page table while this core is copying TA outputs.
+        let write_result = write_msg_args_to_normal_world(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            return_code,
+            None,
+            Some(&ta_req_info),
+        );
+
+        // Per OP-TEE OS: if TA panics (TARGET_DEAD), the TA context is
+        // unrecoverable; all sessions on the same single-instance TA are
+        // implicitly dead (Ref: tee_ta_invoke_command() in tee_ta_manager.c).
+        if return_code == TeeResult::TargetDead {
+            debug_serial_println!(
+                "InvokeCommand: TA panicked (TARGET_DEAD), session_id={}",
+                session_id
+            );
+
+            if instance.loaded_program().ta_flags.is_single_instance() {
+                session_manager().mark_sessions_dead_for_instance(instance);
+            }
+
+            session_manager().unregister_session(session_id);
+            teardown_ta_page_table(platform, task_pt_id);
+
+            debug_serial_println!(
+                "InvokeCommand: cleaned up dead TA instance, task_pt_id={}",
+                task_pt_id
+            );
+
+            // TODO: Per OP-TEE OS semantics, if the TA has INSTANCE_KEEP_ALIVE but not
+            // INSTANCE_KEEP_CRASHED, we should respawn the TA here instead of just
+            // cleaning it up. Currently we always clean up on panic.
+        }
+
+        write_result
+    })
+}
+
+/// Handle CloseSession command.
+///
+/// Looks up the session, enters the TA to call TA_CloseSessionEntryPoint,
+/// then removes the session from the map. For single-instance TAs, the TA
+/// is only destroyed when the last session closes.
+fn handle_close_session(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+) -> Result<(), OpteeSmcReturnCode> {
+    let ta_req_info =
+        decode_ta_request(platform, msg_args).map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+    if ta_req_info.entry_func != UteeEntryFunc::CloseSession {
+        return Err(OpteeSmcReturnCode::EBadCmd);
+    }
+    let session_id = ta_req_info.session;
+
+    debug_serial_println!("CloseSession: session_id={}", session_id);
+
+    if let Some(pta) = ClientPta::from_session_id(session_id) {
+        pta.close_session(msg_args);
+        return write_non_ta_msg_args_to_normal_world(platform, msg_args, msg_args_phys_addr);
+    }
+
+    session_manager().with_session(session_id, |instance| {
+        let Some(instance) = instance else {
+            return finalize_dead_session(
+                platform,
+                session_id,
+                msg_args,
+                msg_args_phys_addr,
+                TeeResult::Success,
+                "CloseSession",
+            );
+        };
+        let task_pt_id = instance.task_page_table_id();
+
+        let _task_pt_guard = TaskPageTableGuard::enter(platform, task_pt_id)?;
+
+        // Set up the entry-point parameters for CloseSession. The TA gets no params,
+        // whatever the normal world sent.
+        let mut close_request = TaRequestInfo::new(UteeEntryFunc::CloseSession, session_id, 0);
+        instance
+            .loaded_program()
+            .entrypoints
+            .as_ref()
+            .unwrap()
+            .load_ta_context(&mut close_request)
+            .map_err(|_| OpteeSmcReturnCode::EBadCmd)?;
+
+        // Run the TA entry function (TA_CloseSessionEntryPoint)
+        let mut ctx = litebox_common_linux::PtRegs::default();
+        unsafe {
+            litebox_platform_lvbs::reenter_thread_ref(
+                instance.loaded_program().entrypoints.as_ref().unwrap(),
+                &mut ctx,
+            );
+        }
+
+        // CloseSession always succeeds (TA_CloseSessionEntryPoint returns void)
+        let write_result = write_msg_args_to_normal_world(
+            platform,
+            msg_args,
+            msg_args_phys_addr,
+            TeeResult::Success,
+            None,
+            None,
+        );
+
+        let removed_flags = session_manager().unregister_session(session_id);
+
+        let remaining_sessions = session_manager().count_sessions_for_instance(instance);
+
+        // Last session on this instance — tear it down unless `keep_alive`
+        // is set (only meaningful for single-instance TAs).
+        if remaining_sessions == 0
+            && let Some(flags) = removed_flags
+        {
+            if flags.is_single_instance() && flags.is_keep_alive() {
+                debug_serial_println!(
+                    "CloseSession complete: session_id={}, TA kept alive (INSTANCE_KEEP_ALIVE flag)",
+                    session_id
+                );
+                return write_result;
+            }
+
+            // If this was a single-instance TA, clear the cached instance. This is safe because
+            // we confirm no sibling sessions remain. We don't need to mark anything `Dead` first.
+            if flags.is_single_instance() {
+                let _ = session_manager()
+                    .evict_cached_instance(instance);
+            }
+            teardown_ta_page_table(platform, task_pt_id);
+
+            debug_serial_println!(
+                "CloseSession complete: deleted task_pt_id={} (last session)",
+                task_pt_id
+            );
+        } else {
+            debug_serial_println!(
+                "CloseSession complete: session_id={}, other sessions remaining on TA",
+                session_id
+            );
+        }
+
+        write_result
+    })
+}
+
+/// Update msg_args with return values and write back to normal world memory.
+///
+/// Serializes `OpteeMsgArgs` into a contiguous byte blob and writes it to
+/// the VTL0 physical address.
+///
+/// Per OP-TEE OS semantics:
+/// - `TeeOrigin::Tee` is used when the error comes from TEE itself (panic/TARGET_DEAD)
+/// - `TeeOrigin::TrustedApp` is used when the error comes from the TA
+///
+/// # Security Note
+///
+/// This function accesses TA userspace memory via `update_optee_msg_args` to copy out
+/// output parameters. It must be called **before** switching page tables or deleting
+/// the task page table, otherwise the userspace memory references become invalid.
+///
+/// # Panics
+///
+/// Panics if called while the base page table is active (i.e., not in a TA context).
+#[inline]
+fn write_msg_args_to_normal_world(
+    platform: &'static Platform,
+    msg_args: &mut OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+    return_code: TeeResult,
+    session_id: Option<u32>,
+    ta_req_info: Option<&TaRequestInfo<PAGE_SIZE>>,
+) -> Result<(), OpteeSmcReturnCode> {
+    // Ensure we're on a task page table, not the base page table.
+    // Accessing TA userspace memory requires the TA's page table to be active.
+    debug_assert!(
+        !platform.page_table_manager().is_base_page_table_active(),
+        "write_msg_args_to_normal_world called on base page table"
+    );
+
+    // Per OP-TEE: origin is TEE only if panicked (TARGET_DEAD), otherwise TrustedApp
+    let origin = if return_code == TeeResult::TargetDead {
+        TeeOrigin::Tee
+    } else {
+        TeeOrigin::TrustedApp
+    };
+    update_optee_msg_args(
+        platform,
+        return_code,
+        origin,
+        session_id,
+        ta_req_info,
+        msg_args,
+    )?;
+
+    let msg_args_size = optee_msg_args_total_size(msg_args.num_params);
+    let mut blob = vec![0u8; msg_args_size];
+    msg_args.serialize(&mut blob)?;
+
+    let ptr = NormalWorldMutPtr::<Platform, u8, PAGE_SIZE>::with_contiguous_pages(
+        platform,
+        msg_args_phys_addr.trunc(),
+        msg_args_size,
+    )?;
+    ptr.write_slice_at_offset(0, &blob)?;
+    Ok(())
+}
+
+/// Write back `OpteeMsgArgs` for non-TA commands (e.g., RegisterShm, UnregisterShm) that
+/// don't require TA userspace memory access.
+///
+/// Unlike [`write_msg_args_to_normal_world`], this function does not access TA userspace
+/// memory and can be called from the base page table context. It simply serializes the
+/// msg_args (which should already have `ret` / `ret_origin` set by the caller) back to
+/// the normal world physical address.
+#[inline]
+fn write_non_ta_msg_args_to_normal_world(
+    platform: &'static Platform,
+    msg_args: &OpteeMsgArgs,
+    msg_args_phys_addr: u64,
+) -> Result<(), OpteeSmcReturnCode> {
+    let msg_args_size = optee_msg_args_total_size(msg_args.num_params);
+    let mut blob = vec![0u8; msg_args_size];
+    msg_args.serialize(&mut blob)?;
+
+    let ptr = NormalWorldMutPtr::<Platform, u8, PAGE_SIZE>::with_contiguous_pages(
+        platform,
+        msg_args_phys_addr.trunc(),
+        msg_args_size,
+    )?;
+    ptr.write_slice_at_offset(0, &blob)?;
+    Ok(())
+}
+
+const LDELF_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ldelf.elf"));
+const TA_BINARY: &[u8] = &[0u8; 0];
+const TA_BINARIES: &[&[u8]] = &[TA_BINARY];
+const TA_SIGNING_CERT_DER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ta-signing-cert.der"));
+
+/// Register all TA binaries embedded in the runner image.
+fn register_embedded_tas(shim: &litebox_shim_optee::OpteeShim<Platform>) {
+    for ta_binary in TA_BINARIES {
+        if !ta_binary.is_empty() && !shim.store_embedded_ta_bin(ta_binary) {
+            serial_println!("Failed to register embedded TA");
+        }
+    }
+}
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    litebox_platform_lvbs::on_panic(info.location());
+    serial_println!("{}", info);
+    panic_to_vtl0()
+}
