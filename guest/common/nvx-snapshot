@@ -1,0 +1,709 @@
+#!/bin/sh
+set -eu
+
+snapshot_tier=legacy
+scratch_policy=paired
+case "$#:${1:-}" in
+    0:) ;;
+    1:--fresh-scratch) scratch_policy=fresh ;;
+    2:--tier)
+        snapshot_tier=$2
+        case "$snapshot_tier" in
+            platform) scratch_policy=fresh ;;
+            workload-start | instance-checkpoint) scratch_policy=paired ;;
+            *)
+                echo "nvx-snapshot: unsupported snapshot tier: $snapshot_tier" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    *)
+        echo "usage: nvx-snapshot [--fresh-scratch | --tier TIER]" >&2
+        exit 2
+        ;;
+esac
+
+runtime=/run/nvx
+container_cgroup=/sys/fs/cgroup/container
+scratch_mount=$runtime/scratch
+# Restore packet v5 and v6 flags (doc/design/5.5-restore-protocol.md).
+PACKET_MEMORY_TARGET=2
+PACKET_ACK_REQUIRED=4
+container_frozen=false
+scratch_frozen=false
+stall_detectors_suppressed=false
+post_restore_pending=false
+restore_new_cpus=none
+mkdir -p "$runtime"
+
+console_status() {
+    printf '%s\n' "$*" 2>/dev/null >/dev/console || true
+}
+
+fail_closed() {
+    post_restore_pending=true
+    echo "nvx-snapshot: $*; terminating the VM" >&2
+    console_status "NVX-SNAPSHOT-ERROR: $*"
+    /sbin/nvx-exit 1 2>/dev/null || true
+    exit 1
+}
+
+cleanup() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$post_restore_pending" = true ]; then
+        /sbin/nvx-exit 1 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$scratch_frozen" = true ]; then
+        fsfreeze -u "$scratch_mount" >/dev/null 2>&1 ||
+            fail_closed "failed to thaw the scratch filesystem"
+        scratch_frozen=false
+    fi
+    if [ "$container_frozen" = true ]; then
+        echo 0 >"$container_cgroup/cgroup.freeze" 2>/dev/null ||
+            fail_closed "failed to thaw the workload cgroup"
+        container_frozen=false
+    fi
+    if [ "$stall_detectors_suppressed" = true ]; then
+        /sbin/nvx-time cancel-capture ||
+            fail_closed "failed to restore the stall detectors"
+        stall_detectors_suppressed=false
+    fi
+    exit "$status"
+}
+
+cmdline_value() {
+    key=$1
+    IFS= read -r command_line </proc/cmdline || return 1
+    set -f
+    # Kernel command-line tokens are deliberately split on spaces.
+    # shellcheck disable=SC2086
+    for token in $command_line; do
+        case "$token" in
+            "$key"=*)
+                set +f
+                printf '%s\n' "${token#*=}"
+                return 0
+                ;;
+        esac
+    done
+    set +f
+    return 1
+}
+
+read_memtotal_kib() {
+    while IFS=' ' read -r key value _; do
+        if [ "$key" = MemTotal: ]; then
+            case "$value" in
+                '' | *[!0-9]*) return 1 ;;
+            esac
+            printf '%s\n' "$value"
+            return 0
+        fi
+    done </proc/meminfo
+    return 1
+}
+
+online_cpu_range() {
+    count=$1
+    if [ "$count" -eq 1 ]; then
+        printf '0\n'
+    else
+        printf '0-%s\n' "$((count - 1))"
+    fi
+}
+
+activate_restore_processors() {
+    target=$1
+    expected=$(online_cpu_range "$target")
+    IFS= read -r before </sys/devices/system/cpu/online ||
+        fail_closed "failed to read the online CPU set"
+    case "$before" in
+        0) before_count=1 ;;
+        0-*)
+            last=${before#0-}
+            case "$last" in
+                '' | *[!0-9]*) fail_closed "online CPU set is not a contiguous prefix: $before" ;;
+            esac
+            before_count=$((last + 1))
+            ;;
+        *) fail_closed "online CPU set is not a contiguous prefix: $before" ;;
+    esac
+    [ "$before_count" -le "$target" ] ||
+        fail_closed "restore target $target is below the online CPU count $before_count"
+    if [ "$before_count" -lt "$target" ]; then
+        restore_new_cpus=$before_count-$((target - 1))
+    fi
+
+    cpu=1
+    while [ "$cpu" -lt "$target" ]; do
+        online=/sys/devices/system/cpu/cpu${cpu}/online
+        [ -w "$online" ] || fail_closed "CPU $cpu cannot be onlined"
+        IFS= read -r online_state <"$online" ||
+            fail_closed "failed to read CPU $cpu state"
+        if [ "$online_state" != 1 ]; then
+            echo 1 >"$online" || fail_closed "failed to online CPU $cpu"
+        fi
+        cpu=$((cpu + 1))
+    done
+    IFS= read -r actual </sys/devices/system/cpu/online ||
+        fail_closed "failed to verify the online CPU set"
+    [ "$actual" = "$expected" ] ||
+        fail_closed "online CPU set $actual does not match requested prefix $expected"
+    echo "NVX-CPU-ONLINE-OK: count=$target"
+}
+
+uptime_microseconds() {
+    IFS=' .' read -r uptime_seconds uptime_fraction _ </proc/uptime ||
+        fail_closed "failed to read guest uptime"
+    case "$uptime_seconds:$uptime_fraction" in
+        *[!0-9:]* | *: | :*) fail_closed "guest uptime is invalid" ;;
+    esac
+    uptime_fraction_value=$uptime_fraction
+    while [ "${uptime_fraction_value#0}" != "$uptime_fraction_value" ]; do
+        uptime_fraction_value=${uptime_fraction_value#0}
+    done
+    [ -n "$uptime_fraction_value" ] || uptime_fraction_value=0
+    case "$uptime_fraction" in
+        ?) uptime_scale=100000 ;;
+        ??) uptime_scale=10000 ;;
+        ???) uptime_scale=1000 ;;
+        ????) uptime_scale=100 ;;
+        ?????) uptime_scale=10 ;;
+        ??????) uptime_scale=1 ;;
+        *) fail_closed "guest uptime precision is unsupported" ;;
+    esac
+    printf '%s\n' \
+        "$((uptime_seconds * 1000000 + uptime_fraction_value * uptime_scale))"
+}
+
+activate_restore_memory() {
+    range_count=$1
+    shift
+    [ "$#" -eq $((range_count * 2)) ] ||
+        fail_closed "restore memory range metadata is incomplete"
+    if [ "$range_count" -eq 0 ]; then
+        memtotal_kib=$(read_memtotal_kib) ||
+            fail_closed "failed to read MemTotal after memory activation"
+        echo "NVX-MEMORY-ONLINE-OK: added_bytes=0 memtotal_kib=$memtotal_kib elapsed_us=0"
+        return
+    fi
+
+    IFS= read -r block_size_hex </sys/devices/system/memory/block_size_bytes ||
+        fail_closed "failed to read the Linux memory block size"
+    case "$block_size_hex" in
+        '' | *[!0-9a-fA-F]*) fail_closed "Linux memory block size is invalid" ;;
+    esac
+    block_size=$((0x$block_size_hex))
+    [ "$block_size" -eq 134217728 ] ||
+        fail_closed "Linux memory block size $block_size does not match the snapshot ABI"
+    [ -w /sys/devices/system/memory/probe ] ||
+        fail_closed "Linux memory probe interface is unavailable"
+
+    started_us=$(uptime_microseconds)
+    added_bytes=0
+    range_index=0
+    while [ "$range_index" -lt "$range_count" ]; do
+        range_start=$1
+        range_length=$2
+        shift 2
+        case "$range_start:$range_length" in
+            *[!0-9:]* | *: | :*)
+                fail_closed "restore memory range contains an invalid integer"
+                ;;
+        esac
+        [ "$range_length" -gt 0 ] ||
+            fail_closed "restore memory range $range_index is empty"
+        [ $((range_start % block_size)) -eq 0 ] &&
+            [ $((range_length % block_size)) -eq 0 ] ||
+            fail_closed "restore memory range $range_index is not memory-block aligned"
+        range_end=$((range_start + range_length))
+        [ "$range_end" -gt "$range_start" ] ||
+            fail_closed "restore memory range $range_index overflows"
+
+        address=$range_start
+        while [ "$address" -lt "$range_end" ]; do
+            block=$((address / block_size))
+            state=/sys/devices/system/memory/memory${block}/state
+            if [ ! -e "$state" ]; then
+                printf '0x%x\n' "$address" >/sys/devices/system/memory/probe ||
+                    fail_closed "failed to add memory block $block"
+            fi
+            [ -w "$state" ] ||
+                fail_closed "memory block $block cannot be onlined"
+            IFS= read -r memory_state <"$state" ||
+                fail_closed "failed to read memory block $block state"
+            if [ "$memory_state" != online ]; then
+                echo online >"$state" ||
+                    fail_closed "failed to online memory block $block"
+            fi
+            IFS= read -r memory_state <"$state" ||
+                fail_closed "failed to verify memory block $block state"
+            [ "$memory_state" = online ] ||
+                fail_closed "memory block $block did not become online"
+            address=$((address + block_size))
+        done
+        added_bytes=$((added_bytes + range_length))
+        range_index=$((range_index + 1))
+    done
+    completed_us=$(uptime_microseconds)
+    memtotal_kib=$(read_memtotal_kib) ||
+        fail_closed "failed to read MemTotal after memory activation"
+    echo "NVX-MEMORY-ONLINE-OK: added_bytes=$added_bytes memtotal_kib=$memtotal_kib elapsed_us=$((completed_us - started_us))"
+}
+
+# Lists one mount point of each host share, every virtio-fs file system that
+# this mount namespace holds, as DEVICE MOUNT_POINT lines, where DEVICE is the
+# superblock's MAJOR:MINOR, which also names its backing device. It prefers a
+# mount of the whole file system, decodes the octal escapes of mountinfo, and
+# prints DEVICE alone for a share whose every mount point holds a newline.
+list_host_shares() {
+    awk '
+        function decode(path, decoded, code, digit) {
+            decoded = ""
+            while (match(path, /\\[0-7][0-7][0-7]/)) {
+                code = 0
+                for (digit = 1; digit <= 3; digit++)
+                    code = code * 8 + substr(path, RSTART + digit, 1)
+                decoded = decoded substr(path, 1, RSTART - 1) sprintf("%c", code)
+                path = substr(path, RSTART + 4)
+            }
+            return decoded path
+        }
+        {
+            field = 7
+            while (field <= NF && $field != "-")
+                field++
+            if ($(field + 1) != "virtiofs")
+                next
+            if (!($3 in seen)) {
+                seen[$3] = 1
+                devices[++count] = $3
+            }
+            path = decode($5)
+            if (index(path, "\n"))
+                next
+            if ($4 == "/" && !($3 in whole))
+                whole[$3] = path
+            if (!($3 in any))
+                any[$3] = path
+        }
+        END {
+            for (i = 1; i <= count; i++) {
+                device = devices[i]
+                if (device in whole)
+                    print device " " whole[device]
+                else if (device in any)
+                    print device " " any[device]
+                else
+                    print device
+            }
+        }
+    ' /proc/self/mountinfo
+}
+
+# Prints the debugfs files $@, the writeback statistics of backing devices,
+# from a private mount namespace, so that the debugfs mount ends with it.
+read_writeback_stats() {
+    # The program expands its arguments in its own shell.
+    # shellcheck disable=SC2016
+    unshare --mount --propagation private /bin/sh -c \
+        'mount -t debugfs -o ro,nosuid,nodev,noexec debugfs /sys/kernel/debug &&
+            exec cat "$@"' nvx-snapshot "$@"
+}
+
+# Guest preparation step 4 (doc/design/5.3-snapshot-protocol.md): writes back
+# the pages that shared mappings dirtied on the host shares and waits for the
+# writes, so that no snapshot holds data that a restore would write to a live
+# host file (doc/design/3.6-host-filesystem.md). Linux marks FUSE superblocks
+# SB_I_NO_DATA_INTEGRITY, so sync(2) only starts their writeback. syncfs(2)
+# writes a share back and waits for its writes in flight, but its pass skips
+# an inode while too many FUSE requests are in flight. Each pass therefore
+# counts the inodes on the writeback lists of the shares' backing devices,
+# then syncs every share, and the passes end with the first that counts none:
+# its sync also waited for any write that the flusher started after the pass
+# before. They fail when three passes in a row count no fewer inodes than the
+# pass before each, or after 1024 passes.
+write_back_host_shares() {
+    shares=$(list_host_shares) || {
+        echo "nvx-snapshot: failed to list the host shares" >&2
+        return 1
+    }
+    [ -n "$shares" ] || return 0
+    set --
+    stats_files=
+    share_count=0
+    while IFS= read -r share; do
+        share_device=${share%% *}
+        share_mount_point=${share#* }
+        if [ "$share_mount_point" = "$share" ]; then
+            echo "nvx-snapshot: no mount point of host share $share_device can be named" >&2
+            return 1
+        fi
+        set -- "$@" "$share_mount_point"
+        stats_files="$stats_files /sys/kernel/debug/bdi/$share_device/stats"
+        share_count=$((share_count + 1))
+    done <<EOF
+$shares
+EOF
+    passes=0
+    stalled=0
+    previous=
+    while :; do
+        # The devices are MAJOR:MINOR numbers, which hold no space.
+        # shellcheck disable=SC2086
+        stats=$(read_writeback_stats $stats_files) || {
+            echo "nvx-snapshot: cannot read the writeback lists of the host shares" >&2
+            return 1
+        }
+        dirty=0
+        fields=0
+        while read -r key value _; do
+            case "$key" in
+                b_dirty: | b_io: | b_more_io:) ;;
+                *) continue ;;
+            esac
+            case "$value" in
+                '' | *[!0-9]*) break ;;
+            esac
+            dirty=$((dirty + value))
+            fields=$((fields + 1))
+        done <<EOF
+$stats
+EOF
+        if [ "$fields" -ne $((share_count * 3)) ]; then
+            echo "nvx-snapshot: cannot read the writeback lists of the host shares" >&2
+            return 1
+        fi
+        for share_mount_point in "$@"; do
+            if ! sync -f "$share_mount_point"; then
+                echo "nvx-snapshot: failed to write back the host share at $share_mount_point" >&2
+                return 1
+            fi
+        done
+        [ "$dirty" -ne 0 ] || return 0
+        passes=$((passes + 1))
+        if [ -n "$previous" ] && [ "$dirty" -ge "$previous" ]; then
+            stalled=$((stalled + 1))
+        else
+            stalled=0
+        fi
+        if [ "$stalled" -ge 3 ] || [ "$passes" -ge 1024 ]; then
+            echo "nvx-snapshot: the host shares kept dirty pages through $passes write-back passes" >&2
+            return 1
+        fi
+        previous=$dirty
+    done
+}
+
+# Guest repair step 4 of a restore that replaced the network policy of a
+# snapshot without a tier (doc/design/5.5-restore-protocol.md): applies the
+# network settings of the new policy, which the restore packet carries, as
+# NVX's init applies those of the virtnet_dns= and virtnet_ingress= tokens at
+# a cold boot. It names the DNS server DNS_SERVER, unless it is "-", in
+# /etc/resolv.conf, and, when ANNOUNCE is 1, starts nvx-ingress, which
+# announces the guest's listeners to the IPv4 gateway, which publishes them.
+# A failure of either fails the restore.
+apply_restore_network() {
+    dns_server=$1
+    announce_listeners=$2
+    if [ "$dns_server" != - ]; then
+        printf 'nameserver %s\n' "$dns_server" >/etc/resolv.conf ||
+            fail_closed "failed to name the DNS server in /etc/resolv.conf"
+    fi
+    if [ "$announce_listeners" -eq 1 ]; then
+        gateway=$(cmdline_value virtnet_gw) ||
+            fail_closed "listener announcements need an IPv4 gateway"
+        [ -x /sbin/nvx-ingress ] ||
+            fail_closed "listener announcements need /sbin/nvx-ingress"
+        # start returns once the announcer's socket is bound to a privileged
+        # source port and its program runs, which then passes to init. Their
+        # output goes to the console, as at a cold boot, and not to this
+        # script's caller, which the announcer outlives.
+        /sbin/nvx-ingress start "$gateway" </dev/null >/dev/null 2>/dev/console ||
+            fail_closed "failed to start nvx-ingress"
+    fi
+}
+
+configured_snapshot_tier=$(cmdline_value nvx_snapshot_tier || true)
+if [ -n "$configured_snapshot_tier" ]; then
+    case "$configured_snapshot_tier:$scratch_policy" in
+        platform:* | workload-start:* | instance-checkpoint:*) ;;
+        *)
+            echo "nvx-snapshot: host snapshot tier is invalid" >&2
+            exit 1
+            ;;
+    esac
+    if [ "$snapshot_tier" = legacy ]; then
+        snapshot_tier=$configured_snapshot_tier
+    elif [ "$snapshot_tier" != "$configured_snapshot_tier" ]; then
+        echo "nvx-snapshot: requested tier does not match host snapshot tier" >&2
+        exit 1
+    fi
+    case "$snapshot_tier" in
+        platform) scratch_policy=fresh ;;
+        workload-start | instance-checkpoint) scratch_policy=paired ;;
+    esac
+elif [ "$snapshot_tier" != legacy ]; then
+    echo "nvx-snapshot: host did not configure a snapshot tier" >&2
+    exit 1
+fi
+
+generation_id=$(/sbin/nvx-time generation-id) ||
+    fail_closed "failed to read the VM generation ID"
+[ "${#generation_id}" -eq 32 ] ||
+    fail_closed "VM generation ID is not 16 bytes"
+case "$generation_id" in
+    *[!0-9a-f]*) fail_closed "VM generation ID is not hexadecimal" ;;
+esac
+export NVX_VM_GENERATION_ID="$generation_id"
+entropy=$runtime/restore-entropy
+
+# Guest repair steps 4 to 7 (doc/design/5.5-restore-protocol.md). nvx-time
+# capture has already read the restore packet, version 1, checked its
+# generation, set the wall clock from a time sample, and written the entropy.
+# Its metadata is FLAGS, ONLINE_VP_COUNT, RANGE_COUNT, the new generation ID,
+# the DNS server of the packet's network settings, or "-" for none,
+# and 1 if they ask the guest to announce its listeners, or else 0, followed
+# by START and LENGTH for each memory range.
+post_restore() {
+    post_restore_pending=true
+    [ "$#" -ge 6 ] || fail_closed "restore packet metadata is invalid"
+    packet_flags=$1
+    restore_online_count=$2
+    restore_memory_range_count=$3
+    restore_dns_server=$5
+    restore_announce_listeners=$6
+    shift 6
+    case "$packet_flags:$restore_online_count:$restore_memory_range_count" in
+        *[!0-9:]* | :* | *::* | *:)
+            fail_closed "restore packet metadata is invalid"
+            ;;
+    esac
+    case "$restore_online_count" in
+        0 | 1 | 2 | 4 | 8) ;;
+        *) fail_closed "restore packet has an invalid online CPU count" ;;
+    esac
+    case "$restore_announce_listeners" in
+        0 | 1) ;;
+        *) fail_closed "restore packet metadata is invalid" ;;
+    esac
+    case "$restore_dns_server" in
+        -) ;;
+        '' | *[!0-9a-f.:]*) fail_closed "restore packet metadata is invalid" ;;
+    esac
+    restore_network=false
+    if [ "$restore_dns_server" != - ] || [ "$restore_announce_listeners" -eq 1 ]; then
+        restore_network=true
+    fi
+    # A plain untiered restore, with no processors or memory to add and no
+    # network settings to apply, prints nothing, as before: each console byte
+    # is a port exit on its latency path.
+    if [ "$snapshot_tier" = legacy ] &&
+        [ "$restore_online_count" -eq 0 ] &&
+        [ "$restore_memory_range_count" -eq 0 ] &&
+        [ $((packet_flags & PACKET_MEMORY_TARGET)) -eq 0 ] &&
+        [ "$restore_network" = false ]; then
+        finish_restore "$packet_flags" quiet
+        return
+    fi
+    console_status "NVX-POST-RESTORE-STAGE: packet"
+    if [ "$restore_online_count" -ne 0 ]; then
+        activate_restore_processors "$restore_online_count"
+    fi
+    if [ $((packet_flags & PACKET_MEMORY_TARGET)) -ne 0 ]; then
+        activate_restore_memory "$restore_memory_range_count" "$@"
+    elif [ "$restore_memory_range_count" -ne 0 ]; then
+        fail_closed "restore packet has memory ranges without a memory target"
+    fi
+    if [ "$restore_network" = true ]; then
+        console_status "NVX-POST-RESTORE-STAGE: network"
+        apply_restore_network "$restore_dns_server" "$restore_announce_listeners"
+    fi
+
+    # An untiered restore without processors or memory to add leaves the
+    # entropy and identity to its caller, as before.
+    if [ "$snapshot_tier" = legacy ] &&
+        [ "$restore_online_count" -eq 0 ] &&
+        [ "$restore_memory_range_count" -eq 0 ]; then
+        finish_restore "$packet_flags"
+        return
+    fi
+
+    console_status "NVX-POST-RESTORE-STAGE: entropy"
+    if [ "$snapshot_tier" = instance-checkpoint ]; then
+        generation_id=$(
+            /sbin/nvx-reseed --generation-only "$entropy" "$generation_id"
+        ) ||
+            fail_closed "failed to refresh the VM generation ID"
+    else
+        generation_id=$(/sbin/nvx-reseed "$entropy" "$generation_id") ||
+            fail_closed "failed to reseed the guest CRNG"
+    fi
+    export NVX_VM_GENERATION_ID="$generation_id"
+
+    if [ "$snapshot_tier" != instance-checkpoint ]; then
+        console_status "NVX-POST-RESTORE-STAGE: identity"
+        machine_id=$(sha256sum "$entropy" | cut -c1-32)
+        printf '%s\n' "$machine_id" >/etc/machine-id ||
+            fail_closed "failed to refresh machine identity"
+        workload_machine_id=$runtime/workload-machine-id
+        workload_pid_file=$runtime/container.pid
+        if [ -f "$workload_machine_id" ] && [ ! -L "$workload_machine_id" ]; then
+            printf '%s\n' "$machine_id" >"$workload_machine_id" ||
+                fail_closed "failed to refresh workload machine identity"
+        elif [ "$snapshot_tier" = workload-start ]; then
+            fail_closed "workload-start restore requires workload machine identity"
+        fi
+        hostname_value=$(cmdline_value nvx_hostname || true)
+        [ -n "$hostname_value" ] || hostname_value=nvx-sandbox
+        hostname "$hostname_value" || fail_closed "failed to refresh hostname"
+        if [ -s "$workload_pid_file" ]; then
+            IFS= read -r workload_pid <"$workload_pid_file"
+            case "$workload_pid" in
+                '' | *[!0-9]*) fail_closed "workload PID is invalid" ;;
+            esac
+            kill -0 "$workload_pid" 2>/dev/null ||
+                fail_closed "workload process is unavailable"
+            nsenter -t "$workload_pid" -u hostname "$hostname_value" ||
+                fail_closed "failed to refresh workload hostname"
+        elif [ "$snapshot_tier" = workload-start ]; then
+            fail_closed "workload-start restore requires a workload process"
+        fi
+        if [ "$snapshot_tier" = workload-start ]; then
+            [ -x "$runtime/runtime-post-restore" ] ||
+                fail_closed "workload-start restore requires a runtime hook"
+        fi
+        if [ -x "$runtime/runtime-post-restore" ]; then
+            console_status "NVX-POST-RESTORE-STAGE: runtime-hook"
+            "$runtime/runtime-post-restore" || fail_closed "runtime RNG hook failed"
+        fi
+    fi
+
+    rm -f "$entropy"
+    finish_restore "$packet_flags"
+}
+
+# Guest repair steps 6 and 7 (doc/design/5.5-restore-protocol.md): the
+# acknowledgement when the host gated its input, then the daemon's restore
+# checks and grace-period release, which run off the restore latency path. A
+# second argument of "quiet" omits the stage and completion lines of a plain
+# untiered restore.
+finish_restore() {
+    [ "${2:-}" = quiet ] ||
+        console_status "NVX-POST-RESTORE-STAGE: acknowledge"
+    if [ $(($1 & PACKET_ACK_REQUIRED)) -ne 0 ]; then
+        /sbin/nvx-time restore-finish --ack --new-cpus "$restore_new_cpus" ||
+            fail_closed "failed to finish the restore"
+    else
+        /sbin/nvx-time restore-finish --new-cpus "$restore_new_cpus" ||
+            fail_closed "failed to finish the restore"
+    fi
+    post_restore_pending=false
+    [ "${2:-}" = quiet ] || echo "NVX-POST-RESTORE-OK: tier=$snapshot_tier"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+has_scratch=false
+case " $(cat /proc/cmdline) " in
+    *" virtio_mmio.device=0x1000@0xd0006000:22 "*) has_scratch=true ;;
+esac
+scratch_mounted=false
+mountpoint -q "$scratch_mount" && scratch_mounted=true
+
+if [ "$snapshot_tier" = workload-start ] &&
+    [ ! -x "$runtime/runtime-post-restore" ]; then
+    echo "nvx-snapshot: workload-start capture requires a runtime hook" >&2
+    exit 1
+fi
+
+if [ "$has_scratch" = true ]; then
+    if [ "$scratch_policy" = paired ] && [ "$scratch_mounted" = false ]; then
+        echo "nvx-snapshot: paired capture requires mounted scratch" >&2
+        exit 1
+    fi
+    if [ "$scratch_policy" = fresh ] && [ "$scratch_mounted" = true ]; then
+        echo "nvx-snapshot: fresh-scratch capture requires unmounted scratch" >&2
+        exit 1
+    fi
+elif [ "$scratch_policy" = fresh ]; then
+    echo "nvx-snapshot: fresh-scratch capture requires an ABI-v3 scratch device" >&2
+    exit 1
+fi
+
+# Guest preparation steps 1 and 2 (doc/design/5.3-snapshot-protocol.md): the
+# capture checks and the stall-detector suppression. They never wait, though
+# nvx-time first lets pending boot checks finish: they start the daemon that
+# the capture checks require.
+/sbin/nvx-time pre-capture || exit 1
+stall_detectors_suppressed=true
+
+if [ "$has_scratch" = true ] && [ "$scratch_policy" = paired ]; then
+    if [ ! -w "$container_cgroup/cgroup.freeze" ] ||
+        [ ! -r "$container_cgroup/cgroup.events" ]; then
+        echo "nvx-snapshot: workload cgroup freezer is unavailable" >&2
+        exit 1
+    fi
+    container_frozen=true
+    if ! echo 1 >"$container_cgroup/cgroup.freeze"; then
+        container_frozen=false
+        echo "nvx-snapshot: failed to freeze the workload cgroup" >&2
+        exit 1
+    fi
+    attempts=0
+    while ! grep -q '^frozen 1$' "$container_cgroup/cgroup.events"; do
+        if [ "$attempts" -ge 500 ]; then
+            echo "nvx-snapshot: timed out freezing the workload cgroup" >&2
+            exit 1
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.01
+    done
+    sync
+    scratch_frozen=true
+    if ! fsfreeze -f "$scratch_mount"; then
+        scratch_frozen=false
+        echo "nvx-snapshot: failed to freeze the scratch filesystem" >&2
+        exit 1
+    fi
+fi
+
+# Every capture writes back the host shares after the workload stops, when it
+# is frozen; otherwise the workload that requests the capture holds its peers
+# (doc/design/5.4-snapshot-artifact-and-attachment-model.md).
+write_back_host_shares || exit 1
+
+# A successful capture terminates the source before nvx-time's request
+# returns. On a rejected capture, the trap thaws every guest-owned barrier
+# and then restores the stall detectors.
+if [ "$scratch_policy" = fresh ]; then
+    capture_request=0
+else
+    capture_request=1
+fi
+# An untiered restore with nothing to activate and no network settings to
+# apply needs no shell work before the acknowledgement, so nvx-time finishes
+# it and reports 2: no second process starts on the restore path.
+finish_option=
+[ "$snapshot_tier" = legacy ] && finish_option=--finish
+capture_metadata=$(
+    /sbin/nvx-time capture "$capture_request" "$generation_id" "$entropy" \
+        ${finish_option:+"$finish_option"}
+) || fail_closed "failed to request snapshot capture"
+# The metadata is a list of integers and one hexadecimal ID.
+# shellcheck disable=SC2086
+set -- $capture_metadata
+case "${1:-}" in
+    0) ;;
+    1)
+        stall_detectors_suppressed=false
+        shift
+        post_restore "$@"
+        ;;
+    2) stall_detectors_suppressed=false ;;
+    *) fail_closed "snapshot capture metadata is invalid" ;;
+esac
