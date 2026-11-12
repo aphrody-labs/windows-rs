@@ -1,0 +1,20 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+use super::KbkdfError;
+use crate::HashAlgorithm;
+use openssl_kdf::kdf::Kbkdf;
+
+pub fn kbkdf_hmac(
+    key: &[u8],
+    context: &[u8],
+    label: &[u8],
+    output_len: usize,
+    hash_algorithm: HashAlgorithm,
+) -> Result<Vec<u8>, KbkdfError> {
+    let mut kdf = Kbkdf::new(hash_algorithm.into(), label.to_vec(), key.to_vec());
+    kdf.set_context(context.to_vec());
+    let mut output = vec![0u8; output_len];
+    openssl_kdf::kdf::derive(kdf, &mut output).map_err(KbkdfError)?;
+    Ok(output)
+}

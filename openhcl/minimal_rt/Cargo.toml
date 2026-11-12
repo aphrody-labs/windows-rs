@@ -1,0 +1,26 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+[package]
+name = "minimal_rt"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hvdef.workspace = true
+memory_range.workspace = true
+minimal_rt_reloc.workspace = true
+
+arrayvec.workspace = true
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+zerocopy.workspace = true
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+uart_16550.workspace = true
+
+[build-dependencies]
+minimal_rt_build.workspace = true
+
+[lints]
+workspace = true

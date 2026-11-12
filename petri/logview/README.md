@@ -1,0 +1,186 @@
+# Petri Logview Web Application
+
+A React-based web application for viewing and analyzing Petri logs, built with TypeScript, Vite, and modern React ecosystem tools.
+
+## Prerequisites
+
+- **Node.js** (version `>=22.22.0`, as required by react-router 8)
+- **npm** (comes with Node.js)
+- **Browser**: Safari 16.4+, Chrome 111+, or Firefox 128+ (required by Tailwind CSS 4)
+
+Tailwind CSS 4 runs through the `@tailwindcss/vite` plugin in `vite.config.ts`.
+`tailwind.css` imports the theme and utilities without Preflight and retains
+the existing gray palette, preserving browser defaults and the site's custom
+styles. Source scanning is limited to TypeScript files under `src/`.
+
+## Initial Setup
+
+Follow these steps to set up the project from scratch:
+
+### 1. Install Dependencies
+
+Navigate to the project directory and install all required packages:
+
+```powershell
+# Navigate to the logview directory
+cd .\petri\logview
+
+# Install all dependencies exactly as locked
+npm ci
+```
+
+`npm ci` installs the exact versions recorded in `package-lock.json`, which is
+what CI runs. Use `npm install` only when you intend to add or update a
+dependency, and commit the resulting `package-lock.json` changes.
+
+### 2. Verify Installation
+
+After installation, you should have the following key dependencies:
+
+**Runtime Dependencies:**
+
+- `react` & `react-dom` - React framework
+- `react-router` - Client-side routing
+- `@tanstack/react-query` - Data fetching and caching
+- `@tanstack/react-table` - Table component library
+- `@tanstack/react-virtual` - Virtual scrolling
+
+**Development Dependencies:**
+
+- `typescript` - TypeScript compiler
+- `vite` - Build tool and dev server
+- `@vitejs/plugin-react` - Vite React plugin
+- `eslint` - Code linting
+- `@types/react` & `@types/react-dom` - TypeScript definitions
+
+### 3. Development Commands
+
+```powershell
+# Start development server (runs on http://localhost:3000)
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+
+# Run linting
+npx eslint .
+```
+
+## Running Locally
+
+Build and serve the production viewer:
+
+```bash
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4177 --strictPort
+```
+
+Open <http://localhost:4177/test-results/>.
+If the server is on a remote development machine, forward port 4177 first.
+The viewer reads the public results; no Azure credentials or uploads are needed.
+
+Run the automated tests with `npm test`.
+
+## Project Structure
+
+```text
+logview/
+├── src/
+│   ├── main.tsx          # Application entry point
+│   ├── style/            # All CSS and global styles (CSS, PostCSS, or other style assets)
+│   │   └── ...           # e.g. globals.css, themes, component styles
+│   └── table_defs/       # Column definitions for tables used across the app
+│       └── ...           # e.g. logsColumns.ts, eventsColumns.ts, devicesColumns.ts
+├── index.html            # HTML template
+├── package.json          # Dependencies and scripts
+├── tsconfig.json         # TypeScript configuration
+├── tsconfig.node.json    # TypeScript config for build tools
+├── vite.config.ts        # Vite configuration
+├── eslint.config.ts      # ESLint configuration
+└── README.md             # This file
+```
+
+## Run Manifests
+
+The results uploader publishes versioned JSON in the body of
+`results/attempts/<runId>_<attempt>`, retaining the metadata used by the runs
+index. It uploads this manifest only after the run's artifacts have uploaded
+successfully. For example:
+
+```json
+{
+  "version": 1,
+  "runNumber": "123_1",
+  "creationTime": "2026-10-30T16:00:00Z",
+  "tests": [{ "name": "x64/job/test", "status": "passed" }]
+}
+```
+
+Test names are artifact-directory paths relative to the run, including the
+architecture. The viewer derives log paths from them. A `petri.jsonl` file
+identifies a test, and a sibling `petri.passed` file identifies a pass; other
+tests are failed. The timestamp is the source workflow's creation time.
+
+The viewer tries this manifest before listing artifacts. Missing or empty
+legacy markers fall back to the paginated listing. Malformed manifests,
+unsupported versions, and other HTTP errors are reported rather than silently
+falling back. Existing runs need backfilled manifests to use the fast path.
+Foreground and background requests share the same run-details cache.
+
+Run the viewer's scheduler and manifest-reader tests with `npm test`. From the
+repository root, test the uploader's manifest generator with:
+
+```bash
+python3 -m unittest discover -s repo_support -p 'test_generate_petri_results_manifest.py'
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Module not found errors**: Ensure all dependencies are installed with `npm ci`
+2. **TypeScript errors**: Make sure both `tsconfig.json` and `tsconfig.node.json` are present
+3. **Port already in use**: The dev server uses port 3000 by default. You can change this in `vite.config.ts`
+
+## Important: Build Before Pushing / Merging (Temporary Feature)
+
+Please run a production build before pushing or opening a merge request to
+ensure the front-end assets are up to date.
+
+```powershell
+npm run build
+```
+
+- Where the output goes:
+  - The build artifacts will be written to the `assets/` folder at the project
+    root (e.g. `logview/assets/`).
+
+  - You can run `npm run preview` to verify the production build locally.
+
+Note: This is a temporary requirement and will be automated in the future.
+
+## Recommended: Prettier Setup for Consistent Formatting
+
+To ensure consistent code formatting, it is recommended to install the
+[Prettier](https://prettier.io/) extension in your code editor (such as VS
+Code).
+
+For VS Code users, add the following to your settings to automatically format files on save:
+
+```json
+"editor.defaultFormatter": "esbenp.prettier-vscode"
+```
+
+## Housekeeping Stuff
+
+### 1. Updating branch quick-filters
+
+The branches we want to track test and runs for are bound to frequently change
+as new releases come through. For convenience these filters are defined as a
+list in the `branch_quick_filters.tsx` file. `run_filters` will update the
+filters that show up on the Runs page. `test_filters` will update the filters
+that show up for the Test and TestDetails pages. `all` is a reserved branch
+filter name and will display all the branches.
