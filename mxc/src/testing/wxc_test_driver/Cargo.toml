@@ -1,18 +1,18 @@
 [package]
 name = "wxc_test_driver"
 publish = false
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "1.0.1"
+edition = "2021"
+license = "MIT"
 
 [[bin]]
 name = "wxc-test-driver"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
-serde_json.workspace = true
+anyhow = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 
 [target.'cfg(windows)'.build-dependencies]
 cc = "1"
-winresource.workspace = true
+winresource = { version = "0.1.31", default-features = false }

@@ -1,5 +1,5 @@
 [package]
-edition.workspace = true
+edition = "2024"
 name = "wdk-sys"
 version = "0.5.2"
 # Since the WDK links against many different dlls (that vary based off configuration), this crate sets the system library name to be "wdk". This name is only used by downstream build.rs scripts to consume metadata
@@ -11,10 +11,10 @@ categories = [
 ]
 description = "Direct bindings to APIs available in the Windows Development Kit (WDK)"
 keywords = ["ffi", "wdf", "wdk", "wdm", "windows"]
-license.workspace = true
+license = "MIT OR Apache-2.0"
 links = "wdk"
-readme.workspace = true
-repository.workspace = true
+readme = "../../README.md"
+repository = "https://github.com/microsoft/windows-drivers-rs"
 
 [features]
 default = []
@@ -32,20 +32,20 @@ test-stubs = ["suppress-wdk-linking"]
 suppress-wdk-linking = []
 
 [dependencies]
-rustversion.workspace = true
-wdk-macros.workspace = true
+rustversion = "1.0.20"
+wdk-macros = { path = "../wdk-macros", version = "=0.5.2" }
 
 [build-dependencies]
-anyhow.workspace = true
-bindgen.workspace = true
-cargo_metadata.workspace = true
-cc.workspace = true
-cfg-if.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-tracing-subscriber = { features = ["env-filter"], workspace = true }
-wdk-build.workspace = true
+anyhow = "1.0.103"
+bindgen = "0.73.2"
+cargo_metadata = "0.23.1"
+cc = "1.2.39"
+cfg-if = "1.0.3"
+serde_json = "1.0"
+thiserror = "2.0.12"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+wdk-build = { path = "../wdk-build", version = "0.6.0" }
 
 # Cannot inherit workspace lints since overriding them is not supported yet: https://github.com/rust-lang/cargo/issues/13157
 # [lints]

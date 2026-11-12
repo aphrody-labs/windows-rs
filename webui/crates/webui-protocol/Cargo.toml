@@ -1,13 +1,13 @@
 [package]
 name = "microsoft-webui-protocol"
 description = "Core protocol definitions for WebUI framework"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
+version = "3.1.1"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Microsoft Edge"]
+license = "MIT"
+repository = "https://github.com/microsoft/webui"
+homepage = "https://microsoft.github.io/webui"
 readme = "README.md"
 keywords = ["webui", "protocol", "protobuf", "binary", "serialization"]
 categories = ["encoding", "web-programming"]
@@ -26,21 +26,39 @@ content-identity = ["dep:sha2"]
 regenerate-proto = ["dep:prost-build"]
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-prost = { workspace = true }
-sha2 = { workspace = true, optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+thiserror = "2.0.18"
+prost = "0.14.4"
+sha2 = { version = "0.11.0", optional = true }
 
 [build-dependencies]
-prost-build = { workspace = true, optional = true }
+prost-build = { version = "0.14.4", optional = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion = "0.8.2"
 
 [[bench]]
 name = "protocol_bench"
 harness = false
 
 [lints]
-workspace = true
+clippy.perf = { level = "deny", priority = -1 }
+clippy.suspicious = { level = "deny", priority = -1 }
+clippy.large_enum_variant = "deny"
+clippy.large_stack_arrays = "deny"
+clippy.large_futures = "deny"
+clippy.needless_collect = "deny"
+clippy.redundant_clone = "deny"
+clippy.unnecessary_to_owned = "deny"
+clippy.inefficient_to_string = "deny"
+clippy.manual_memcpy = "deny"
+clippy.naive_bytecount = "deny"
+clippy.cast_possible_truncation = "deny"
+clippy.cast_sign_loss = "deny"
+clippy.cast_possible_wrap = "deny"
+clippy.rc_buffer = "deny"
+clippy.large_types_passed_by_value = "deny"
+clippy.vec_box = "deny"
+clippy.unnecessary_box_returns = "deny"
+rust.unsafe_code = "deny"

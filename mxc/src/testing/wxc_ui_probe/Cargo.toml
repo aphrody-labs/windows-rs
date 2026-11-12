@@ -2,8 +2,8 @@
 name = "wxc_ui_probe"
 publish = false
 version = "0.1.0"
-edition.workspace = true
-license.workspace = true
+edition = "2021"
+license = "MIT"
 
 [[bin]]
 name = "wxc-ui-probe"

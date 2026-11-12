@@ -1,13 +1,13 @@
 [package]
 name = "microsoft-webui-state"
 description = "Core state management for WebUI framework"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
+version = "3.1.1"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Microsoft Edge"]
+license = "MIT"
+repository = "https://github.com/microsoft/webui"
+homepage = "https://microsoft.github.io/webui"
 readme = "README.md"
 keywords = ["webui", "state", "ssr", "rendering", "templates"]
 categories = ["web-programming"]
@@ -16,15 +16,33 @@ categories = ["web-programming"]
 name = "webui_state"
 
 [dependencies]
-serde_json = { workspace = true }
+serde_json = { version = "1.0.151", features = ["raw_value"] }
 
 [dev-dependencies]
 microsoft-webui-test-utils = { path = "../webui-test-utils", version = "3.1.1" }
-criterion = { workspace = true }
+criterion = "0.8.2"
 
 [[bench]]
 name = "state_bench"
 harness = false
 
 [lints]
-workspace = true
+clippy.perf = { level = "deny", priority = -1 }
+clippy.suspicious = { level = "deny", priority = -1 }
+clippy.large_enum_variant = "deny"
+clippy.large_stack_arrays = "deny"
+clippy.large_futures = "deny"
+clippy.needless_collect = "deny"
+clippy.redundant_clone = "deny"
+clippy.unnecessary_to_owned = "deny"
+clippy.inefficient_to_string = "deny"
+clippy.manual_memcpy = "deny"
+clippy.naive_bytecount = "deny"
+clippy.cast_possible_truncation = "deny"
+clippy.cast_sign_loss = "deny"
+clippy.cast_possible_wrap = "deny"
+clippy.rc_buffer = "deny"
+clippy.large_types_passed_by_value = "deny"
+clippy.vec_box = "deny"
+clippy.unnecessary_box_returns = "deny"
+rust.unsafe_code = "deny"

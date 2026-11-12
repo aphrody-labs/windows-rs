@@ -1,18 +1,18 @@
 [package]
 name = "diskann-linalg"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
+edition = "2021"
 
 [dependencies]
 faer = { version = "0.23", default-features = false, features = ["std"]}
-cfg-if.workspace = true
-thiserror.workspace = true
-rand_distr.workspace = true
-rand.workspace = true
+cfg-if = "1.0.0"
+thiserror = "2.0.12"
+rand_distr = "0.5"
+rand = "0.9.3"
 
 [lints]
 clippy.allow_attributes = "warn"
@@ -20,6 +20,6 @@ clippy.undocumented_unsafe_blocks = "warn"
 clippy.uninlined_format_args = "allow"
 
 [dev-dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-approx = { workspace = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+approx = "0.5.1"

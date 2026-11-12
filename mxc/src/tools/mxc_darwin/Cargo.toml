@@ -1,19 +1,19 @@
 [package]
 name = "mxc_darwin"
 publish = false
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "1.0.1"
+edition = "2021"
+license = "MIT"
 
 [[bin]]
 name = "mxc-exec-mac"
 path = "src/main.rs"
 
 [dependencies]
-clap.workspace = true
-mxc-sdk.workspace = true
-serde_json.workspace = true
+clap = { version = "4", features = ["derive"] }
+mxc-sdk = { path = "../../mxc-sdk" }
+serde_json = { version = "1", features = ["raw_value"] }
 
 [target.'cfg(windows)'.build-dependencies]
 cc = "1"
-winresource.workspace = true
+winresource = { version = "0.1.31", default-features = false }

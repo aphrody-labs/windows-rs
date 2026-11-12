@@ -16,4 +16,11 @@ litebox_shim_linux = { version = "0.1.0", path = "../litebox_shim_linux", defaul
 litebox_util_log = { version = "0.1.0", path = "../litebox_util_log", features = ["backend_tracing"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 [lints]
-workspace = true
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.unreadable_literal = "allow"
+clippy.doc_markdown = "allow"
+clippy.missing_errors_doc = "allow"
+clippy.needless_pass_by_value = "allow"
+clippy.redundant_else = "allow"
+clippy.must_use_candidate = "allow"
+clippy.too_many_lines = "allow"

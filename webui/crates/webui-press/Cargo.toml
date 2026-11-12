@@ -1,12 +1,12 @@
 [package]
 name = "microsoft-webui-press"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
+version = "3.1.1"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Microsoft Edge"]
+license = "MIT"
+repository = "https://github.com/microsoft/webui"
+homepage = "https://microsoft.github.io/webui"
 description = "High-performance Static Site Generator powered by WebUI Framework"
 default-run = "webui-press"
 readme = "README.md"
@@ -27,31 +27,31 @@ microsoft-webui-parser = { path = "../webui-parser", version = "3.1.1" }
 microsoft-webui-tokens = { path = "../webui-tokens", version = "3.1.1" }
 
 # Markdown + syntax highlighting
-comrak = { workspace = true }
-syntect = { workspace = true }
+comrak = { version = "0.55.0", default-features = false }
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-onig"] }
 
 # Config + frontmatter
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde_yaml = { workspace = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+serde_yaml = { package = "yaml_serde", version = "0.10.7" }
 
 # CLI
-clap = { workspace = true }
-console = { workspace = true }
-anyhow = { workspace = true }
+clap = { version = "4.6.3", features = ["derive", "color"] }
+console = "0.16.6"
+anyhow = "1.0.104"
 
 # Performance
-rayon = { workspace = true }
+rayon = "1.12.0"
 
 # Utilities
-thiserror = { workspace = true }
-html-escape = { workspace = true }
+thiserror = "2.0.18"
+html-escape = "0.2.15"
 
 # Dev server (`webui-press serve`)
 microsoft-webui-dev-server = { path = "../webui-dev-server", version = "3.1.1" }
-actix-web = { workspace = true }
-tokio = { workspace = true }
-include_dir = { workspace = true }
+actix-web = { version = "4.18.2", default-features = false, features = ["macros", "compress-brotli", "compress-gzip", "compress-zstd", "cookies", "http2", "unicode", "compat"] }
+tokio = { version = "1.53.3", features = ["full"] }
+include_dir = "0.7.4"
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile = "3.27.0"

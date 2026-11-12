@@ -1,11 +1,11 @@
 [package]
 name = "diskann-label-filter"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
+edition = "2021"
 
 [lints]
 clippy.allow_attributes = "warn"
@@ -13,27 +13,27 @@ clippy.undocumented_unsafe_blocks = "warn"
 clippy.uninlined_format_args = "allow"
 
 [dependencies]
-serde_json.workspace = true
-serde = { workspace = true, features = ["derive"] }
-roaring.workspace = true
-num-traits.workspace = true
-diskann = { workspace = true }
-thiserror.workspace = true
-bf-tree.workspace = true
+serde_json = "1.0.142"
+serde = { version = "1.0.228", features = ["derive"] }
+roaring = "0.11.2"
+num-traits = "0.2.15"
+diskann = { path = "../diskann", version = "0.62.0" }
+thiserror = "2.0.12"
+bf-tree = "0.5"
 scc = "3.3.2"
-diskann-utils = { workspace = true, default-features = false }
-diskann-vector.workspace = true
-tracing.workspace = true
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+tracing = "0.1.40"
 
 
 [dev-dependencies]
-criterion.workspace = true
-hashbrown.workspace = true
-rand.workspace = true
-tempfile.workspace = true
-anyhow.workspace = true
-futures-util.workspace = true
-tracing.workspace = true
+criterion = "0.5.1"
+hashbrown = "0.16.0"
+rand = "0.9.3"
+tempfile = "3.20.0"
+anyhow = "1.0.98"
+futures-util = { version = "0.3.31", default-features = false }
+tracing = "0.1.40"
 
 
 

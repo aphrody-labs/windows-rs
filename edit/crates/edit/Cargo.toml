@@ -3,10 +3,10 @@ name = "edit"
 description = "A simple editor for simple needs."
 version = "2.0.0"
 
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-rust-version.workspace = true
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/microsoft/edit"
+rust-version = "1.93"
 
 build = "build/main.rs"
 categories = ["text-editors"]

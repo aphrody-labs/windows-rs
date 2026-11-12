@@ -1,12 +1,12 @@
 [package]
 name = "microsoft-webui-cli"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
+version = "3.1.1"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Microsoft Edge"]
+license = "MIT"
+repository = "https://github.com/microsoft/webui"
+homepage = "https://microsoft.github.io/webui"
 readme = "README.md"
 description = "CLI tool for building WebUI applications"
 keywords = ["webui", "cli", "build-tool", "ssr", "tooling"]
@@ -23,29 +23,47 @@ microsoft-webui-protocol = { path = "../webui-protocol", version = "3.1.1" }
 microsoft-webui-discovery = { path = "../webui-discovery", version = "3.1.1" }
 microsoft-webui-tokens = { path = "../webui-tokens", version = "3.1.1" }
 microsoft-webui-dev-server = { path = "../webui-dev-server", version = "3.1.1" }
-clap = { workspace = true }
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-console = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-actix-web = { workspace = true }
-reqwest = { workspace = true }
-expand-tilde = { workspace = true }
-mime_guess = { workspace = true }
-bytes = { workspace = true }
-futures-util = { workspace = true }
-memchr = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-log = { workspace = true }
+clap = { version = "4.6.3", features = ["derive", "color"] }
+anyhow = "1.0.104"
+thiserror = "2.0.18"
+console = "0.16.6"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+actix-web = { version = "4.18.2", default-features = false, features = ["macros", "compress-brotli", "compress-gzip", "compress-zstd", "cookies", "http2", "unicode", "compat"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["stream"] }
+expand-tilde = "0.6.1"
+mime_guess = "2.0.5"
+bytes = "1.12.1"
+futures-util = "0.3.33"
+memchr = "2.8.3"
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-stream = "0.1.19"
+log = "0.4.34"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile = "3.27.0"
 microsoft-webui-protocol = { path = "../webui-protocol", version = "3.1.1" }
 
 [lints]
-workspace = true
+clippy.perf = { level = "deny", priority = -1 }
+clippy.suspicious = { level = "deny", priority = -1 }
+clippy.large_enum_variant = "deny"
+clippy.large_stack_arrays = "deny"
+clippy.large_futures = "deny"
+clippy.needless_collect = "deny"
+clippy.redundant_clone = "deny"
+clippy.unnecessary_to_owned = "deny"
+clippy.inefficient_to_string = "deny"
+clippy.manual_memcpy = "deny"
+clippy.naive_bytecount = "deny"
+clippy.cast_possible_truncation = "deny"
+clippy.cast_sign_loss = "deny"
+clippy.cast_possible_wrap = "deny"
+clippy.rc_buffer = "deny"
+clippy.large_types_passed_by_value = "deny"
+clippy.vec_box = "deny"
+clippy.unnecessary_box_returns = "deny"
+rust.unsafe_code = "deny"

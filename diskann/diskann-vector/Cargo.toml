@@ -2,28 +2,28 @@
 # Licensed under the MIT license.
 [package]
 name = "diskann-vector"
-edition.workspace = true
-version.workspace = true
-authors.workspace = true
-description.workspace = true
-repository.workspace = true
-license.workspace = true
+edition = "2021"
+version = "0.62.0"
+authors = ["Microsoft"]
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cfg-if.workspace = true
-half.workspace = true
-diskann-wide.workspace = true
+cfg-if = "1.0.0"
+half = "2.6.0"
+diskann-wide = { path = "../diskann-wide", version = "0.62.0" }
 
 [dev-dependencies]
-approx.workspace = true
-gungraun.workspace = true
-rand.workspace = true
-criterion.workspace = true
-rand_distr.workspace = true
-half = { workspace = true, features = ["rand_distr", "num-traits", "bytemuck"] }
-bytemuck = { workspace = true, features = ["must_cast"] }
+approx = "0.5.1"
+gungraun = "0.20.0"
+rand = "0.9.3"
+criterion = "0.5.1"
+rand_distr = "0.5"
+half = { version = "2.6.0", features = ["rand_distr", "num-traits", "bytemuck"] }
+bytemuck = { version = "1.23.0", features = ["must_cast"] }
 
 [[bench]]
 name = "bench_main"

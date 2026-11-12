@@ -1,24 +1,24 @@
 [package]
 name = "diskann-quantization"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-bytemuck = { workspace = true, features = ["derive"] }
-cfg-if = { workspace = true }
-rand = { workspace = true }
-thiserror = { workspace = true }
-diskann-vector = { workspace = true }
-diskann-wide = { workspace = true }
-diskann-linalg = { workspace = true, optional = true }
-rayon = { workspace = true, optional = true }
+bytemuck = { version = "1.23.0", features = ["derive"] }
+cfg-if = "1.0.0"
+rand = "0.9.3"
+thiserror = "2.0.12"
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-wide = { path = "../diskann-wide", version = "0.62.0" }
+diskann-linalg = { path = "../diskann-linalg", version = "0.62.0", optional = true }
+rayon = { version = "1.10.0", optional = true }
 flatbuffers = { version = "25.2.10", optional = true }
 half = { version = "2.6.0", features = ["bytemuck"] }
-diskann-utils = { workspace = true }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
 
 # Detect L1/L2 cache sizes to size matrix-kernel tile budgets.
 [target.'cfg(any(all(target_arch = "x86", not(target_env = "sgx"), target_feature = "sse"), all(target_arch = "x86_64", not(target_env = "sgx"))))'.dependencies]
@@ -37,12 +37,12 @@ panic = "warn"
 uninlined_format_args = "allow"
 
 [dev-dependencies]
-diskann-utils = { workspace = true, features = ["testing"] }
-cfg-if = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0", features = ["testing"] }
+cfg-if = "1.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
 trybuild = "1.0.120"
-rand_distr = { workspace = true }
+rand_distr = "0.5"
 
 [[bin]]
 name = "detect-cache"

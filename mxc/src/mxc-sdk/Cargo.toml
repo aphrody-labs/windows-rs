@@ -1,8 +1,8 @@
 [package]
 name = "mxc-sdk"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "1.0.1"
+edition = "2021"
+license = "MIT"
 description = "Importable library for starting MXC sandboxes in-process, with streaming stdio."
 repository = "https://github.com/microsoft/mxc"
 readme = "README.md"
@@ -46,49 +46,49 @@ hyperlight = [
 schema-gen = ["dep:schemars"]
 
 [dependencies]
-anyhow.workspace = true
-base64.workspace = true
-chrono.workspace = true
-cidr.workspace = true
-flatbuffers.workspace = true
-getrandom.workspace = true
-libc.workspace = true
+anyhow = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+cidr = "0.3.2"
+flatbuffers = "25"
+getrandom = "0.2"
+libc = "0.2"
 libloading = { version = "0.8", optional = true }
-nix.workspace = true
-same-file.workspace = true
-schemars = { workspace = true, optional = true }
-serde.workspace = true
-serde_json.workspace = true
-serde_path_to_error.workspace = true
-sha2.workspace = true
-tempfile.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
+nix = { version = "0.29", features = ["fs", "mount", "sched", "signal", "net", "process", "user", "term"] }
+same-file = "1"
+schemars = { version = "0.8", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+serde_path_to_error = "0.1"
+sha2 = "0.11"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
 tar = { version = "0.4", optional = true }
-unicode-general-category.workspace = true
-url.workspace = true
-uuid.workspace = true
-widestring.workspace = true
+unicode-general-category = "1"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+widestring = "1"
 
 [build-dependencies]
 semver = "1"
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-uuid.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.11"
+uuid = { version = "1", features = ["v4"] }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [dev-dependencies]
 filetime = "0.2"
 libloading = "0.8"
-quick-xml.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
-tokio = { workspace = true, features = ["test-util"] }
+quick-xml = "0.41"
+serde_json = { version = "1", features = ["raw_value"] }
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
-serial_test.workspace = true
+serial_test = { version = "3.5", default-features = false }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 flate2 = { version = "1", optional = true }
@@ -99,32 +99,16 @@ ureq = { version = "3", default-features = false, features = ["native-tls", "gzi
 aci_edge_sandboxes = { version = "=0.1.1", default-features = false, features = ["agent-bundled"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-tracelogging.workspace = true
-windows = { workspace = true, features = [
-    "Foundation",
-    "UI",
-    "Win32_Globalization",
-    "Win32_Security_Cryptography",
-    "Win32_Security_Cryptography_Catalog",
-    "Win32_Security_Cryptography_Sip",
-    "Win32_Security_WinTrust",
-    "Win32_System_EventLog",
-] }
+tracelogging = "1.2"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_NetworkManagement_WindowsFirewall", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Isolation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_Etw", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Environment", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Pipes", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Time", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_UI_Shell", "Foundation", "UI", "Win32_Globalization", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_EventLog"] }
 windows-collections = { version = "0.3", optional = true }
-windows-core.workspace = true
+windows-core = "0.62"
 windows-future = { version = "0.3", optional = true }
-winreg.workspace = true
+winreg = "0.55"
 
 [target.'cfg(windows)'.build-dependencies]
 cc = "1"
-windows = { workspace = true, features = [
-    "Win32_Foundation",
-    "Win32_Security_Cryptography",
-    "Win32_Security_Cryptography_Catalog",
-    "Win32_Security_Cryptography_Sip",
-    "Win32_Security_WinTrust",
-    "Win32_System_LibraryLoader",
-] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_NetworkManagement_WindowsFirewall", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Isolation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_Etw", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Environment", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Pipes", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Time", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_UI_Shell", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust"] }
 winresource = { version = "0.1.31", default-features = false }
 
 [[example]]

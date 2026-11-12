@@ -1,30 +1,31 @@
 [package]
 name = "diskann-benchmark-simd"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
+edition = "2021"
 
 [[bin]]
 name = "benchmark-simd"
 path = "src/bin.rs"
 
 [dependencies]
-anyhow.workspace = true
-diskann-utils = { workspace = true, default-features = false }
-half = { workspace = true, features = ["rand_distr"] }
-diskann-benchmark-runner = { workspace = true }
-rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
-diskann-vector = { workspace = true }
-diskann-wide.workspace = true
+anyhow = "1.0.98"
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+half = { version = "2.6.0", features = ["rand_distr"] }
+diskann-benchmark-runner = { path = "../diskann-benchmark-runner", version = "0.62.0" }
+rand = "0.9.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+thiserror = "2.0.12"
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-wide = { path = "../diskann-wide", version = "0.62.0" }
 
 [lints]
-workspace = true
+clippy.allow_attributes = "warn"
+clippy.undocumented_unsafe_blocks = "warn"
 
 [dev-dependencies]
-tempfile.workspace = true
+tempfile = "3.20.0"

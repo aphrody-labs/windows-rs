@@ -1,48 +1,46 @@
 [package]
 name = "diskann-tools"
 edition = "2021"
-version.workspace = true
-authors.workspace = true
-description.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+authors = ["Microsoft"]
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-byteorder.workspace = true
-clap = { workspace = true, features = ["derive"] }
-diskann-providers = { workspace = true, default-features = false } # see `linalg/Cargo.toml`
-diskann-vector = { workspace = true }
-diskann-utils = { workspace = true }
-diskann-benchmark-core = { workspace = true, features = ["bigann"] }
-bytemuck.workspace = true
-num_cpus.workspace = true
-rayon.workspace = true
-half.workspace = true
+byteorder = "1.5.0"
+clap = { version = "4.5.45", features = ["derive"] }
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0" }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+diskann-benchmark-core = { path = "../diskann-benchmark-core", version = "0.62.0", features = ["bigann"] }
+bytemuck = "1.23.0"
+num_cpus = "1.16.0"
+rayon = "1.10.0"
+half = "2.6.0"
 ordered-float = "4.2.0"
-rand_distr.workspace = true
-rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
-bincode.workspace = true
-opentelemetry.workspace = true
-diskann-quantization = { workspace = true }
-diskann = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-tracing.workspace = true
-bit-set.workspace = true
-anyhow.workspace = true
-itertools.workspace = true
-diskann-label-filter.workspace = true
-serde_json.workspace = true
+rand_distr = "0.5"
+rand = "0.9.3"
+serde = { version = "1.0.228", features = ["derive"] }
+bincode = "1.3.3"
+opentelemetry = "0.32.0"
+diskann-quantization = { path = "../diskann-quantization", default-features = false, version = "0.62.0" }
+diskann = { path = "../diskann", version = "0.62.0" }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing = "0.1.40"
+bit-set = "0.8.0"
+anyhow = "1.0.98"
+itertools = "0.13.0"
+diskann-label-filter = { path = "../diskann-label-filter", version = "0.62.0" }
+serde_json = "1.0.142"
 
 [dev-dependencies]
-rstest.workspace = true
-vfs = { workspace = true }
-diskann-providers = { workspace = true, default-features = false, features = [
-    "virtual_storage",
-] }
-diskann-utils = { workspace = true, features = ["testing"] }
+rstest = "0.23.0"
+vfs = "0.12.1"
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0", features = ["virtual_storage"] }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0", features = ["testing"] }
 
 [features]
 default = []

@@ -1,10 +1,10 @@
 [package]
 name = "diskann-wide"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [lints]
@@ -15,11 +15,11 @@ clippy.uninlined_format_args = "allow"
 clippy.allow_attributes = "allow"
 
 [dev-dependencies]
-paste.workspace = true
-rand.workspace = true
-half = { workspace = true, features = ["rand_distr", "num-traits", "bytemuck"] }
-bytemuck = { workspace = true, features = ["must_cast"] }
+paste = "1.0.15"
+rand = "0.9.3"
+half = { version = "2.6.0", features = ["rand_distr", "num-traits", "bytemuck"] }
+bytemuck = { version = "1.23.0", features = ["must_cast"] }
 
 [dependencies]
-cfg-if.workspace = true
-half.workspace = true
+cfg-if = "1.0.0"
+half = "2.6.0"

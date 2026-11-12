@@ -2,36 +2,36 @@
 # Licensed under the MIT license.
 [package]
 name = "diskann-bftree"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
+edition = "2021"
 
 [dependencies]
-bf-tree.workspace = true
-bytemuck = { workspace = true, features = ["must_cast"] }
-diskann.workspace = true
-diskann-providers.workspace = true
-diskann-quantization = { workspace = true, features = ["flatbuffers"] }
-diskann-utils.workspace = true
-diskann-vector.workspace = true
-half = { workspace = true, features = ["bytemuck", "num-traits"] }
-futures-util.workspace = true
-rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+bf-tree = "0.5"
+bytemuck = { version = "1.23.0", features = ["must_cast"] }
+diskann = { path = "../diskann", version = "0.62.0" }
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0" }
+diskann-quantization = { path = "../diskann-quantization", default-features = false, version = "0.62.0", features = ["flatbuffers"] }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+half = { version = "2.6.0", features = ["bytemuck", "num-traits"] }
+futures-util = { version = "0.3.31", default-features = false }
+rand = "0.9.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+thiserror = "2.0.12"
+tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]
-diskann = { workspace = true, features = ["testing"] }
-diskann-providers = { workspace = true, features = ["testing"] }
-diskann-utils = { workspace = true, features = ["testing"] }
-rstest.workspace = true
-tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
+diskann = { path = "../diskann", version = "0.62.0", features = ["testing"] }
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0", features = ["testing"] }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0", features = ["testing"] }
+rstest = "0.23.0"
+tempfile = "3.20.0"
+tokio = { version = "1.48.0", features = ["full"] }
 
 [features]
 default = []

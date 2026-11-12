@@ -12,22 +12,22 @@ test = true
 name = "sudo"
 
 [build-dependencies]
-winres.workspace = true
-cc.workspace = true
-embed-manifest.workspace = true
-which = { workspace = true }
+winres = "0.1"
+cc = "1.2"
+embed-manifest = "1.4"
+which = "6.0"
 
 [dependencies]
 
-clap = { workspace = true, default-features = false, features = ["color", "help", "usage", "error-context"] }
-which = { workspace = true }
-windows-registry = { workspace = true }
+clap = { version = "4.4.7", default-features = false, features = ["std", "color", "help", "usage", "error-context"] }
+which = "6.0"
+windows-registry = "0.1"
 
 sudo_events = { path = "../sudo_events" }
 win32resources = { path = "../win32resources" }
 
 [dependencies.windows]
-workspace = true
+version = "0.57"
 features = [
     "Wdk_Foundation",
     "Wdk_System_Threading",

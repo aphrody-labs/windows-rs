@@ -19,7 +19,14 @@ syscalls = { version = "0.6", default-features = false }
 zerocopy = { version = "0.8", features = ["derive", "alloc"] }
 
 [lints]
-workspace = true
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.unreadable_literal = "allow"
+clippy.doc_markdown = "allow"
+clippy.missing_errors_doc = "allow"
+clippy.needless_pass_by_value = "allow"
+clippy.redundant_else = "allow"
+clippy.must_use_candidate = "allow"
+clippy.too_many_lines = "allow"
 
 [dev-dependencies]
 spin = { version = "0.9.8", default-features = false, features = ["spin_mutex"] }

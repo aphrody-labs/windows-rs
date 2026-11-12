@@ -1,21 +1,21 @@
 [package]
 name = "diskann-benchmark-runner"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-anyhow = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
-erased-serde = { workspace = true }
-half = { workspace = true }
+anyhow = "1.0.98"
+clap = { version = "4.5.45", features = ["derive"] }
+erased-serde = "0.4.11"
+half = "2.6.0"
 indicatif = "0.18.3"
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-thiserror.workspace = true
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+thiserror = "2.0.12"
 
 [lints.clippy]
 allow_attributes = "warn"
@@ -26,8 +26,8 @@ expect_used = "warn"
 panic = "warn"
 
 [dev-dependencies]
-diskann-utils = { workspace = true, features = ["testing"], default-features = false }
-tempfile.workspace = true
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0", features = ["testing"] }
+tempfile = "3.20.0"
 
 [features]
 default = []

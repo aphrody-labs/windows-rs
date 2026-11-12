@@ -1,9 +1,9 @@
 [package]
 name = "mxc_ffi"
 publish = false
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "1.0.1"
+edition = "2021"
+license = "MIT"
 description = "C ABI over MXC typed APIs for language bindings (e.g. the C# SDK)."
 
 [lib]
@@ -14,10 +14,10 @@ name = "mxc_ffi"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
-mxc-sdk = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+mxc-sdk = { path = "../../mxc-sdk" }
+serde = { version = "1", features = ["derive"] }
 serde_ignored = "0.1"
-serde_json = { workspace = true }
+serde_json = { version = "1", features = ["raw_value"] }
 
 [features]
 # WSL Container backend (Windows only). Both sidecars resolve beside the loaded
@@ -40,8 +40,8 @@ test-support = ["mxc-sdk/test-support"]
 # Gives the FFI tests the policy-key redirector, so they can assert the exact
 # string this layer marshals for each administrative policy state rather than
 # accepting whatever the host machine's real policy happens to produce.
-mxc-sdk = { workspace = true, features = ["test-support"] }
-tempfile.workspace = true
+mxc-sdk = { path = "../../mxc-sdk", features = ["test-support"] }
+tempfile = "3"
 
 [[example]]
 name = "attached_console_ffi"
@@ -52,4 +52,4 @@ csbindgen = { version = "1", optional = true }
 
 [target.'cfg(windows)'.build-dependencies]
 cc = "1"
-winresource.workspace = true
+winresource = { version = "0.1.31", default-features = false }

@@ -1,12 +1,12 @@
 [package]
 name = "microsoft-webui-dev-server"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
+version = "3.1.1"
+edition = "2021"
+rust-version = "1.99.1"
+authors = ["Microsoft Edge"]
+license = "MIT"
+repository = "https://github.com/microsoft/webui"
+homepage = "https://microsoft.github.io/webui"
 description = "Shared dev-server primitives for WebUI tooling: file watcher, SSE live reload, and URL-safe static file routing."
 readme = "README.md"
 
@@ -15,32 +15,29 @@ name = "webui_dev_server"
 path = "src/lib.rs"
 
 [dependencies]
-actix-web = { workspace = true }
-tokio = { workspace = true }
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
-percent-encoding = { workspace = true }
-futures-util = { workspace = true }
-async-stream = { workspace = true }
-mime_guess = { workspace = true }
-anyhow = { workspace = true }
-console = { workspace = true }
-time = { workspace = true }
-thiserror = { workspace = true }
-ctrlc = { workspace = true, features = ["termination"] }
+actix-web = { version = "4.18.2", default-features = false, features = ["macros", "compress-brotli", "compress-gzip", "compress-zstd", "cookies", "http2", "unicode", "compat"] }
+tokio = { version = "1.53.3", features = ["full"] }
+notify = "8.2.0"
+notify-debouncer-mini = "0.7.0"
+percent-encoding = "2.3.2"
+futures-util = "0.3.33"
+async-stream = "0.3.6"
+mime_guess = "2.0.5"
+anyhow = "1.0.104"
+console = "0.16.6"
+time = { version = "0.3.55", features = ["local-offset", "formatting", "macros"] }
+thiserror = "2.0.18"
+ctrlc = { version = "3.5.2", features = ["termination"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
+libc = "0.2.189"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = [
-    "Win32_Security",
-    "Win32_System_JobObjects",
-] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects"] }
 
 [dev-dependencies]
-criterion = { workspace = true }
-tempfile = { workspace = true }
+criterion = "0.8.2"
+tempfile = "3.27.0"
 
 [[bench]]
 name = "watch_hash_bench"

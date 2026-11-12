@@ -2,8 +2,8 @@
 name = "diskann-garnet"
 version = "9.0.0"
 edition = "2024"
-authors.workspace = true
-license.workspace = true
+authors = ["Microsoft"]
+license = "MIT"
 publish = false
 
 [lib]
@@ -13,20 +13,20 @@ crate-type = ["cdylib"]
 allow_attributes = "warn"
 
 [dependencies]
-bytemuck.workspace = true
+bytemuck = "1.23.0"
 crossbeam = "0.8.4"
-dashmap = { workspace = true, features = ["inline"] }
-diskann.workspace = true
-diskann-quantization = { workspace = true, features = ["flatbuffers"] }
-diskann-providers.workspace = true
-diskann-utils.workspace = true
-diskann-vector.workspace = true
+dashmap = { version = "6.1.0", features = ["inline"] }
+diskann = { path = "../diskann", version = "0.62.0" }
+diskann-quantization = { path = "../diskann-quantization", default-features = false, version = "0.62.0", features = ["flatbuffers"] }
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0" }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
 foldhash = "0.2.0"
 parking_lot = "0.12.5"
-rand.workspace = true
+rand = "0.9.3"
 strum = { version = "0.28.0", features = ["derive"] }
-thiserror.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+thiserror = "2.0.12"
+tokio = { version = "1.48.0", features = ["sync"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+tokio = { version = "1.48.0", features = ["sync", "rt", "macros"] }

@@ -1,45 +1,45 @@
 [package]
 name = "diskann-benchmark"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
+edition = "2021"
 
 [dependencies]
-anyhow.workspace = true
-bf-tree.workspace = true
-bit-set.workspace = true
-bytemuck.workspace = true
-roaring.workspace = true
-clap = { workspace = true, features = ["derive"] }
-diskann-providers = { workspace = true }
-diskann.workspace = true
-diskann-utils.workspace = true
-half = { workspace = true, features = ["rand_distr", "num-traits"] }
+anyhow = "1.0.98"
+bf-tree = "0.5"
+bit-set = "0.8.0"
+bytemuck = "1.23.0"
+roaring = "0.11.2"
+clap = { version = "4.5.45", features = ["derive"] }
+diskann-providers = { path = "../diskann-providers", default-features = false, version = "0.62.0" }
+diskann = { path = "../diskann", version = "0.62.0" }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+half = { version = "2.6.0", features = ["rand_distr", "num-traits"] }
 indicatif = "0.18.3"
-diskann-quantization = { workspace = true, features = ["linalg"] }
-rand.workspace = true
-rayon.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-diskann-vector.workspace = true
-diskann-wide.workspace = true
-diskann-label-filter.workspace = true
-diskann-tools = { workspace = true }
-diskann-disk = { workspace = true, optional = true }
-diskann-bftree = { workspace = true, optional = true }
-cfg-if.workspace = true
-diskann-benchmark-runner = { workspace = true }
-opentelemetry = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
+diskann-quantization = { path = "../diskann-quantization", default-features = false, version = "0.62.0", features = ["linalg"] }
+rand = "0.9.3"
+rayon = "1.10.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.142"
+thiserror = "2.0.12"
+tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-wide = { path = "../diskann-wide", version = "0.62.0" }
+diskann-label-filter = { path = "../diskann-label-filter", version = "0.62.0" }
+diskann-tools = { path = "../diskann-tools", version = "0.62.0" }
+diskann-disk = { path = "../diskann-disk", version = "0.62.0", optional = true }
+diskann-bftree = { path = "../diskann-bftree", version = "0.62.0", optional = true }
+cfg-if = "1.0.0"
+diskann-benchmark-runner = { path = "../diskann-benchmark-runner", version = "0.62.0" }
+opentelemetry = { version = "0.32.0", optional = true }
+opentelemetry_sdk = { version = "0.32.1", optional = true }
 scopeguard = { version = "1.2", optional = true }
-diskann-benchmark-core = { workspace = true, features = ["bigann"] }
-itertools.workspace = true
-diskann-inmem = { workspace = true, optional = true, features = ["quantization"] }
+diskann-benchmark-core = { path = "../diskann-benchmark-core", version = "0.62.0", features = ["bigann"] }
+itertools = "0.13.0"
+diskann-inmem = { path = "../diskann-inmem", default-features = false, version = "0.62.0", optional = true, features = ["quantization"] }
 
 [lints]
 clippy.allow_attributes = "warn"
@@ -47,9 +47,9 @@ clippy.undocumented_unsafe_blocks = "warn"
 clippy.uninlined_format_args = "allow"
 
 [dev-dependencies]
-rand.workspace = true
-tempfile.workspace = true
-half = { workspace = true, features = ["rand_distr", "num-traits"] }
+rand = "0.9.3"
+tempfile = "3.20.0"
+half = { version = "2.6.0", features = ["rand_distr", "num-traits"] }
 
 [features]
 default = []

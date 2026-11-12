@@ -1,21 +1,20 @@
 [package]
 name = "diskann-benchmark-core"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-anyhow.workspace = true
-diskann.workspace = true
-diskann-benchmark-runner = { workspace = true }
-diskann-utils.default-features = false
-diskann-utils.workspace = true
-futures-util = { workspace = true, default-features = false }
-thiserror.workspace = true
-tokio.workspace = true
+anyhow = "1.0.98"
+diskann = { path = "../diskann", version = "0.62.0" }
+diskann-benchmark-runner = { path = "../diskann-benchmark-runner", version = "0.62.0" }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+futures-util = { version = "0.3.31", default-features = false }
+thiserror = "2.0.12"
+tokio = "1.48.0"
 
 serde_yaml = { version = "0.9.34", optional = true }
 
@@ -26,11 +25,12 @@ default = []
 bigann = ["dep:serde_yaml"]
 
 [lints]
-workspace = true
+clippy.allow_attributes = "warn"
+clippy.undocumented_unsafe_blocks = "warn"
 
 [dev-dependencies]
-itertools.workspace = true
-diskann = { workspace = true, features = ["testing"] }
-diskann-vector = { workspace = true }
-diskann-benchmark-runner = { workspace = true, features = ["ux-tools"] }
-tempfile = { workspace = true }
+itertools = "0.13.0"
+diskann = { path = "../diskann", version = "0.62.0", features = ["testing"] }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-benchmark-runner = { path = "../diskann-benchmark-runner", version = "0.62.0", features = ["ux-tools"] }
+tempfile = "3.20.0"

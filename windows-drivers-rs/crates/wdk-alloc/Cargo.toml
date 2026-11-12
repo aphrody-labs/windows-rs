@@ -1,24 +1,41 @@
 [package]
 categories = ["hardware-support", "memory-management", "no-std"]
 description = "alloc support for binaries compiled with the Windows Development Kit (WDK)"
-edition.workspace = true
+edition = "2024"
 keywords = ["allocator", "wdk", "windows"]
-license.workspace = true
+license = "MIT OR Apache-2.0"
 name = "wdk-alloc"
-readme.workspace = true
-repository.workspace = true
+readme = "../../README.md"
+repository = "https://github.com/microsoft/windows-drivers-rs"
 version = "0.4.2"
 
 [dependencies]
-wdk-sys.workspace = true
+wdk-sys = { path = "../wdk-sys", version = "0.5.2" }
 
 [build-dependencies]
-tracing.workspace = true
-tracing-subscriber = { features = ["env-filter"], workspace = true }
-wdk-build.workspace = true
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+wdk-build = { path = "../wdk-build", version = "0.6.0" }
 
 [dev-dependencies]
-wdk-sys = { features = ["test-stubs"], workspace = true }
+wdk-sys = { path = "../wdk-sys", version = "0.5.2", features = ["test-stubs"] }
 
 [lints]
-workspace = true
+rust.missing_docs = "warn"
+rust.unsafe_op_in_unsafe_fn = "forbid"
+clippy.all = { level = "deny", priority = -1 }
+clippy.cargo = { level = "warn", priority = -1 }
+clippy.nursery = { level = "warn", priority = -1 }
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.multiple_unsafe_ops_per_block = "forbid"
+clippy.undocumented_unsafe_blocks = "forbid"
+clippy.unnecessary_safety_doc = "forbid"
+rustdoc.bare_urls = "warn"
+rustdoc.broken_intra_doc_links = "warn"
+rustdoc.invalid_codeblock_attributes = "warn"
+rustdoc.invalid_html_tags = "warn"
+rustdoc.invalid_rust_codeblocks = "warn"
+rustdoc.missing_crate_level_docs = "warn"
+rustdoc.private_intra_doc_links = "warn"
+rustdoc.redundant_explicit_links = "warn"
+rustdoc.unescaped_backticks = "warn"

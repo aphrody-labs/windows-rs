@@ -1,16 +1,16 @@
 [package]
 name = "diskann-record"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-anyhow.workspace = true
-serde = { workspace = true, features = ["derive"], optional = true }
-serde_json = { workspace = true, optional = true }
+anyhow = "1.0.98"
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.142", optional = true }
 
 [features]
 default = ["disk"]
@@ -18,7 +18,8 @@ serde = ["dep:serde"]
 disk = ["serde", "dep:serde_json"]
 
 [dev-dependencies]
-tempfile.workspace = true
+tempfile = "3.20.0"
 
 [lints]
-workspace = true
+clippy.allow_attributes = "warn"
+clippy.undocumented_unsafe_blocks = "warn"

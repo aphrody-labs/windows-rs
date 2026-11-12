@@ -1,37 +1,37 @@
 [package]
 name = "diskann-inmem"
-version.workspace = true
-description.workspace = true
-authors.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.62.0"
+description = "DiskANN3 is a composable library for bringing scalable, accurate and cost-effective vector indexing to multiple databases."
+authors = ["Microsoft"]
+repository = "https://github.com/microsoft/DiskANN"
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-bytemuck = { workspace = true, features = ["must_cast"] }
-crossbeam-queue = { workspace = true, default-features = false, features = ["alloc"] }
-crossbeam-utils = { workspace = true, default-features = false }
-dashmap.workspace = true
-diskann = { workspace = true }
-diskann-utils = { workspace = true, default-features = false }
-diskann-vector = { workspace = true }
-diskann-wide = { workspace = true }
+bytemuck = { version = "1.23.0", features = ["must_cast"] }
+crossbeam-queue = { version = "0.3.12", default-features = false, features = ["alloc"] }
+crossbeam-utils = { version = "0.8.23", default-features = false }
+dashmap = "6.1.0"
+diskann = { path = "../diskann", version = "0.62.0" }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0" }
+diskann-vector = { path = "../diskann-vector", version = "0.62.0" }
+diskann-wide = { path = "../diskann-wide", version = "0.62.0" }
 parking_lot = "0.12.5"
-half = { workspace = true }
-hashbrown = { workspace = true }
-thiserror = { workspace = true }
+half = "2.6.0"
+hashbrown = "0.16.0"
+thiserror = "2.0.12"
 
 # Optional
-diskann-quantization = { workspace = true, optional = true, default-features = false }
+diskann-quantization = { path = "../diskann-quantization", default-features = false, version = "0.62.0", optional = true }
 
 # Integration Test Dependencies
-diskann-benchmark-runner = { workspace = true, optional = true, features = ["ux-tools"] }
-serde = { workspace = true, features = ["derive"], optional = true }
-serde_json = { workspace = true, optional = true }
-anyhow = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
-diskann-benchmark-core = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+diskann-benchmark-runner = { path = "../diskann-benchmark-runner", version = "0.62.0", optional = true, features = ["ux-tools"] }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.142", optional = true }
+anyhow = { version = "1.0.98", optional = true }
+rand = { version = "0.9.3", optional = true }
+diskann-benchmark-core = { path = "../diskann-benchmark-core", version = "0.62.0", optional = true }
+tokio = { version = "1.48.0", optional = true }
 
 [lints.rust]
 # Some longer-running integration tests are skipped when running code coverage by using
@@ -48,11 +48,11 @@ panic = "warn"
 uninlined_format_args = "allow"
 
 [dev-dependencies]
-diskann-utils = { workspace = true, features = ["testing"] }
-diskann = { workspace = true, features = ["testing"] }
-rand = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-tempfile = { workspace = true }
+diskann-utils = { path = "../diskann-utils", default-features = false, version = "0.62.0", features = ["testing"] }
+diskann = { path = "../diskann", version = "0.62.0", features = ["testing"] }
+rand = "0.9.3"
+tokio = { version = "1.48.0", features = ["macros"] }
+tempfile = "3.20.0"
 
 [[bin]]
 name = "integration-test"
