@@ -1,7 +1,7 @@
 use super::*;
 
 fn validate_uri(value: &str) -> windows_core::Result<()> {
-    native::validate_native_uri(value)
+    validate_native_uri(value)
 }
 
 #[derive(Clone)]
@@ -340,21 +340,6 @@ impl ResourceOverrides {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExitTransition {
-    duration: Duration,
-}
-
-impl ExitTransition {
-    pub fn fade(duration: Duration) -> Option<Self> {
-        (!duration.is_zero()).then_some(Self { duration })
-    }
-
-    pub const fn duration(self) -> Duration {
-        self.duration
-    }
-}
-
 /// Converts a closure or existing callback into a payload callback.
 ///
 /// This trait is sealed; applications use it through callback-taking APIs.
@@ -669,6 +654,9 @@ impl From<f64> for Thickness {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ThemeTransition {
+    AddDelete,
+    Content,
+    Entrance,
     Reposition,
 }
 
@@ -1104,8 +1092,8 @@ impl From<usize> for Key {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum PropertyValue {
+#[derive(Clone, Debug)]
+pub(crate) enum PropertyValue {
     String(Rc<str>),
     Bool(bool),
     Brush(Brush),
@@ -1138,8 +1126,54 @@ pub enum PropertyValue {
     },
 }
 
+// Floats compare by bits so that an unchanged NaN, such as a disabled anchor ratio, is not
+// reported as a change and written to the native object on every update.
+impl PartialEq for PropertyValue {
+    fn eq(&self, other: &Self) -> bool {
+        let same = |a: &f64, b: &f64| a.to_bits() == b.to_bits();
+        match self {
+            Self::String(a) => matches!(other, Self::String(b) if a == b),
+            Self::Bool(a) => matches!(other, Self::Bool(b) if a == b),
+            Self::Brush(a) => matches!(other, Self::Brush(b) if a == b),
+            Self::ButtonStyle(a) => matches!(other, Self::ButtonStyle(b) if a == b),
+            Self::Color(a) => matches!(other, Self::Color(b) if a == b),
+            Self::CornerRadius(a) => matches!(other, Self::CornerRadius(b) if a == b),
+            Self::DateTime(a) => matches!(other, Self::DateTime(b) if a == b),
+            Self::Duration(a) => matches!(other, Self::Duration(b) if a == b),
+            Self::DragDropPolicy(a) => matches!(other, Self::DragDropPolicy(b) if a == b),
+            Self::F64(a) => matches!(other, Self::F64(b) if same(a, b)),
+            Self::FontWeight(a) => matches!(other, Self::FontWeight(b) if a == b),
+            Self::GridLengths(a) => matches!(other, Self::GridLengths(b) if a == b),
+            Self::I32(a) => matches!(other, Self::I32(b) if a == b),
+            Self::Icon(a) => matches!(other, Self::Icon(b) if a == b),
+            Self::ImageSource(a) => matches!(other, Self::ImageSource(b) if a == b),
+            Self::KeyAccelerators(a) => matches!(other, Self::KeyAccelerators(b) if a == b),
+            Self::OptionalF64(a) => matches!(
+                other,
+                Self::OptionalF64(b) if a.map(f64::to_bits) == b.map(f64::to_bits)
+            ),
+            Self::OptionalBool(a) => matches!(other, Self::OptionalBool(b) if a == b),
+            Self::OptionalDateTime(a) => matches!(other, Self::OptionalDateTime(b) if a == b),
+            Self::ResourceOverrides(a) => matches!(other, Self::ResourceOverrides(b) if a == b),
+            Self::RichText(a) => matches!(other, Self::RichText(b) if a == b),
+            Self::SelectionIndex(a) => matches!(other, Self::SelectionIndex(b) if a == b),
+            Self::StringList(a) => matches!(other, Self::StringList(b) if a == b),
+            Self::ThemeTransitions(a) => matches!(other, Self::ThemeTransitions(b) if a == b),
+            Self::Thickness(a) => matches!(other, Self::Thickness(b) if a == b),
+            Self::Vector2([ax, ay]) => {
+                matches!(other, Self::Vector2([bx, by]) if same(ax, bx) && same(ay, by))
+            }
+            Self::Enum { kind, variant } => matches!(
+                other,
+                Self::Enum { kind: other_kind, variant: other_variant }
+                    if kind == other_kind && variant == other_variant
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct Property {
+pub(crate) struct Property {
     pub id: PropertyId,
     pub value: PropertyValue,
 }
@@ -1443,8 +1477,34 @@ pub struct PointerEventInfo {
     pub is_middle_button_pressed: bool,
 }
 
+/// A queued pointer callback or a synchronous routed handler.
+///
+/// Closures and [`Callback`] values retain queued delivery. A [`RoutedCallback`] runs during
+/// native input delivery and returns whether to stop routing. Use it to resolve hit tests against
+/// submitted geometry before queuing component messages, not to run component updates directly.
+///
+/// Replacing a handler, including changing its delivery mode, preserves queued occurrences and
+/// their original callbacks. Removing the handler or its owner cancels pending occurrences.
 #[derive(Clone, Debug, PartialEq)]
-pub enum EventValue {
+pub enum PointerCallback {
+    Queued(Callback<PointerEventInfo>),
+    Routed(RoutedCallback<PointerEventInfo>),
+}
+
+impl<T: IntoPayloadCallback<PointerEventInfo>> From<T> for PointerCallback {
+    fn from(value: T) -> Self {
+        Self::Queued(value.into_payload_callback())
+    }
+}
+
+impl From<RoutedCallback<PointerEventInfo>> for PointerCallback {
+    fn from(value: RoutedCallback<PointerEventInfo>) -> Self {
+        Self::Routed(value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EventValue {
     Bool(Callback<bool>),
     Color(Callback<Color>),
     ContentDialogResult(Callback<ContentDialogResult>),
@@ -1459,7 +1519,7 @@ pub enum EventValue {
     OptionalF64(Callback<Option<f64>>),
     OptionalTimeSpan(Callback<Option<TimeSpan>>),
     NavigationViewDisplayMode(Callback<NavigationViewDisplayMode>),
-    PointerEventInfo(Callback<PointerEventInfo>),
+    PointerEventInfo(PointerCallback),
     KeyEventInfo(RoutedCallback<KeyEventInfo>),
     Key(Callback<Key>),
     Keys(Callback<Vec<Key>>),
@@ -1471,12 +1531,10 @@ pub enum EventValue {
 /// A callback paired with the value it receives. `Item` and `Items` carry native children, which
 /// resolve to their keys before dispatch.
 #[derive(Clone, Debug, PartialEq)]
-pub enum EventCall {
+pub(crate) enum EventCall {
     Bool(Callback<bool>, bool),
     Color(Callback<Color>, Color),
     ContentDialogResult(Callback<ContentDialogResult>, ContentDialogResult),
-    #[cfg(any(test, feature = "test"))]
-    CharacterEventInfo(RoutedCallback<CharacterEventInfo>, CharacterEventInfo),
     String(Callback<Rc<str>>, Rc<str>),
     F64(Callback<f64>, f64),
     FocusEventInfo(Callback<FocusEventInfo>, FocusEventInfo),
@@ -1491,8 +1549,6 @@ pub enum EventCall {
         NavigationViewDisplayMode,
     ),
     PointerEventInfo(Callback<PointerEventInfo>, PointerEventInfo),
-    #[cfg(any(test, feature = "test"))]
-    KeyEventInfo(RoutedCallback<KeyEventInfo>, KeyEventInfo),
     /// A menu or command bar item's key, or the key resolved from `Item`.
     Key(Callback<Key>, Key),
     /// A native child.
@@ -1552,13 +1608,13 @@ event_args! {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SelectionChange {
+pub(crate) struct SelectionChange {
     pub item: Option<ObjectId>,
     pub value: Option<Rc<str>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Event {
+pub(crate) struct Event {
     pub id: EventId,
     pub value: EventValue,
 }
@@ -1761,7 +1817,6 @@ pub(crate) struct Declaration {
     pub key: Option<Key>,
     pub component: Option<ComponentId>,
     pub reference: Option<ElementRef>,
-    pub exit_transition: Option<ExitTransition>,
     pub window_title_bar: Option<WindowTitleBarHeight>,
     pub attachments: Option<Box<DeclaredAttachments>>,
     pub properties: SharedList<Property>,
@@ -2058,7 +2113,6 @@ impl Declaration {
             key: self.key.clone(),
             component: self.component,
             reference: self.reference.clone(),
-            exit_transition: self.exit_transition,
             window_title_bar: self.window_title_bar,
             attachments,
             properties: self.properties.clone(),
@@ -2074,7 +2128,6 @@ impl Declaration {
             key: None,
             component: None,
             reference: None,
-            exit_transition: None,
             window_title_bar: None,
             attachments: None,
             properties: SharedList::Empty,
@@ -2266,10 +2319,12 @@ pub trait TooltipExt: Into<View> + Sized {
 impl<T> TooltipExt for T where T: Into<View> {}
 
 pub trait FlyoutExt: Into<View> + Sized {
+    /// Attaches a text flyout to a [`Button`], [`DropDownButton`], or [`SplitButton`].
     fn flyout(self, value: impl AsRef<str>) -> View {
         self.flyout_with(Flyout::text(value))
     }
 
+    /// Attaches a flyout to a [`Button`], [`DropDownButton`], or [`SplitButton`].
     fn flyout_with(self, flyout: Flyout) -> View {
         let mut visual = self.into();
         let flyout = DeclaredFlyout {
@@ -2558,13 +2613,6 @@ macro_rules! uri_methods {
 // `attached_methods` is generated from the schema's attached properties.
 macro_rules! visual_methods {
     () => {
-        pub fn exit_transition(mut self, transition: Option<ExitTransition>) -> Self {
-            self.0.exit_transition = transition;
-            self
-        }
-        pub fn exit_fade(self, duration: std::time::Duration) -> Self {
-            self.exit_transition(ExitTransition::fade(duration))
-        }
         attached_methods!();
     };
 }

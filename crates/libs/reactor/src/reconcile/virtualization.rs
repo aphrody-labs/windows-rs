@@ -291,7 +291,7 @@ impl RetainedGraph {
     }
 }
 
-impl<A: Adapter> Runtime<A> {
+impl Runtime {
     /// Returns the virtual work for a realization at the front of the native queue, after applying
     /// the observations ahead of it. Returns `None` when a native event comes first, when the
     /// realization would replace one of the `busy` rows, or when a native event is being
@@ -310,9 +310,7 @@ impl<A: Adapter> Runtime<A> {
                 {
                     return None;
                 }
-                NativeEvent::Observation(_) | NativeEvent::Retirement(_)
-                    if self.native_event_active.get() =>
-                {
+                NativeEvent::Observation(_) if self.native_event_active.get() => {
                     return None;
                 }
                 _ => {}
@@ -426,6 +424,14 @@ impl<A: Adapter> Runtime<A> {
                 };
                 planner.reconcile_object(current, &declaration);
             } else {
+                if moved_container.is_none() {
+                    self.mutations.push(Mutation::Recycle {
+                        parent: lease.collection,
+                        relation: relation_id,
+                        container: lease.container,
+                        child: Some(current),
+                    });
+                }
                 let relation = self.graph.relation_mut(lease.collection, relation_id);
                 let RetainedRelationValue::Many(children) = &mut relation.value else {
                     unreachable!();

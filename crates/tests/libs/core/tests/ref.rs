@@ -105,3 +105,72 @@ fn test_out_ref() {
     let error = return_object(InRef::default(), OutRef::default()).unwrap_err();
     assert_eq!(error.code(), E_POINTER);
 }
+
+#[test]
+fn bstr_borrowed_abi_and_output() {
+    let input = BSTR::from("borrowed\0text");
+    let borrowed: ParamValue<BSTR> = unsafe { (&input).param() };
+    let retained = borrowed.borrow().cloned().unwrap();
+    drop(borrowed);
+    assert_eq!(&*input, &*retained);
+    assert_ne!(input.as_ptr(), retained.as_ptr());
+    drop(input);
+    assert_eq!(retained.display().to_string(), "borrowed\0text");
+
+    let mut output = BSTR::from("old");
+    OutRef::<BSTR>::from(&mut output).write(retained).unwrap();
+    assert_eq!(output.display().to_string(), "borrowed\0text");
+    assert_eq!(
+        OutRef::<BSTR>::default()
+            .write(BSTR::from("rejected"))
+            .unwrap_err()
+            .code(),
+        E_POINTER
+    );
+}
+
+#[test]
+fn borrowed_null_is_not_an_empty_value() {
+    let empty = HSTRING::new();
+    let borrowed = InRef::from(&empty);
+    assert!(!borrowed.is_null());
+    assert_eq!(borrowed.as_ref(), Some(&empty));
+
+    let borrowed = InRef::from(&false);
+    assert!(!borrowed.is_null());
+    assert_eq!(borrowed.as_ref(), Some(&false));
+
+    let borrowed = InRef::<ITest>::default();
+    assert!(borrowed.is_null());
+    assert!(borrowed.as_ref().is_none());
+    assert_eq!(borrowed.ok().unwrap_err().code(), E_POINTER);
+    assert_eq!(
+        <ITest as imp::Type>::from_default(&None)
+            .unwrap_err()
+            .code(),
+        HRESULT(0)
+    );
+}
+
+#[test]
+fn borrowed_view_clones_only_when_retained() {
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct Value(Arc<()>);
+
+    impl imp::TypeKind for Value {
+        type TypeKind = imp::CloneType;
+    }
+
+    let value = Value(Arc::new(()));
+    let retained = {
+        let borrowed = InRef::from(&value);
+        let view = borrowed.as_ref().unwrap();
+        assert_eq!(Arc::strong_count(&view.0), 1);
+        <Value as imp::Type>::from_default(&borrowed).unwrap()
+    };
+    assert_eq!(Arc::strong_count(&value.0), 2);
+    drop(value);
+    assert_eq!(Arc::strong_count(&retained.0), 1);
+}

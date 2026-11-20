@@ -21,7 +21,7 @@ use expand::*;
 use scope::*;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ComponentId {
+pub(crate) struct ComponentId {
     index: u32,
     generation: u32,
 }
@@ -75,8 +75,8 @@ trait ErasedFactory {
         id: ComponentId,
         queues: ComponentQueues,
         reference: ElementRef,
-        services: Arc<dyn ComponentServices>,
-        ui_services: Rc<dyn ComponentUiServices>,
+        services: Arc<ComponentServices>,
+        ui_services: Rc<WindowServices>,
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> (Box<dyn ErasedComponent>, ComponentRender);
     fn input(&self) -> &dyn Any;
@@ -96,8 +96,8 @@ impl<C: Component> ErasedFactory for TypedFactory<C> {
         id: ComponentId,
         queues: ComponentQueues,
         reference: ElementRef,
-        services: Arc<dyn ComponentServices>,
-        ui_services: Rc<dyn ComponentUiServices>,
+        services: Arc<ComponentServices>,
+        ui_services: Rc<WindowServices>,
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> (Box<dyn ErasedComponent>, ComponentRender) {
         let sender = ComponentSender {
@@ -167,42 +167,23 @@ impl From<ComponentNode> for View {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ComponentDrain {
+pub(crate) struct ComponentDrain {
     pub dispatched: usize,
     pub dropped: usize,
     pub mutations: usize,
 }
 
 /// Coordinates component scopes with retained runtime updates.
-///
-/// The adapter is exposed read-only. Native protocol methods cannot be called through the host.
-///
-/// ```compile_fail
-/// use windows_reactor::{Adapter, ComponentHost};
-///
-/// fn pop<A: Adapter>(host: &ComponentHost<A>) {
-///     host.adapter().pop_native_event();
-/// }
-/// ```
-///
-/// ```compile_fail
-/// use windows_reactor::{Adapter, ComponentHost};
-///
-/// fn apply<A: Adapter>(host: &mut ComponentHost<A>) {
-///     let _ = host.adapter_mut().apply(&[]);
-/// }
-/// ```
-pub struct ComponentHost<A: Adapter> {
-    context_consumers: HashMap<ContextId, HashSet<ComponentId>>,
+pub(crate) struct ComponentHost {
     contexts: HashMap<ContextId, ContextValue>,
     keys: HashMap<Key, ComponentId>,
     order: Vec<ComponentId>,
     queue: SharedQueue,
     local_queue: LocalQueue,
-    continuation_waker: Option<Rc<dyn Fn()>>,
-    runtime: Runtime<A>,
-    services: Arc<dyn ComponentServices>,
-    ui_services: Rc<dyn ComponentUiServices>,
+    continuation: Option<UiCallback>,
+    runtime: Runtime,
+    services: Arc<ComponentServices>,
+    ui_services: Rc<WindowServices>,
     window_color_scheme: WindowObserverLifetime<ColorScheme>,
     window_size: WindowObserverLifetime<WindowSize>,
     window_placement: WindowObserverLifetime<WindowPlacement>,
@@ -222,10 +203,10 @@ pub struct ComponentHost<A: Adapter> {
 /// Plans batches with `step` and applies each one without holding `state`, so a native callback
 /// raised during the application, such as a forced layout realizing virtualized rows, can borrow
 /// the host to plan and apply its own batches. Stops when `step` plans nothing or the host is gone.
-pub(crate) fn drive_host<S, A: Adapter + Clone>(
+pub(crate) fn drive_host<S>(
     state: &RefCell<S>,
-    host: impl Fn(&mut S) -> Option<&mut ComponentHost<A>>,
-    mut step: impl FnMut(&mut ComponentHost<A>) -> Option<NativeBatch>,
+    host: impl Fn(&mut S) -> Option<&mut ComponentHost>,
+    mut step: impl FnMut(&mut ComponentHost) -> Option<NativeBatch>,
 ) {
     loop {
         let (batch, mut adapter) = {
@@ -254,13 +235,13 @@ pub(crate) struct DrainState {
     limit: usize,
 }
 
-impl<A: Adapter> Drop for ComponentHost<A> {
+impl Drop for ComponentHost {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
-impl<A: Adapter> ComponentHost<A> {
+impl ComponentHost {
     pub(crate) fn update_root(&mut self, node: ComponentNode) {
         let key = node.key.as_ref().unwrap();
         let id = *self.keys.get(key).unwrap();
@@ -299,21 +280,20 @@ impl<A: Adapter> ComponentHost<A> {
     }
 
     pub(crate) fn mount_with_all_services(
-        adapter: A,
-        services: Arc<dyn ComponentServices>,
-        ui_services: Rc<dyn ComponentUiServices>,
+        adapter: SharedWinUiAdapter,
+        services: Arc<ComponentServices>,
+        ui_services: Rc<WindowServices>,
         components: impl IntoIterator<Item = ComponentNode>,
     ) -> Self {
         let queue = Arc::new(Mutex::new(MessageQueue::default()));
         let local_queue = Rc::new(RefCell::new(VecDeque::new()));
         let mut host = Self {
-            context_consumers: HashMap::new(),
             contexts: HashMap::new(),
             keys: HashMap::new(),
             order: Vec::new(),
             queue,
             local_queue,
-            continuation_waker: None,
+            continuation: None,
             runtime: Runtime::new(adapter),
             services,
             ui_services,
@@ -370,41 +350,38 @@ impl<A: Adapter> ComponentHost<A> {
             host.scope_mut(pending.id).unwrap().window = pending.window;
             host.scope_mut(pending.id).unwrap().contexts = environment.contexts;
             host.scope_mut(pending.id).unwrap().provided_contexts = environment.provided;
+            host.scope_mut(pending.id).unwrap().dependencies = pending.dependencies;
             pending
                 .effects
                 .commit(&mut host.scope_mut(pending.id).unwrap().effects);
-            host.replace_dependencies(pending.id, pending.dependencies);
         }
         host.publish_committed_window(publication);
         host
     }
 
-    pub fn runtime(&self) -> &Runtime<A> {
+    pub fn runtime(&self) -> &Runtime {
         &self.runtime
     }
 
-    pub(crate) fn runtime_mut_internal(&mut self) -> &mut Runtime<A> {
-        &mut self.runtime
-    }
-
-    pub fn set_waker(&mut self, waker: impl Fn() + Send + Sync + 'static) {
+    /// Routes every source of drain work (messages, native events, imperative requests, and
+    /// continuations past the drain budget) to the window's drain callback.
+    pub(crate) fn set_drain(&mut self, drain: &UiCallback) {
+        self.runtime.adapter().set_event_drain(drain.clone());
+        self.runtime.set_imperative_drain(drain.clone());
+        self.continuation = Some(drain.clone());
         let mut queue = self.queue.lock().unwrap();
         if queue.closed {
             return;
         }
-        let waker = Arc::new(waker);
-        queue.waker = Some(waker.clone());
+        let wake = drain.clone();
+        queue.waker = Some(Arc::new(move || wake.wake()));
         let wake = (!queue.messages.is_empty() || !self.local_queue.borrow().is_empty())
             && !queue.wake_pending;
         queue.wake_pending |= wake;
         drop(queue);
         if wake {
-            waker();
+            drain.wake();
         }
-    }
-
-    pub(crate) fn set_continuation_waker(&mut self, waker: impl Fn() + 'static) {
-        self.continuation_waker = Some(Rc::new(waker));
     }
 
     pub(crate) fn begin_drain(&mut self, limit: usize) -> DrainState {
@@ -421,8 +398,8 @@ impl<A: Adapter> ComponentHost<A> {
     pub(crate) fn drain_step(&mut self, state: &mut DrainState) -> Option<NativeBatch> {
         loop {
             if state.active_event.is_none() && state.processed >= state.limit {
-                if let Some(waker) = self.continuation_waker.clone() {
-                    waker();
+                if let Some(drain) = &self.continuation {
+                    drain.wake();
                 }
                 return None;
             }
@@ -581,7 +558,6 @@ impl<A: Adapter> ComponentHost<A> {
         self.window_color_scheme = WindowObserverLifetime::default();
         self.window_size = WindowObserverLifetime::default();
         self.window_placement = WindowObserverLifetime::default();
-        self.context_consumers.clear();
         self.contexts.clear();
         self.keys.clear();
         self.order.clear();
@@ -640,13 +616,3 @@ impl<A: Adapter> ComponentHost<A> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/component/mod.rs"]
-mod tests;
-
-#[cfg(any(test, feature = "test"))]
-#[path = "../test_support/component.rs"]
-mod test_support;
-#[cfg(test)]
-pub use test_support::*;

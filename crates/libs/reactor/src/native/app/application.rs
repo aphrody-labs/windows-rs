@@ -1,6 +1,5 @@
 use super::*;
 use crate::Application;
-use crate::component::ApplicationMessages;
 use crate::native::notifyicon::{NotifyIcon as NativeIcon, NotifyIconEvent};
 
 struct ApplicationHost<A: Application> {
@@ -33,6 +32,8 @@ struct IconSlot {
     native: NativeIcon,
     declaration: NotifyIcon,
     generation: u64,
+    image_pending: bool,
+    tooltip_pending: bool,
 }
 
 struct IconEvent {
@@ -193,13 +194,26 @@ impl<A: Application> ApplicationState<A> {
                 }
             }
             if let Some(icon) = self.icons.get_mut(&key) {
-                if icon.declaration.path != declaration.path {
-                    icon.native.set_icon(&declaration.path).unwrap();
+                if icon.image_pending || icon.declaration.path != declaration.path {
+                    icon.image_pending = !icon.native.set_icon(&declaration.path).unwrap();
+                    if icon.image_pending {
+                        eprintln!(
+                            "failed to update notification-area image for {key:?}; \
+                             will retry on the next application render"
+                        );
+                    }
                 }
-                if icon.declaration.tooltip != declaration.tooltip {
-                    icon.native
+                if icon.tooltip_pending || icon.declaration.tooltip != declaration.tooltip {
+                    icon.tooltip_pending = !icon
+                        .native
                         .set_tooltip(declaration.tooltip.as_deref())
                         .unwrap();
+                    if icon.tooltip_pending {
+                        eprintln!(
+                            "failed to update notification-area tooltip for {key:?}; \
+                             will retry on the next application render"
+                        );
+                    }
                 }
                 icon.declaration = declaration;
             } else {
@@ -232,6 +246,8 @@ impl<A: Application> ApplicationState<A> {
                         native,
                         declaration,
                         generation,
+                        image_pending: false,
+                        tooltip_pending: false,
                     },
                 );
             }

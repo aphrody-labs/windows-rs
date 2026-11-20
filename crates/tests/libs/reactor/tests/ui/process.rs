@@ -99,12 +99,91 @@ pub fn run(fixture: &'static str, test: fn(&Automation) -> Result<()>) -> Result
     match drive(&mut host, fixture, test) {
         Ok(()) => host.remove_logs(),
         Err(error) => {
+            probe_windows(host.child.id());
             if let Err(cleanup) = host.stop() {
                 eprintln!("fixture cleanup also failed: {cleanup}");
             }
             Err(format!("{fixture}: {error}\n{}", host.output()?).into())
         }
     }
+}
+
+// Logs the window under the cursor and the foreground window, to show whether injected input could
+// reach the fixture, then tells a stalled fixture UI thread apart from a slow UI Automation service
+// using window messages that do not go through UI Automation.
+fn probe_windows(process: u32) {
+    unsafe {
+        let mut cursor = POINT::default();
+        if GetCursorPos(&mut cursor).as_bool() {
+            eprintln!(
+                "probe: cursor ({}, {}) over {}; foreground {}",
+                cursor.x,
+                cursor.y,
+                describe_window(WindowFromPoint(cursor)),
+                describe_window(GetForegroundWindow())
+            );
+        }
+        let mut window = std::ptr::null_mut();
+        loop {
+            window = FindWindowExW(
+                std::ptr::null_mut(),
+                window,
+                windows_core::PCWSTR::null(),
+                windows_core::PCWSTR::null(),
+            );
+            if window.is_null() {
+                break;
+            }
+            let mut owner = 0;
+            let thread = GetWindowThreadProcessId(window, &mut owner);
+            if owner != process {
+                continue;
+            }
+            let class = window_class(window);
+            let start = Instant::now();
+            let mut result = 0;
+            let replied = SendMessageTimeoutW(
+                window,
+                WM_NULL as u32,
+                0,
+                0,
+                SMTO_BLOCK as u32,
+                5000,
+                &mut result,
+            ) != 0;
+            let elapsed = start.elapsed().as_millis();
+            if replied {
+                eprintln!(
+                    "probe: {class} {window:?} thread {thread} replied to WM_NULL in {elapsed} ms"
+                );
+            } else {
+                eprintln!(
+                    "probe: {class} {window:?} thread {thread} no WM_NULL reply after {elapsed} ms"
+                );
+            }
+        }
+    }
+}
+
+fn window_class(window: HWND) -> String {
+    let mut class = [0u16; 64];
+    let length = unsafe {
+        GetClassNameW(
+            window,
+            windows_core::PWSTR(class.as_mut_ptr()),
+            class.len() as i32,
+        )
+    } as usize;
+    String::from_utf16_lossy(&class[..length])
+}
+
+fn describe_window(window: HWND) -> String {
+    if window.is_null() {
+        return "no window".to_string();
+    }
+    let mut process = 0;
+    unsafe { GetWindowThreadProcessId(window, &mut process) };
+    format!("{} {window:?} pid {process}", window_class(window))
 }
 
 pub fn run_to_exit(fixture: &str) -> Result<()> {
@@ -129,9 +208,10 @@ fn drive(
     let driver_cancelled = cancelled.clone();
     let pointer = PointerInput::default();
     let pressed = pointer.pressed.clone();
+    let stderr = host.directory.join("stderr.txt");
     let driver = std::thread::spawn(move || {
         let _com = Com::new()?;
-        let ui = Automation::new(process, fixture, driver_cancelled, pressed)?;
+        let ui = Automation::new(process, fixture, driver_cancelled, pressed, stderr)?;
         test(&ui)?;
         ui.window_handle()
     });

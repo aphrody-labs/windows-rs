@@ -31,6 +31,40 @@ mod tests {
     }
 
     #[test]
+    fn scoped_clips_intersect_and_restore() {
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(12, 12).unwrap();
+        target
+            .draw(|session| {
+                session.clear(ColorF::BLACK);
+                let red = session.create_solid_brush(ColorF::RED)?;
+                let green = session.create_solid_brush(ColorF::from_rgb8(0, 255, 0))?;
+                let blue = session.create_solid_brush(ColorF::BLUE)?;
+                session.with_clip(&Rect::from_xywh(2.0, 2.0, 8.0, 8.0), || {
+                    session.with_clip(&Rect::from_xywh(0.0, 0.0, 6.0, 6.0), || {
+                        session.fill_rect(&Rect::from_xywh(0.0, 0.0, 12.0, 12.0), &red);
+                    });
+                    session.fill_rect(&Rect::from_xywh(8.0, 8.0, 4.0, 4.0), &green);
+                });
+                let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    session.with_clip(&Rect::from_xywh(4.0, 4.0, 1.0, 1.0), || panic!("test"));
+                }));
+                assert!(panic.is_err());
+                session.fill_rect(&Rect::from_xywh(0.0, 0.0, 1.0, 1.0), &blue);
+                Ok(())
+            })
+            .unwrap();
+        let pixels = target.read_pixels().unwrap();
+        let pixel = |x: usize, y: usize| &pixels[(y * 12 + x) * 4..(y * 12 + x + 1) * 4];
+        assert_eq!(pixel(0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(1, 1), [0, 0, 0, 255]);
+        assert_eq!(pixel(2, 2), [0, 0, 255, 255]);
+        assert_eq!(pixel(6, 6), [0, 0, 0, 255]);
+        assert_eq!(pixel(8, 8), [0, 255, 0, 255]);
+        assert_eq!(pixel(10, 10), [0, 0, 0, 255]);
+    }
+
+    #[test]
     fn create_device() {
         let device = GpuDevice::new_warp().expect("Failed to create WARP device");
         let _d3d = device.d3d_device();
@@ -74,6 +108,98 @@ mod tests {
         }
 
         chain.present().unwrap();
+    }
+
+    #[test]
+    fn end_draw_failure_prevents_present() {
+        let present_count = |chain: &SwapChain| {
+            let mut count = 0;
+            unsafe {
+                chain
+                    .as_interface::<IDXGISwapChain1>()
+                    .GetLastPresentCount(&mut count)
+                    .unwrap();
+            }
+            count
+        };
+        let device = GpuDevice::new_warp().unwrap();
+        let mut chain = device.create_swap_chain(64, 64).unwrap();
+        let presented = present_count(&chain);
+        {
+            let session = chain.begin_draw().unwrap();
+            session.clear(ColorF::RED);
+            // This void call defers the unbalanced-clip error until EndDraw.
+            unsafe {
+                session
+                    .as_interface::<ID2D1DeviceContext>()
+                    .PopAxisAlignedClip();
+            }
+        }
+        for _ in 0..2 {
+            assert_eq!(
+                chain.present().unwrap_err().code(),
+                D2DERR_PUSH_POP_UNBALANCED
+            );
+            assert!(!chain.is_device_lost());
+            assert_eq!(present_count(&chain), presented);
+        }
+        chain.begin_draw().unwrap().clear(ColorF::BLUE);
+        assert!(chain.present().unwrap());
+        assert_eq!(present_count(&chain), presented + 1);
+    }
+
+    #[test]
+    fn end_draw_failure_reaches_render_target_owner() {
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(4, 4).unwrap();
+        for callback_error in [None, Some(windows_core::HRESULT(0x8000_4004_u32 as i32))] {
+            let error = target
+                .draw(|session| {
+                    session.clear(ColorF::RED);
+                    unsafe {
+                        session
+                            .as_interface::<ID2D1DeviceContext>()
+                            .PopAxisAlignedClip();
+                    }
+                    callback_error
+                        .map_or(Ok(()), |code| Err(windows_core::Error::from_hresult(code)))
+                })
+                .unwrap_err();
+            assert_eq!(error.code(), D2DERR_PUSH_POP_UNBALANCED);
+        }
+        target
+            .draw(|session| {
+                session.clear(ColorF::BLUE);
+                Ok(())
+            })
+            .unwrap();
+        for pixel in target.read_pixels().unwrap().as_chunks::<4>().0 {
+            assert_eq!(pixel, &[255, 0, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn render_target_preserves_callback_errors() {
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(4, 4).unwrap();
+        let removed = windows_core::HRESULT(0x887A_0005_u32 as i32);
+        for code in [windows_core::HRESULT(0x8000_4004_u32 as i32), removed] {
+            let error = target
+                .draw(|_| Err(windows_core::Error::from_hresult(code)))
+                .unwrap_err();
+            assert_eq!(error.code(), code);
+        }
+        let error = target
+            .draw(|session| {
+                unsafe {
+                    session
+                        .as_interface::<ID2D1DeviceContext>()
+                        .PopAxisAlignedClip();
+                }
+                Err(windows_core::Error::from_hresult(removed))
+            })
+            .unwrap_err();
+        assert_eq!(error.code(), removed);
     }
 
     #[test]

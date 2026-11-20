@@ -1,26 +1,6 @@
 use super::*;
 
-impl Runtime<SharedWinUiAdapter> {
-    pub fn set_native_event_wakers(
-        &mut self,
-        native: impl Fn() + 'static,
-        imperative: impl Fn() + 'static,
-    ) {
-        self.adapter().state.borrow_mut().set_event_waker(native);
-        self.set_imperative_waker(imperative);
-    }
-}
-
-impl ComponentHost<SharedWinUiAdapter> {
-    pub fn set_native_event_wakers(
-        &mut self,
-        native: impl Fn() + 'static,
-        imperative: impl Fn() + 'static,
-    ) {
-        self.runtime_mut_internal()
-            .set_native_event_wakers(native, imperative);
-    }
-
+impl ComponentHost {
     pub(crate) fn set_realizer(&mut self, realizer: impl Fn() + 'static) {
         self.runtime()
             .adapter()
@@ -78,20 +58,24 @@ impl SharedWinUiAdapter {
     }
 }
 
-impl Adapter for SharedWinUiAdapter {
-    fn peek_native_event(&self) -> Option<NativeEvent> {
+impl SharedWinUiAdapter {
+    pub(crate) fn set_event_drain(&self, drain: UiCallback) {
+        self.state.borrow_mut().set_event_drain(drain);
+    }
+
+    pub(crate) fn peek_native_event(&self) -> Option<NativeEvent> {
         self.state.borrow().peek_native_event()
     }
 
-    fn peek_native_dispatch(&self) -> Option<NativeEvent> {
+    pub(crate) fn peek_native_dispatch(&self) -> Option<NativeEvent> {
         self.state.borrow().peek_native_dispatch()
     }
 
-    fn pop_native_event(&mut self) -> Option<NativeEvent> {
+    pub(crate) fn pop_native_event(&mut self) -> Option<NativeEvent> {
         self.state.borrow_mut().pop_native_event()
     }
 
-    fn apply(&mut self, mutations: &[Mutation]) {
+    pub(crate) fn apply(&mut self, mutations: &[Mutation]) {
         let index_writes = mutations
             .iter()
             .filter_map(|mutation| match mutation {
@@ -122,7 +106,7 @@ impl Adapter for SharedWinUiAdapter {
         }
     }
 
-    fn imperative(&mut self, request: ImperativeRequest) {
+    pub(crate) fn imperative(&mut self, request: ImperativeRequest) {
         self.state.borrow_mut().apply_imperative(request).unwrap();
     }
 }
@@ -268,30 +252,6 @@ impl WinUiAdapter {
                     moves,
                     children,
                 } => self.reorder(*parent, *relation, moves, children)?,
-                Mutation::Retire {
-                    root,
-                    nodes,
-                    parent,
-                    relation,
-                    duration,
-                } => {
-                    self.start_retirement(*root, nodes.clone(), *parent, *relation, *duration)?;
-                }
-                Mutation::CompleteRetirement { root, nodes } => {
-                    if nodes.iter().any(|object| {
-                        self.tooltips.contains_key(object)
-                            || self.tooltip_owners.contains_key(object)
-                            || self.flyouts.contains_key(object)
-                            || self.flyout_owners.contains_key(object)
-                            || self.menus.contains_key(object)
-                            || self.command_bar_flyouts.contains_key(object)
-                            || self.content_dialogs.contains_key(object)
-                            || self.content_dialog_owners.contains_key(object)
-                    }) {
-                        return Err(WinUiError::StillOwned(*root));
-                    }
-                    self.complete_retirement(*root, nodes)?;
-                }
                 Mutation::Destroy { object } => {
                     if self
                         .window_title_bar
@@ -754,6 +714,125 @@ impl WinUiAdapter {
                         _size: size,
                     },
                 );
+            }
+            ImperativeRequest::ObserveScrollView {
+                object,
+                observation,
+                callback,
+            } => {
+                let Some(Handle::Generated(GeneratedHandle::ScrollView(control))) =
+                    self.handles.get(&object)
+                else {
+                    return Ok(());
+                };
+                let last = Rc::new(Cell::new(scroll_view_metrics(control)?));
+                callback.call(last.get());
+                let report = Rc::new(move |view: &native::ScrollView| {
+                    let metrics = scroll_view_metrics(view).unwrap();
+                    if last.replace(metrics) != metrics {
+                        callback.call(metrics);
+                    }
+                });
+                let view_report = Rc::clone(&report);
+                let view = control.ViewChanged(local::handler::<native::ScrollView, _, _>(
+                    move |sender, _| {
+                        if let Some(sender) = sender.as_ref() {
+                            view_report(sender);
+                        }
+                    },
+                ))?;
+                let extent_report = Rc::clone(&report);
+                let extent = control.ExtentChanged(local::handler::<native::ScrollView, _, _>(
+                    move |sender, _| {
+                        if let Some(sender) = sender.as_ref() {
+                            extent_report(sender);
+                        }
+                    },
+                ))?;
+                let size_control = control.clone();
+                let size =
+                    control
+                        .cast::<native::IFrameworkElement>()?
+                        .SizeChanged(local::handler::<_, native::SizeChangedEventArgs, _>(
+                            move |_, _| report(&size_control),
+                        ))?;
+                self.observations.insert(
+                    (object, observation),
+                    ObservationSubscription::ScrollView {
+                        _view: view,
+                        _extent: extent,
+                        _size: size,
+                    },
+                );
+            }
+            ImperativeRequest::ScrollTo {
+                object,
+                horizontal_offset,
+                vertical_offset,
+                animate,
+                completion,
+            } => {
+                let Some(Handle::Generated(GeneratedHandle::ScrollView(control))) =
+                    self.handles.get(&object)
+                else {
+                    completion.call(Err(IntegrationError::Unavailable));
+                    return Ok(());
+                };
+                if !self.scroll_requests.borrow().contains_key(&object) {
+                    let requests = Rc::clone(&self.scroll_requests);
+                    let completed = control.ScrollCompleted(local::handler::<
+                        native::ScrollView,
+                        native::ScrollingScrollCompletedEventArgs,
+                        _,
+                    >(
+                        move |sender, args| {
+                            let (Some(sender), Some(args)) = (sender.as_ref(), args.as_ref())
+                            else {
+                                return;
+                            };
+                            let id = args.CorrelationId().unwrap();
+                            let completion = requests
+                                .borrow_mut()
+                                .get_mut(&object)
+                                .and_then(|pending| pending.completions.remove(&id));
+                            if let Some(completion) = completion {
+                                completion
+                                    .call(scroll_view_metrics(sender).map_err(integration_error));
+                            }
+                        },
+                    ))?;
+                    self.scroll_requests.borrow_mut().insert(
+                        object,
+                        ScrollRequests {
+                            _completed: completed,
+                            completions: HashMap::new(),
+                        },
+                    );
+                }
+                let mode = if animate {
+                    native::ScrollingAnimationMode::Auto
+                } else {
+                    native::ScrollingAnimationMode::Disabled
+                };
+                let id = native::ScrollingScrollOptions::CreateInstance(mode).and_then(|options| {
+                    control.ScrollToWithOptions(horizontal_offset, vertical_offset, &options)
+                });
+                match id {
+                    // WinUI returns -1 without raising ScrollCompleted when it takes no action,
+                    // such as before the template is applied or when there is no content.
+                    Ok(-1) => completion.call(Err(IntegrationError::Unavailable)),
+                    Ok(id) => {
+                        let previous = self
+                            .scroll_requests
+                            .borrow_mut()
+                            .get_mut(&object)
+                            .unwrap()
+                            .completions
+                            .insert(id, completion);
+                        assert!(previous.is_none());
+                    }
+                    Err(error) => completion.call(Err(integration_error(error))),
+                }
             }
             ImperativeRequest::RevokeObservation {
                 object,

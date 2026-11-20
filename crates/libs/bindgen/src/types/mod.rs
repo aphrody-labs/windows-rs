@@ -759,7 +759,7 @@ impl Type {
             let tokens = self.write_name(config);
 
             if matches!(self, Self::Generic(_)) {
-                quote! { <#tokens as windows_core::imp::Type<#tokens>>::Default }
+                quote! { <#tokens as windows_core::imp::Type>::Default }
             } else if self.is_interface_with_reader(config.reader) {
                 quote! { Option<#tokens> }
             } else {
@@ -814,20 +814,32 @@ impl Type {
                 if ty.is_copyable(config.reader) {
                     name
                 } else {
-                    quote! { core::mem::MaybeUninit<#name> }
+                    quote! { core::mem::ManuallyDrop<#name> }
                 }
             }
             Self::PtrMut(ty, pointers) => {
-                let ty = ty.write_abi(config);
+                let ty = ty.write_abi_pointee(config);
                 let pointers = write_ptr_mut(*pointers);
                 quote! { #pointers #ty }
             }
             Self::PtrConst(ty, pointers) => {
-                let ty = ty.write_abi(config);
+                let ty = ty.write_abi_pointee(config);
                 let pointers = write_ptr_const(*pointers);
                 quote! { #pointers #ty }
             }
             ty => ty.write_name(config),
+        }
+    }
+
+    pub fn write_abi_pointee(&self, config: &Config) -> TokenStream {
+        match self {
+            Self::Struct(_) => self.write_name(config),
+            Self::ArrayFixed(ty, len) => {
+                let name = ty.write_abi_pointee(config);
+                let len = Literal::usize_unsuffixed(*len);
+                quote! { [#name; #len] }
+            }
+            _ => self.write_abi(config),
         }
     }
 
@@ -911,23 +923,6 @@ impl Type {
 
     pub fn is_winrt_array_ref(&self) -> bool {
         matches!(self, Self::ArrayRef(_))
-    }
-
-    /// Returns `true` when `write_abi` emits `*mut core::ffi::c_void` for this
-    /// type - i.e. the ABI representation is a raw COM/HSTRING pointer rather
-    /// than the Rust type itself or `MaybeUninit<Self>`.
-    pub fn has_pointer_abi(&self) -> bool {
-        matches!(
-            self,
-            Self::IUnknown
-                | Self::Object
-                | Self::Delegate(_)
-                | Self::Class(_)
-                | Self::CppInterface(_)
-                | Self::Interface(_)
-                | Self::String
-                | Self::BSTR
-        )
     }
 
     pub fn is_async(&self) -> bool {
@@ -1348,13 +1343,50 @@ impl Type {
         )
     }
 
-    pub fn write_result_map(&self, reader: &Reader) -> TokenStream {
-        if self.is_copyable(reader) {
-            quote! { map(|| result__) }
-        } else if self.is_convertible() {
-            quote! { and_then(||windows_core::imp::Type::from_abi(result__)) }
+    pub fn needs_result_storage(&self, reader: &Reader) -> bool {
+        match self {
+            Self::Generic(_) => true,
+            Self::Struct(_) => !self.is_copyable(reader),
+            Self::ArrayFixed(ty, _) => ty.needs_result_storage(reader),
+            _ => false,
+        }
+    }
+
+    pub fn write_result_init(&self, config: &Config) -> TokenStream {
+        if self.needs_result_storage(config.reader) {
+            let ty = self.write_default(config);
+            quote! { let mut result__ = core::mem::MaybeUninit::<#ty>::zeroed(); }
         } else {
-            quote! { map(|| core::mem::transmute(result__)) }
+            quote! { let mut result__ = core::mem::zeroed(); }
+        }
+    }
+
+    pub fn write_result_arg(&self, reader: &Reader) -> TokenStream {
+        if self.needs_result_storage(reader) {
+            quote! { result__.as_mut_ptr().cast() }
+        } else {
+            quote! { &mut result__ }
+        }
+    }
+
+    pub fn write_result_value(&self, reader: &Reader) -> TokenStream {
+        if self.needs_result_storage(reader) {
+            quote! { result__.assume_init() }
+        } else {
+            quote! { result__ }
+        }
+    }
+
+    pub fn write_result_map(&self, reader: &Reader) -> TokenStream {
+        let result = self.write_result_value(reader);
+        if matches!(self, Self::Generic(_)) {
+            quote! { and_then(||windows_core::imp::Type::from_default_owned(#result)) }
+        } else if self.is_copyable(reader) || self.needs_result_storage(reader) {
+            quote! { map(|| #result) }
+        } else if self.is_convertible() {
+            quote! { and_then(||windows_core::imp::from_abi(#result)) }
+        } else {
+            quote! { map(|| core::mem::transmute(#result)) }
         }
     }
 }

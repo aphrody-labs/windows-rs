@@ -176,6 +176,96 @@ impl InfoBarSeverity {
 }
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputSystemCursorShape {
+    Arrow,
+    Cross,
+    Hand,
+    Help,
+    IBeam,
+    SizeAll,
+    SizeNortheastSouthwest,
+    SizeNorthSouth,
+    SizeNorthwestSoutheast,
+    SizeWestEast,
+    UniversalNo,
+    UpArrow,
+    Wait,
+    Pin,
+    Person,
+    AppStarting,
+}
+impl InputSystemCursorShape {
+    pub(crate) fn property_value(self) -> PropertyValue {
+        match self {
+            Self::Arrow => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Arrow",
+            },
+            Self::Cross => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Cross",
+            },
+            Self::Hand => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Hand",
+            },
+            Self::Help => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Help",
+            },
+            Self::IBeam => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "IBeam",
+            },
+            Self::SizeAll => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "SizeAll",
+            },
+            Self::SizeNortheastSouthwest => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "SizeNortheastSouthwest",
+            },
+            Self::SizeNorthSouth => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "SizeNorthSouth",
+            },
+            Self::SizeNorthwestSoutheast => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "SizeNorthwestSoutheast",
+            },
+            Self::SizeWestEast => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "SizeWestEast",
+            },
+            Self::UniversalNo => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "UniversalNo",
+            },
+            Self::UpArrow => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "UpArrow",
+            },
+            Self::Wait => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Wait",
+            },
+            Self::Pin => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Pin",
+            },
+            Self::Person => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "Person",
+            },
+            Self::AppStarting => PropertyValue::Enum {
+                kind: "InputSystemCursorShape",
+                variant: "AppStarting",
+            },
+        }
+    }
+}
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ListViewSelectionMode {
     None,
     Single,
@@ -360,6 +450,36 @@ impl ScrollBarVisibility {
             Self::Visible => PropertyValue::Enum {
                 kind: "ScrollBarVisibility",
                 variant: "Visible",
+            },
+        }
+    }
+}
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScrollingContentOrientation {
+    Vertical,
+    Horizontal,
+    None,
+    Both,
+}
+impl ScrollingContentOrientation {
+    pub(crate) fn property_value(self) -> PropertyValue {
+        match self {
+            Self::Vertical => PropertyValue::Enum {
+                kind: "ScrollingContentOrientation",
+                variant: "Vertical",
+            },
+            Self::Horizontal => PropertyValue::Enum {
+                kind: "ScrollingContentOrientation",
+                variant: "Horizontal",
+            },
+            Self::None => PropertyValue::Enum {
+                kind: "ScrollingContentOrientation",
+                variant: "None",
+            },
+            Self::Both => PropertyValue::Enum {
+                kind: "ScrollingContentOrientation",
+                variant: "Both",
             },
         }
     }
@@ -1874,6 +1994,13 @@ macro_rules! attached_methods {
                 .property(PropertyId::Opacity, PropertyValue::F64(opacity));
             self
         }
+        pub fn is_hit_test_visible(mut self, is_hit_test_visible: bool) -> Self {
+            self.0 = self.0.property(
+                PropertyId::IsHitTestVisible,
+                PropertyValue::Bool(is_hit_test_visible),
+            );
+            self
+        }
         pub fn transitions<T>(self, transitions: T) -> Self
         where
             T: IntoIterator<Item = ThemeTransition>,
@@ -2085,6 +2212,29 @@ impl TextBox {
         );
         self
     }
+    pub fn padding(mut self, padding: impl Into<Thickness>) -> Self {
+        let padding = padding.into();
+        assert!(
+            padding.is_finite_non_negative(),
+            "TextBox.Padding requires finite_non_negative"
+        );
+        self.0 = self
+            .0
+            .property(PropertyId::Padding, PropertyValue::Thickness(padding));
+        self
+    }
+    pub fn corner_radius(mut self, corner_radius: impl Into<CornerRadius>) -> Self {
+        let corner_radius = corner_radius.into();
+        assert!(
+            corner_radius.is_finite_non_negative(),
+            "TextBox.CornerRadius requires finite_non_negative"
+        );
+        self.0 = self.0.property(
+            PropertyId::CornerRadius,
+            PropertyValue::CornerRadius(corner_radius),
+        );
+        self
+    }
     enabled_methods!();
     reference_methods!(TextBox);
     visual_methods!();
@@ -2127,6 +2277,17 @@ impl Button {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::Button);
         Self(declaration)
+    }
+    pub fn padding(mut self, padding: impl Into<Thickness>) -> Self {
+        let padding = padding.into();
+        assert!(
+            padding.is_finite_non_negative(),
+            "Button.Padding requires finite_non_negative"
+        );
+        self.0 = self
+            .0
+            .property(PropertyId::Padding, PropertyValue::Thickness(padding));
+        self
     }
     pub fn background(mut self, background: impl Into<Brush>) -> Self {
         self.0 = self.0.property(
@@ -2278,6 +2439,16 @@ impl Border {
         let declaration = Declaration::new(ObjectType::Border);
         Self(declaration)
     }
+    pub fn child_transitions(
+        mut self,
+        child_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildTransitions,
+            PropertyValue::ThemeTransitions(child_transitions.into_iter().collect()),
+        );
+        self
+    }
     pub fn background(mut self, background: impl Into<Brush>) -> Self {
         self.0 = self.0.property(
             PropertyId::Background,
@@ -2347,14 +2518,24 @@ impl Border {
         );
         self
     }
-    pub fn scale(mut self, scale: f64) -> Self {
+    /// Scales rendering independently on each axis around the element's center.
+    /// The center follows layout changes; scaling does not change layout size.
+    /// Factors must be non-negative and finite when converted to `f32`.
+    /// Use [`Self::scale_transition`] to animate changes.
+    ///
+    /// WinUI can hide the element immediately when a factor becomes zero,
+    /// even during a transition.
+    pub fn scale(mut self, x: f64, y: f64) -> Self {
+        let scale = [x, y];
         assert!(
-            scale.is_finite() && scale >= 0.0,
+            scale
+                .iter()
+                .all(|value| (*value as f32).is_finite() && *value >= 0.0),
             "Border.Scale requires finite_non_negative"
         );
         self.0 = self
             .0
-            .property(PropertyId::Scale, PropertyValue::F64(scale));
+            .property(PropertyId::Scale, PropertyValue::Vector2(scale));
         self
     }
     pub fn scale_transition(mut self, scale_transition: Duration) -> Self {
@@ -2389,6 +2570,12 @@ impl Border {
         );
         self
     }
+    pub fn pointer_cursor(mut self, pointer_cursor: InputSystemCursorShape) -> Self {
+        self.0 = self
+            .0
+            .property(PropertyId::PointerCursor, pointer_cursor.property_value());
+        self
+    }
     pub fn focus_on_pointer_release(mut self, focus_on_pointer_release: bool) -> Self {
         self.0 = self.0.property(
             PropertyId::FocusOnPointerRelease,
@@ -2418,53 +2605,38 @@ impl Border {
         );
         self
     }
-    pub fn on_pointer_pressed(
-        mut self,
-        callback: impl IntoPayloadCallback<PointerEventInfo>,
-    ) -> Self {
+    pub fn on_pointer_pressed(mut self, callback: impl Into<PointerCallback>) -> Self {
         self.0 = self.0.event(
             EventId::PointerPressed,
-            EventValue::PointerEventInfo(callback.into_payload_callback()),
+            EventValue::PointerEventInfo(callback.into()),
         );
         self
     }
-    pub fn on_pointer_moved(
-        mut self,
-        callback: impl IntoPayloadCallback<PointerEventInfo>,
-    ) -> Self {
+    pub fn on_pointer_moved(mut self, callback: impl Into<PointerCallback>) -> Self {
         self.0 = self.0.event(
             EventId::PointerMoved,
-            EventValue::PointerEventInfo(callback.into_payload_callback()),
+            EventValue::PointerEventInfo(callback.into()),
         );
         self
     }
-    pub fn on_pointer_entered(
-        mut self,
-        callback: impl IntoPayloadCallback<PointerEventInfo>,
-    ) -> Self {
+    pub fn on_pointer_entered(mut self, callback: impl Into<PointerCallback>) -> Self {
         self.0 = self.0.event(
             EventId::PointerEntered,
-            EventValue::PointerEventInfo(callback.into_payload_callback()),
+            EventValue::PointerEventInfo(callback.into()),
         );
         self
     }
-    pub fn on_pointer_exited(
-        mut self,
-        callback: impl IntoPayloadCallback<PointerEventInfo>,
-    ) -> Self {
+    pub fn on_pointer_exited(mut self, callback: impl Into<PointerCallback>) -> Self {
         self.0 = self.0.event(
             EventId::PointerExited,
-            EventValue::PointerEventInfo(callback.into_payload_callback()),
+            EventValue::PointerEventInfo(callback.into()),
         );
         self
     }
-    pub fn on_pointer_released(
-        mut self,
-        callback: impl IntoPayloadCallback<PointerEventInfo>,
-    ) -> Self {
+    pub fn on_pointer_released(mut self, callback: impl Into<PointerCallback>) -> Self {
         self.0 = self.0.event(
             EventId::PointerReleased,
-            EventValue::PointerEventInfo(callback.into_payload_callback()),
+            EventValue::PointerEventInfo(callback.into()),
         );
         self
     }
@@ -2478,6 +2650,13 @@ impl Border {
     pub fn on_pointer_canceled(mut self, callback: impl IntoUnitCallback) -> Self {
         self.0 = self.0.event(
             EventId::PointerCanceled,
+            EventValue::Unit(callback.into_unit_callback()),
+        );
+        self
+    }
+    pub fn on_double_tapped(mut self, callback: impl IntoUnitCallback) -> Self {
+        self.0 = self.0.event(
+            EventId::DoubleTapped,
             EventValue::Unit(callback.into_unit_callback()),
         );
         self
@@ -2562,6 +2741,16 @@ impl Grid {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::Grid);
         Self(declaration)
+    }
+    pub fn children_transitions(
+        mut self,
+        children_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildrenTransitions,
+            PropertyValue::ThemeTransitions(children_transitions.into_iter().collect()),
+        );
+        self
     }
     pub fn rows(mut self, values: impl IntoIterator<Item = GridLength>) -> Self {
         self.0 = self.0.property(
@@ -2653,6 +2842,16 @@ impl StackPanel {
         let declaration = Declaration::new(ObjectType::StackPanel);
         Self(declaration)
     }
+    pub fn children_transitions(
+        mut self,
+        children_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildrenTransitions,
+            PropertyValue::ThemeTransitions(children_transitions.into_iter().collect()),
+        );
+        self
+    }
     pub fn spacing(mut self, spacing: f64) -> Self {
         self.0 = self
             .0
@@ -2712,6 +2911,16 @@ impl Canvas {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::Canvas);
         Self(declaration)
+    }
+    pub fn children_transitions(
+        mut self,
+        children_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildrenTransitions,
+            PropertyValue::ThemeTransitions(children_transitions.into_iter().collect()),
+        );
+        self
     }
     visual_methods!();
     /// Rejects values outside this relation's generated type contract.
@@ -3380,6 +3589,16 @@ impl VariableSizedWrapGrid {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::VariableSizedWrapGrid);
         Self(declaration)
+    }
+    pub fn children_transitions(
+        mut self,
+        children_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildrenTransitions,
+            PropertyValue::ThemeTransitions(children_transitions.into_iter().collect()),
+        );
+        self
     }
     pub fn orientation(mut self, orientation: Orientation) -> Self {
         self.0 = self
@@ -4555,10 +4774,41 @@ impl From<PersonPicture> for View {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollView(Declaration);
+impl Sealed for ScrollView {}
+impl ReferenceElement for ScrollView {}
 impl ScrollView {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::ScrollView);
         Self(declaration)
+    }
+    pub fn content_orientation(mut self, content_orientation: ScrollingContentOrientation) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ContentOrientation,
+            content_orientation.property_value(),
+        );
+        self
+    }
+    pub fn horizontal_anchor_ratio(mut self, horizontal_anchor_ratio: f64) -> Self {
+        assert!(
+            horizontal_anchor_ratio.is_nan() || (0.0..=1.0).contains(&horizontal_anchor_ratio),
+            "ScrollView.HorizontalAnchorRatio requires NaN or between 0 and 1"
+        );
+        self.0 = self.0.property(
+            PropertyId::HorizontalAnchorRatio,
+            PropertyValue::F64(horizontal_anchor_ratio),
+        );
+        self
+    }
+    pub fn vertical_anchor_ratio(mut self, vertical_anchor_ratio: f64) -> Self {
+        assert!(
+            vertical_anchor_ratio.is_nan() || (0.0..=1.0).contains(&vertical_anchor_ratio),
+            "ScrollView.VerticalAnchorRatio requires NaN or between 0 and 1"
+        );
+        self.0 = self.0.property(
+            PropertyId::VerticalAnchorRatio,
+            PropertyValue::F64(vertical_anchor_ratio),
+        );
+        self
     }
     pub fn horizontal_scroll_bar_visibility(
         mut self,
@@ -4580,6 +4830,7 @@ impl ScrollView {
         );
         self
     }
+    reference_methods!(ScrollView);
     visual_methods!();
     /// Rejects values outside this relation's generated type contract.
     ///
@@ -6663,6 +6914,16 @@ impl RelativePanel {
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::RelativePanel);
         Self(declaration)
+    }
+    pub fn children_transitions(
+        mut self,
+        children_transitions: impl IntoIterator<Item = ThemeTransition>,
+    ) -> Self {
+        self.0 = self.0.property(
+            PropertyId::ChildrenTransitions,
+            PropertyValue::ThemeTransitions(children_transitions.into_iter().collect()),
+        );
+        self
     }
     visual_methods!();
     /// Rejects values outside this relation's generated type contract.

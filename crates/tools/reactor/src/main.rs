@@ -150,6 +150,7 @@ enum Validation {
     NonNegative,
     Positive,
     ZeroToFiftyNine,
+    AnchorRatio,
 }
 
 impl std::fmt::Display for Validation {
@@ -161,6 +162,7 @@ impl std::fmt::Display for Validation {
             Self::NonNegative => "non_negative",
             Self::Positive => "positive",
             Self::ZeroToFiftyNine => "zero_to_fifty_nine",
+            Self::AnchorRatio => "NaN or between 0 and 1",
         };
         formatter.write_str(value)
     }
@@ -193,6 +195,7 @@ enum PropertyAdapter {
     OptionalDateTime,
     PathData,
     PointerCapture,
+    PointerCursor,
     PointerFocus,
     RatingValue,
     ResourceOverrides,
@@ -216,8 +219,7 @@ impl PropertyAdapter {
             Self::ImplicitOpacityTransition
             | Self::ImplicitScaleTransition
             | Self::ImplicitTranslationTransition => Value::Duration,
-            Self::ImplicitScale => Value::F64,
-            Self::ImplicitTranslation => Value::Vector2,
+            Self::ImplicitScale | Self::ImplicitTranslation => Value::Vector2,
             Self::EditText
             | Self::FontFamily
             | Self::InspectableString
@@ -230,6 +232,7 @@ impl PropertyAdapter {
             Self::NumberBoxValue | Self::RatingValue => Value::OptionalF64,
             Self::OptionalDateTime => Value::OptionalDateTime,
             Self::PointerCapture | Self::PointerFocus => Value::Bool,
+            Self::PointerCursor => Value::Enum("InputSystemCursorShape".to_string()),
             Self::ResourceOverrides => Value::ResourceOverrides,
             Self::ResourceStyle => Value::ButtonStyle,
             Self::RichTextBlocks => Value::RichText,
@@ -253,7 +256,11 @@ impl PropertyAdapter {
     fn has_managed_state(self) -> bool {
         matches!(
             self,
-            Self::PointerCapture | Self::PointerFocus | Self::DropPolicy | Self::ImageUri
+            Self::PointerCapture
+                | Self::PointerFocus
+                | Self::DropPolicy
+                | Self::ImageUri
+                | Self::ImplicitScale
         )
     }
 
@@ -430,6 +437,7 @@ impl Value {
             Self::CornerRadius => format!("{name}: impl Into<CornerRadius>"),
             Self::F64 => format!("{name}: f64"),
             Self::GridLengths => format!("{name}: impl IntoIterator<Item = GridLength>"),
+            Self::ThemeTransitions => format!("{name}: impl IntoIterator<Item = ThemeTransition>"),
             Self::I32 => format!("{name}: i32"),
             Self::Icon => format!("{name}: impl Into<Icon>"),
             Self::OptionalF64 => format!("{name}: impl Into<Option<f64>>"),
@@ -449,8 +457,8 @@ impl Value {
             Self::String => format!("PropertyValue::String(Rc::from({name}.as_ref()))"),
             Self::Brush | Self::Icon => format!("PropertyValue::{self}({name}.into())"),
             Self::DragDropPolicy => format!("PropertyValue::DragDropPolicy(Rc::new({name}))"),
-            Self::GridLengths => {
-                format!("PropertyValue::GridLengths({name}.into_iter().collect())")
+            Self::GridLengths | Self::ThemeTransitions => {
+                format!("PropertyValue::{self}({name}.into_iter().collect())")
             }
             Self::OptionalF64
             | Self::OptionalBool
@@ -1384,14 +1392,7 @@ fn generate(schema: &Schema, metadata: &tool_reactor_metadata::MetadataResolver)
             let value = if property.value.enum_name().is_none() {
                 format!("ValueType::{}", property.value)
             } else {
-                let (_, variants) = metadata
-                    .enum_info(
-                        &native_name(object),
-                        &format!("put_{}", native_property(property)),
-                    )
-                    .unwrap_or_else(|| {
-                        panic!("{}.{} is not an enum property", object.name, property.name)
-                    });
+                let variants = property_enum_variants(object, property, metadata);
                 format!(
                     "ValueType::Enum {{ kind: \"{}\", variants: &[{}] }}",
                     property.value,
@@ -1464,26 +1465,6 @@ fn generate(schema: &Schema, metadata: &tool_reactor_metadata::MetadataResolver)
         output.push_str(&format!("ObjectType::{} => {index},", object.name));
     }
     output.push_str("} }\n");
-    output.push_str(
-        "#[cfg(any(test, feature = \"test\"))]\n\
-         pub(crate) fn focus_capable(kind: ObjectType) -> bool { matches!(kind,",
-    );
-    if !schema.objects.iter().any(|object| object.focus) {
-        output.push_str("_ if false");
-    } else {
-        for (index, object) in schema
-            .objects
-            .iter()
-            .filter(|object| object.focus)
-            .enumerate()
-        {
-            if index != 0 {
-                output.push('|');
-            }
-            output.push_str(&format!("ObjectType::{}", object.name));
-        }
-    }
-    output.push_str(") }\n");
 
     output.push_str(
         "pub fn relation_contracts(kind: ObjectType) -> &'static [RelationContract] { match kind {\n",
@@ -1549,12 +1530,7 @@ fn generate_declarations(
             let Some(kind) = property.value.enum_name() else {
                 continue;
             };
-            let (_, variants) = metadata
-                .enum_info(
-                    &native_name(object),
-                    &format!("put_{}", native_property(property)),
-                )
-                .unwrap();
+            let variants = property_enum_variants(object, property, metadata);
             if let Some(previous) = enums.insert(kind, variants.to_vec()) {
                 assert_eq!(previous, variants, "conflicting enum definitions");
             }
@@ -1744,6 +1720,17 @@ fn generate_declarations(
                 }
                 _ => property.value.argument(&name),
             };
+            if property.adapter == Some(PropertyAdapter::ImplicitScale) {
+                output.push_str(
+                    "/// Scales rendering independently on each axis around the element's center.\n\
+                     /// The center follows layout changes; scaling does not change layout size.\n\
+                     /// Factors must be non-negative and finite when converted to `f32`.\n\
+                     /// Use [`Self::scale_transition`] to animate changes.\n\
+                     ///\n\
+                     /// WinUI can hide the element immediately when a factor becomes zero,\n\
+                     /// even during a transition.\n",
+                );
+            }
             output.push_str(&format!("pub fn {name}(mut self, {argument}) -> Self {{\n"));
             if property.value == Value::Vector2 {
                 output.push_str(&format!("let {name} = [x, y];\n"));
@@ -1933,6 +1920,14 @@ fn generate_declarations(
                 .and_then(|field| field.strip_prefix("on_"))
                 .map_or_else(|| snake_case(&event.name), str::to_string);
             match &event.value {
+                Value::PointerEventInfo => {
+                    output.push_str(&format!(
+                        "pub fn on_{method}(mut self, callback: impl Into<PointerCallback>) -> Self {{ \
+                         self.0 = self.0.event(EventId::{}, \
+                         EventValue::PointerEventInfo(callback.into())); self }}\n",
+                        event.name
+                    ));
+                }
                 Value::CharacterEventInfo => {
                     output.push_str(&format!(
                         "pub fn on_{method}(mut self, callback: \
@@ -2000,6 +1995,9 @@ fn validation_expression(name: &str, value: &Value, validation: Validation) -> S
         }
         Validation::Finite => format!("{name}.is_finite()"),
         Validation::FinitePositive => format!("{name}.is_finite() && {name} > 0.0"),
+        Validation::FiniteNonNegative if *value == Value::Vector2 => {
+            format!("{name}.iter().all(|value| (*value as f32).is_finite() && *value >= 0.0)")
+        }
         Validation::FiniteNonNegative if *value == Value::F64 => {
             format!("{name}.is_finite() && {name} >= 0.0")
         }
@@ -2007,6 +2005,7 @@ fn validation_expression(name: &str, value: &Value, validation: Validation) -> S
         Validation::NonNegative => format!("{name} >= 0"),
         Validation::Positive => format!("{name} > 0"),
         Validation::ZeroToFiftyNine => format!("(0..=59).contains(&{name})"),
+        Validation::AnchorRatio => format!("{name}.is_nan() || (0.0..=1.0).contains(&{name})"),
     }
 }
 
@@ -2036,6 +2035,24 @@ fn example_constructor(object: &Object) -> String {
 
 fn native_property(property: &Property) -> &str {
     property.native.as_deref().unwrap_or(&property.name)
+}
+
+/// Enum variants come from the native setter, except cursors, which WinUI creates from a shape.
+fn property_enum_variants<'a>(
+    object: &Object,
+    property: &Property,
+    metadata: &'a tool_reactor_metadata::MetadataResolver,
+) -> &'a [String] {
+    let info = if property.adapter == Some(PropertyAdapter::PointerCursor) {
+        metadata.static_enum_info("InputSystemCursor", "Create")
+    } else {
+        metadata.enum_info(
+            &native_name(object),
+            &format!("put_{}", native_property(property)),
+        )
+    };
+    info.unwrap_or_else(|| panic!("{}.{} is not an enum property", object.name, property.name))
+        .1
 }
 
 fn snake_case(value: &str) -> String {

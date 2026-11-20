@@ -30,8 +30,7 @@ impl WinUiAdapter {
             }
             (Handle::Data(parent), RelationId::Content) => {
                 let properties = parent.cast::<IMap<HSTRING, IInspectable>>()?;
-                let content: IInspectable = child_element.cast()?;
-                properties.Insert(&data_content_key, &content)?;
+                properties.Insert(&data_content_key, &child_element)?;
                 properties.Insert(&self.data_text_visibility_key, &data_string("Collapsed"))?;
             }
             _ => return Err(WinUiError::InvalidRelation(parent, relation)),
@@ -97,10 +96,7 @@ impl WinUiAdapter {
         let selection_item =
             selection.filter(|selection| self.kind(child).is_ok_and(|kind| kind == selection.item));
         let child_value = selection_item
-            .map(|_| {
-                self.ui_element(child)
-                    .and_then(|value| value.cast::<IInspectable>().map_err(Into::into))
-            })
+            .map(|_| self.ui_element(child).map(IInspectable::from))
             .transpose()?;
         let child_selected = selection_item
             .map(|selection| self.selection_item_is_selected(child, selection))
@@ -168,10 +164,7 @@ impl WinUiAdapter {
         let selection_item =
             selection.filter(|selection| self.kind(child).is_ok_and(|kind| kind == selection.item));
         let child_value = selection_item
-            .map(|_| {
-                self.ui_element(child)
-                    .and_then(|value| value.cast::<IInspectable>().map_err(Into::into))
-            })
+            .map(|_| self.ui_element(child).map(IInspectable::from))
             .transpose()?;
         let feedback = self.suppress_selection(parent, relation, selection)?;
         let result = (|| {
@@ -476,7 +469,7 @@ impl WinUiAdapter {
             .collect::<Result<BTreeMap<_, _>, WinUiError>>()?;
         previous.Insert(&self.data_content_key, None)?;
         let value: IObservableMap<HSTRING, IInspectable> = values.into();
-        let inspectable: IInspectable = value.cast()?;
+        let inspectable: IInspectable = value.clone().into();
         if let Some(item) = self.event_queue.items.borrow_mut().get_mut(&object) {
             item.identity = com_identity(&inspectable)?;
         }
@@ -490,7 +483,7 @@ impl WinUiAdapter {
             .get(&object)
             .ok_or(WinUiError::MissingObject(object))?
         {
-            Handle::Data(value) => Ok(value.cast()?),
+            Handle::Data(value) => Ok(value.clone().into()),
             _ => Err(WinUiError::InvalidObject(object)),
         }
     }
@@ -592,90 +585,6 @@ impl WinUiAdapter {
         Ok(template)
     }
 
-    pub(super) fn start_retirement(
-        &mut self,
-        root: ObjectId,
-        nodes: Vec<ObjectId>,
-        parent: ObjectId,
-        relation: RelationId,
-        duration: Duration,
-    ) -> Result<(), WinUiError> {
-        if self.retirements.contains_key(&root)
-            || self.owners.get(&root) != Some(&(parent, relation))
-            || nodes.iter().any(|node| !self.handles.contains_key(node))
-        {
-            return Err(WinUiError::MissingObject(root));
-        }
-        let duration = TimeSpan::try_from(duration).map_err(|_| WinUiError::InvalidDuration)?;
-        let root_element = self.ui_element(root)?;
-        let transition = native::ScalarTransition::new()?;
-        transition.SetDuration(duration)?;
-        root_element.SetOpacityTransition(&transition)?;
-        let timer = native::DispatcherQueue::GetForCurrentThread()?.CreateTimer()?;
-        timer.SetInterval(duration)?;
-        timer.SetIsRepeating(false)?;
-        let event_queue = Rc::clone(&self.event_queue);
-        let tick = timer.Tick(local::handler(move |_, _| {
-            event_queue.push(NativeEvent::Retirement(RetirementCompletion { root }));
-        }))?;
-        self.retirements.insert(
-            root,
-            NativeRetirement {
-                nodes,
-                parent,
-                relation,
-                timer: timer.clone(),
-                _tick: tick,
-            },
-        );
-        if let Err(error) = root_element.SetOpacity(0.0) {
-            self.retirements.remove(&root);
-            return Err(error.into());
-        }
-        if let Err(error) = timer.Start() {
-            self.retirements.remove(&root);
-            return Err(error.into());
-        }
-        Ok(())
-    }
-
-    pub(super) fn complete_retirement(
-        &mut self,
-        root: ObjectId,
-        nodes: &[ObjectId],
-    ) -> Result<(), WinUiError> {
-        let retirement = self
-            .retirements
-            .get(&root)
-            .ok_or(WinUiError::MissingObject(root))?;
-        if retirement.nodes != nodes {
-            return Err(WinUiError::InvalidObject(root));
-        }
-        retirement.timer.Stop()?;
-        let parent = retirement.parent;
-        let relation = retirement.relation;
-        let values = self.owned_collection(parent, relation)?;
-        let root_value = self.ui_element(root)?;
-        let mut index = 0;
-        while index < values.size()? && values.get_at(index)? != root_value {
-            index += 1;
-        }
-        if index == values.size()? {
-            return Err(WinUiError::ChildNotFound(root));
-        }
-        values.remove_at(index)?;
-        self.retirements.remove(&root);
-        for object in nodes {
-            self.owners.remove(object);
-            let handle = self
-                .handles
-                .remove(object)
-                .ok_or(WinUiError::MissingObject(*object))?;
-            self.release_object(*object, handle)?;
-        }
-        Ok(())
-    }
-
     pub(super) fn native_event(&self, queued: &QueuedNativeEvent) -> Option<NativeEvent> {
         let (observation, event) = match queued {
             NativeEvent::Observation(observation) => (Some(observation), None),
@@ -683,9 +592,6 @@ impl WinUiAdapter {
                 return Some(NativeEvent::Record(observation.clone()));
             }
             NativeEvent::Event { observation, event } => (observation.as_ref(), Some(event)),
-            NativeEvent::Retirement(completion) => {
-                return Some(NativeEvent::Retirement(*completion));
-            }
             NativeEvent::Realization(request) => return Some(NativeEvent::Realization(*request)),
         };
         // Native handlers queue reorders without an order; reading it here keeps queued

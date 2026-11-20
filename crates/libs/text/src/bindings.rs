@@ -70,6 +70,10 @@ pub const DWRITE_E_NOCOLOR: windows_core::HRESULT = windows_core::HRESULT(0x8898
 pub type DWRITE_FACTORY_TYPE = i32;
 pub const DWRITE_FACTORY_TYPE_SHARED: DWRITE_FACTORY_TYPE = 0;
 pub type DWRITE_FLOW_DIRECTION = i32;
+pub const DWRITE_FLOW_DIRECTION_BOTTOM_TO_TOP: DWRITE_FLOW_DIRECTION = 1;
+pub const DWRITE_FLOW_DIRECTION_LEFT_TO_RIGHT: DWRITE_FLOW_DIRECTION = 2;
+pub const DWRITE_FLOW_DIRECTION_RIGHT_TO_LEFT: DWRITE_FLOW_DIRECTION = 3;
+pub const DWRITE_FLOW_DIRECTION_TOP_TO_BOTTOM: DWRITE_FLOW_DIRECTION = 0;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DWRITE_FONT_FEATURE {
@@ -135,6 +139,11 @@ pub struct DWRITE_GLYPH_OFFSET {
     pub advanceOffset: FLOAT,
     pub ascenderOffset: FLOAT,
 }
+pub type DWRITE_GLYPH_ORIENTATION_ANGLE = i32;
+pub const DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES: DWRITE_GLYPH_ORIENTATION_ANGLE = 0;
+pub const DWRITE_GLYPH_ORIENTATION_ANGLE_180_DEGREES: DWRITE_GLYPH_ORIENTATION_ANGLE = 2;
+pub const DWRITE_GLYPH_ORIENTATION_ANGLE_270_DEGREES: DWRITE_GLYPH_ORIENTATION_ANGLE = 3;
+pub const DWRITE_GLYPH_ORIENTATION_ANGLE_90_DEGREES: DWRITE_GLYPH_ORIENTATION_ANGLE = 1;
 #[repr(C)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DWRITE_GLYPH_RUN {
@@ -215,8 +224,10 @@ pub type DWRITE_PIXEL_GEOMETRY = i32;
 pub const DWRITE_PIXEL_GEOMETRY_BGR: DWRITE_PIXEL_GEOMETRY = 2;
 pub const DWRITE_PIXEL_GEOMETRY_RGB: DWRITE_PIXEL_GEOMETRY = 1;
 pub type DWRITE_READING_DIRECTION = i32;
+pub const DWRITE_READING_DIRECTION_BOTTOM_TO_TOP: DWRITE_READING_DIRECTION = 3;
 pub const DWRITE_READING_DIRECTION_LEFT_TO_RIGHT: DWRITE_READING_DIRECTION = 0;
 pub const DWRITE_READING_DIRECTION_RIGHT_TO_LEFT: DWRITE_READING_DIRECTION = 1;
+pub const DWRITE_READING_DIRECTION_TOP_TO_BOTTOM: DWRITE_READING_DIRECTION = 2;
 pub type DWRITE_RENDERING_MODE1 = i32;
 pub const DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC: DWRITE_RENDERING_MODE1 = 5;
 pub const DWRITE_RENDERING_MODE1_OUTLINE: DWRITE_RENDERING_MODE1 = 6;
@@ -256,6 +267,12 @@ pub struct DWRITE_TEXT_METRICS {
     pub lineCount: UINT32,
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DWRITE_TEXT_METRICS1 {
+    pub base: DWRITE_TEXT_METRICS,
+    pub heightIncludingTrailingWhitespace: FLOAT,
+}
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DWRITE_TEXT_RANGE {
     pub startPosition: UINT32,
@@ -290,6 +307,9 @@ pub struct DWRITE_UNICODE_RANGE {
     pub first: UINT32,
     pub last: UINT32,
 }
+pub type DWRITE_VERTICAL_GLYPH_ORIENTATION = i32;
+pub const DWRITE_VERTICAL_GLYPH_ORIENTATION_DEFAULT: DWRITE_VERTICAL_GLYPH_ORIENTATION = 0;
+pub const DWRITE_VERTICAL_GLYPH_ORIENTATION_STACKED: DWRITE_VERTICAL_GLYPH_ORIENTATION = 1;
 pub type DWRITE_WORD_WRAPPING = i32;
 pub const DWRITE_WORD_WRAPPING_NO_WRAP: DWRITE_WORD_WRAPPING = 1;
 pub const DWRITE_WORD_WRAPPING_WRAP: DWRITE_WORD_WRAPPING = 0;
@@ -352,7 +372,7 @@ impl IDWriteFactory {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn RegisterFontFileLoader<P0>(
@@ -395,7 +415,7 @@ impl IDWriteFactory {
                 localename,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateTypography(&self) -> windows_core::Result<IDWriteTypography> {
@@ -405,7 +425,7 @@ impl IDWriteFactory {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateTextLayout<P2>(
@@ -430,7 +450,7 @@ impl IDWriteFactory {
                 maxheight,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateEllipsisTrimmingSign<P0>(
@@ -447,7 +467,7 @@ impl IDWriteFactory {
                 textformat.param().abi(),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -550,7 +570,7 @@ impl IDWriteFactory2 {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateFontFallbackBuilder(
@@ -562,7 +582,7 @@ impl IDWriteFactory2 {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn TranslateColorGlyphRun(
@@ -588,7 +608,7 @@ impl IDWriteFactory2 {
                 colorpaletteindex,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -661,7 +681,7 @@ impl IDWriteFactory3 {
                 baselineoriginy,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateFontCollectionFromFontSet<P0>(
@@ -678,7 +698,7 @@ impl IDWriteFactory3 {
                 fontset.param().abi(),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn GetSystemFontCollection(
@@ -786,7 +806,7 @@ impl IDWriteFactory5 {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn CreateInMemoryFontFileLoader(
@@ -798,7 +818,7 @@ impl IDWriteFactory5 {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -831,7 +851,7 @@ impl IDWriteFont {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -878,7 +898,7 @@ impl IDWriteFontCollection {
                 index,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn FindFamilyName(
@@ -1115,7 +1135,7 @@ impl IDWriteFontFace3 {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn GetRecommendedRenderingMode<P7>(
@@ -1248,7 +1268,7 @@ impl IDWriteFontFallbackBuilder {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -1295,7 +1315,7 @@ impl IDWriteFontFamily {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub(crate) unsafe fn GetFirstMatchingFont(
@@ -1313,7 +1333,7 @@ impl IDWriteFontFamily {
                 style,
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -1404,7 +1424,7 @@ impl IDWriteFontSetBuilder {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -1549,7 +1569,7 @@ impl IDWriteInMemoryFontFileLoader {
                 ownerobject.param().abi(),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
 }
@@ -1928,6 +1948,17 @@ impl IDWriteTextFormat {
             )
         }
     }
+    pub(crate) unsafe fn SetFlowDirection(
+        &self,
+        flowdirection: DWRITE_FLOW_DIRECTION,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetFlowDirection)(
+                windows_core::Interface::as_raw(self),
+                flowdirection,
+            )
+        }
+    }
     pub(crate) unsafe fn SetIncrementalTabStop(
         &self,
         incrementaltabstop: FLOAT,
@@ -1955,6 +1986,20 @@ impl IDWriteTextFormat {
             )
         }
     }
+    pub(crate) unsafe fn GetReadingDirection(&self) -> DWRITE_READING_DIRECTION {
+        unsafe {
+            (windows_core::Interface::vtable(self).GetReadingDirection)(
+                windows_core::Interface::as_raw(self),
+            )
+        }
+    }
+    pub(crate) unsafe fn GetFlowDirection(&self) -> DWRITE_FLOW_DIRECTION {
+        unsafe {
+            (windows_core::Interface::vtable(self).GetFlowDirection)(
+                windows_core::Interface::as_raw(self),
+            )
+        }
+    }
 }
 #[repr(C)]
 pub struct IDWriteTextFormat_Vtbl {
@@ -1975,7 +2020,10 @@ pub struct IDWriteTextFormat_Vtbl {
         *mut core::ffi::c_void,
         DWRITE_READING_DIRECTION,
     ) -> windows_core::HRESULT,
-    SetFlowDirection: usize,
+    pub SetFlowDirection: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        DWRITE_FLOW_DIRECTION,
+    ) -> windows_core::HRESULT,
     pub SetIncrementalTabStop:
         unsafe extern "system" fn(*mut core::ffi::c_void, FLOAT) -> windows_core::HRESULT,
     pub SetTrimming: unsafe extern "system" fn(
@@ -1987,8 +2035,10 @@ pub struct IDWriteTextFormat_Vtbl {
     GetTextAlignment: usize,
     GetParagraphAlignment: usize,
     GetWordWrapping: usize,
-    GetReadingDirection: usize,
-    GetFlowDirection: usize,
+    pub GetReadingDirection:
+        unsafe extern "system" fn(*mut core::ffi::c_void) -> DWRITE_READING_DIRECTION,
+    pub GetFlowDirection:
+        unsafe extern "system" fn(*mut core::ffi::c_void) -> DWRITE_FLOW_DIRECTION,
     GetIncrementalTabStop: usize,
     GetTrimming: usize,
     GetLineSpacing: usize,
@@ -2019,6 +2069,17 @@ windows_core::imp::interface_hierarchy!(
     IDWriteTextFormat
 );
 impl IDWriteTextFormat1 {
+    pub(crate) unsafe fn SetVerticalGlyphOrientation(
+        &self,
+        glyphorientation: DWRITE_VERTICAL_GLYPH_ORIENTATION,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetVerticalGlyphOrientation)(
+                windows_core::Interface::as_raw(self),
+                glyphorientation,
+            )
+        }
+    }
     pub(crate) unsafe fn SetFontFallback<P0>(&self, fontfallback: P0) -> windows_core::HRESULT
     where
         P0: windows_core::Param<IDWriteFontFallback>,
@@ -2034,7 +2095,10 @@ impl IDWriteTextFormat1 {
 #[repr(C)]
 pub struct IDWriteTextFormat1_Vtbl {
     pub base__: IDWriteTextFormat_Vtbl,
-    SetVerticalGlyphOrientation: usize,
+    pub SetVerticalGlyphOrientation: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        DWRITE_VERTICAL_GLYPH_ORIENTATION,
+    ) -> windows_core::HRESULT,
     GetVerticalGlyphOrientation: usize,
     SetLastLineWrapping: usize,
     GetLastLineWrapping: usize,
@@ -2276,17 +2340,6 @@ impl IDWriteTextLayout {
             )
         }
     }
-    pub(crate) unsafe fn GetMetrics(
-        &self,
-        textmetrics: *mut DWRITE_TEXT_METRICS,
-    ) -> windows_core::HRESULT {
-        unsafe {
-            (windows_core::Interface::vtable(self).GetMetrics)(
-                windows_core::Interface::as_raw(self),
-                textmetrics as _,
-            )
-        }
-    }
     pub(crate) unsafe fn GetClusterMetrics(
         &self,
         clustermetrics: Option<*mut DWRITE_CLUSTER_METRICS>,
@@ -2448,10 +2501,7 @@ pub struct IDWriteTextLayout_Vtbl {
         UINT32,
         *mut UINT32,
     ) -> windows_core::HRESULT,
-    pub GetMetrics: unsafe extern "system" fn(
-        *mut core::ffi::c_void,
-        *mut DWRITE_TEXT_METRICS,
-    ) -> windows_core::HRESULT,
+    GetMetrics: usize,
     GetOverhangMetrics: usize,
     pub GetClusterMetrics: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -2486,6 +2536,78 @@ pub struct IDWriteTextLayout_Vtbl {
         UINT32,
         *mut UINT32,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDWriteTextLayout1,
+    IDWriteTextLayout1_Vtbl,
+    0x9064d822_80a7_465c_a986_df65f78b8feb
+);
+impl core::ops::Deref for IDWriteTextLayout1 {
+    type Target = IDWriteTextLayout;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    IDWriteTextLayout1,
+    windows_core::IUnknown,
+    IDWriteTextFormat,
+    IDWriteTextLayout
+);
+#[repr(C)]
+pub struct IDWriteTextLayout1_Vtbl {
+    pub base__: IDWriteTextLayout_Vtbl,
+    SetPairKerning: usize,
+    GetPairKerning: usize,
+    SetCharacterSpacing: usize,
+    GetCharacterSpacing: usize,
+}
+windows_core::imp::define_interface!(
+    IDWriteTextLayout2,
+    IDWriteTextLayout2_Vtbl,
+    0x1093c18f_8d5e_43f0_b064_0917311b525e
+);
+impl core::ops::Deref for IDWriteTextLayout2 {
+    type Target = IDWriteTextLayout1;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    IDWriteTextLayout2,
+    windows_core::IUnknown,
+    IDWriteTextFormat,
+    IDWriteTextLayout,
+    IDWriteTextLayout1
+);
+impl IDWriteTextLayout2 {
+    pub(crate) unsafe fn GetMetrics(
+        &self,
+        textmetrics: *mut DWRITE_TEXT_METRICS1,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).GetMetrics)(
+                windows_core::Interface::as_raw(self),
+                textmetrics as _,
+            )
+        }
+    }
+}
+#[repr(C)]
+pub struct IDWriteTextLayout2_Vtbl {
+    pub base__: IDWriteTextLayout1_Vtbl,
+    pub GetMetrics: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut DWRITE_TEXT_METRICS1,
+    ) -> windows_core::HRESULT,
+    SetVerticalGlyphOrientation: usize,
+    GetVerticalGlyphOrientation: usize,
+    SetLastLineWrapping: usize,
+    GetLastLineWrapping: usize,
+    SetOpticalAlignment: usize,
+    GetOpticalAlignment: usize,
+    SetFontFallback: usize,
+    GetFontFallback: usize,
 }
 windows_core::imp::define_interface!(
     IDWriteTextRenderer,
@@ -2701,6 +2823,237 @@ impl IDWriteTextRenderer_Vtbl {
     }
 }
 impl windows_core::RuntimeName for IDWriteTextRenderer {}
+windows_core::imp::define_interface!(
+    IDWriteTextRenderer1,
+    IDWriteTextRenderer1_Vtbl,
+    0xd3e0e934_22a0_427e_aae4_7d9574b59db1
+);
+impl core::ops::Deref for IDWriteTextRenderer1 {
+    type Target = IDWriteTextRenderer;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    IDWriteTextRenderer1,
+    windows_core::IUnknown,
+    IDWritePixelSnapping,
+    IDWriteTextRenderer
+);
+#[repr(C)]
+pub struct IDWriteTextRenderer1_Vtbl {
+    pub base__: IDWriteTextRenderer_Vtbl,
+    pub DrawGlyphRun: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *const core::ffi::c_void,
+        FLOAT,
+        FLOAT,
+        DWRITE_GLYPH_ORIENTATION_ANGLE,
+        DWRITE_MEASURING_MODE,
+        *const DWRITE_GLYPH_RUN,
+        *const DWRITE_GLYPH_RUN_DESCRIPTION,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub DrawUnderline: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *const core::ffi::c_void,
+        FLOAT,
+        FLOAT,
+        DWRITE_GLYPH_ORIENTATION_ANGLE,
+        *const DWRITE_UNDERLINE,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub DrawStrikethrough: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *const core::ffi::c_void,
+        FLOAT,
+        FLOAT,
+        DWRITE_GLYPH_ORIENTATION_ANGLE,
+        *const DWRITE_STRIKETHROUGH,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub DrawInlineObject: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *const core::ffi::c_void,
+        FLOAT,
+        FLOAT,
+        DWRITE_GLYPH_ORIENTATION_ANGLE,
+        *mut core::ffi::c_void,
+        windows_core::BOOL,
+        windows_core::BOOL,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+pub trait IDWriteTextRenderer1_Impl: IDWriteTextRenderer_Impl {
+    fn DrawGlyphRun(
+        &self,
+        clientdrawingcontext: *const core::ffi::c_void,
+        baselineoriginx: FLOAT,
+        baselineoriginy: FLOAT,
+        orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        measuringmode: DWRITE_MEASURING_MODE,
+        glyphrun: *const DWRITE_GLYPH_RUN,
+        glyphrundescription: *const DWRITE_GLYPH_RUN_DESCRIPTION,
+        clientdrawingeffect: windows_core::Ref<windows_core::IUnknown>,
+    ) -> windows_core::HRESULT;
+    fn DrawUnderline(
+        &self,
+        clientdrawingcontext: *const core::ffi::c_void,
+        baselineoriginx: FLOAT,
+        baselineoriginy: FLOAT,
+        orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        underline: *const DWRITE_UNDERLINE,
+        clientdrawingeffect: windows_core::Ref<windows_core::IUnknown>,
+    ) -> windows_core::HRESULT;
+    fn DrawStrikethrough(
+        &self,
+        clientdrawingcontext: *const core::ffi::c_void,
+        baselineoriginx: FLOAT,
+        baselineoriginy: FLOAT,
+        orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        strikethrough: *const DWRITE_STRIKETHROUGH,
+        clientdrawingeffect: windows_core::Ref<windows_core::IUnknown>,
+    ) -> windows_core::HRESULT;
+    fn DrawInlineObject(
+        &self,
+        clientdrawingcontext: *const core::ffi::c_void,
+        originx: FLOAT,
+        originy: FLOAT,
+        orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+        inlineobject: windows_core::Ref<IDWriteInlineObject>,
+        issideways: windows_core::BOOL,
+        isrighttoleft: windows_core::BOOL,
+        clientdrawingeffect: windows_core::Ref<windows_core::IUnknown>,
+    ) -> windows_core::HRESULT;
+}
+impl IDWriteTextRenderer1_Vtbl {
+    pub(crate) const fn new<Identity: IDWriteTextRenderer1_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn DrawGlyphRun<
+            Identity: IDWriteTextRenderer1_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            clientdrawingcontext: *const core::ffi::c_void,
+            baselineoriginx: FLOAT,
+            baselineoriginy: FLOAT,
+            orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+            measuringmode: DWRITE_MEASURING_MODE,
+            glyphrun: *const DWRITE_GLYPH_RUN,
+            glyphrundescription: *const DWRITE_GLYPH_RUN_DESCRIPTION,
+            clientdrawingeffect: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IDWriteTextRenderer1_Impl::DrawGlyphRun(
+                    this,
+                    core::mem::transmute_copy(&clientdrawingcontext),
+                    core::mem::transmute_copy(&baselineoriginx),
+                    core::mem::transmute_copy(&baselineoriginy),
+                    core::mem::transmute_copy(&orientationangle),
+                    core::mem::transmute_copy(&measuringmode),
+                    core::mem::transmute_copy(&glyphrun),
+                    core::mem::transmute_copy(&glyphrundescription),
+                    core::mem::transmute_copy(&clientdrawingeffect),
+                )
+            }
+        }
+        unsafe extern "system" fn DrawUnderline<
+            Identity: IDWriteTextRenderer1_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            clientdrawingcontext: *const core::ffi::c_void,
+            baselineoriginx: FLOAT,
+            baselineoriginy: FLOAT,
+            orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+            underline: *const DWRITE_UNDERLINE,
+            clientdrawingeffect: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IDWriteTextRenderer1_Impl::DrawUnderline(
+                    this,
+                    core::mem::transmute_copy(&clientdrawingcontext),
+                    core::mem::transmute_copy(&baselineoriginx),
+                    core::mem::transmute_copy(&baselineoriginy),
+                    core::mem::transmute_copy(&orientationangle),
+                    core::mem::transmute_copy(&underline),
+                    core::mem::transmute_copy(&clientdrawingeffect),
+                )
+            }
+        }
+        unsafe extern "system" fn DrawStrikethrough<
+            Identity: IDWriteTextRenderer1_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            clientdrawingcontext: *const core::ffi::c_void,
+            baselineoriginx: FLOAT,
+            baselineoriginy: FLOAT,
+            orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+            strikethrough: *const DWRITE_STRIKETHROUGH,
+            clientdrawingeffect: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IDWriteTextRenderer1_Impl::DrawStrikethrough(
+                    this,
+                    core::mem::transmute_copy(&clientdrawingcontext),
+                    core::mem::transmute_copy(&baselineoriginx),
+                    core::mem::transmute_copy(&baselineoriginy),
+                    core::mem::transmute_copy(&orientationangle),
+                    core::mem::transmute_copy(&strikethrough),
+                    core::mem::transmute_copy(&clientdrawingeffect),
+                )
+            }
+        }
+        unsafe extern "system" fn DrawInlineObject<
+            Identity: IDWriteTextRenderer1_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            clientdrawingcontext: *const core::ffi::c_void,
+            originx: FLOAT,
+            originy: FLOAT,
+            orientationangle: DWRITE_GLYPH_ORIENTATION_ANGLE,
+            inlineobject: *mut core::ffi::c_void,
+            issideways: windows_core::BOOL,
+            isrighttoleft: windows_core::BOOL,
+            clientdrawingeffect: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IDWriteTextRenderer1_Impl::DrawInlineObject(
+                    this,
+                    core::mem::transmute_copy(&clientdrawingcontext),
+                    core::mem::transmute_copy(&originx),
+                    core::mem::transmute_copy(&originy),
+                    core::mem::transmute_copy(&orientationangle),
+                    core::mem::transmute_copy(&inlineobject),
+                    core::mem::transmute_copy(&issideways),
+                    core::mem::transmute_copy(&isrighttoleft),
+                    core::mem::transmute_copy(&clientdrawingeffect),
+                )
+            }
+        }
+        Self {
+            base__: IDWriteTextRenderer_Vtbl::new::<Identity, OFFSET>(),
+            DrawGlyphRun: DrawGlyphRun::<Identity, OFFSET>,
+            DrawUnderline: DrawUnderline::<Identity, OFFSET>,
+            DrawStrikethrough: DrawStrikethrough::<Identity, OFFSET>,
+            DrawInlineObject: DrawInlineObject::<Identity, OFFSET>,
+        }
+    }
+    pub(crate) fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<IDWriteTextRenderer1 as windows_core::Interface>::IID
+            || IDWriteTextRenderer_Vtbl::matches(iid)
+    }
+}
+impl windows_core::RuntimeName for IDWriteTextRenderer1 {}
 windows_core::imp::define_interface!(
     IDWriteTypography,
     IDWriteTypography_Vtbl,

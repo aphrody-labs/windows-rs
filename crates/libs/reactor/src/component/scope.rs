@@ -28,10 +28,6 @@ pub(super) trait ErasedComponent {
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> ComponentRender;
     fn cached_view(&self) -> View;
-    #[cfg(any(test, feature = "test"))]
-    fn sender(&self) -> &dyn Any;
-    #[cfg(any(test, feature = "test"))]
-    fn tracked_tasks(&self) -> usize;
 }
 
 pub(super) struct TypedScope<C: Component> {
@@ -40,9 +36,9 @@ pub(super) struct TypedScope<C: Component> {
     pub(super) view: Option<View>,
     pub(super) local_sender: LocalSender<C::Message>,
     pub(super) sender: ComponentSender<C::Message>,
-    pub(super) services: Arc<dyn ComponentServices>,
+    pub(super) services: Arc<ComponentServices>,
     pub(super) tasks: Arc<Mutex<Vec<SyncWeak<TaskControl>>>>,
-    pub(super) ui_services: Rc<dyn ComponentUiServices>,
+    pub(super) ui_services: Rc<WindowServices>,
 }
 
 impl<C: Component> TypedScope<C> {
@@ -63,8 +59,6 @@ impl<C: Component> TypedScope<C> {
         reference: ElementRef,
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> ComponentRender {
-        #[cfg(any(test, feature = "test"))]
-        work::record(|work| work.views += 1);
         let mut context: ViewContext<'_, C> = ViewContext {
             context: self.context(&self.input, reference),
             contexts,
@@ -140,21 +134,6 @@ impl<C: Component> ErasedComponent for TypedScope<C> {
     fn cached_view(&self) -> View {
         self.view.clone().unwrap()
     }
-
-    #[cfg(any(test, feature = "test"))]
-    fn sender(&self) -> &dyn Any {
-        &self.sender
-    }
-
-    #[cfg(any(test, feature = "test"))]
-    fn tracked_tasks(&self) -> usize {
-        self.tasks
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|task| task.strong_count() != 0)
-            .count()
-    }
 }
 
 pub(super) struct Scope {
@@ -201,7 +180,7 @@ pub(super) struct PendingScopeRender {
     pub(super) window: Option<Box<WindowPublication>>,
 }
 
-impl<A: Adapter> ComponentHost<A> {
+impl ComponentHost {
     pub(super) fn owns_scope(&self, owner: ComponentId, mut child: ComponentId) -> bool {
         loop {
             if owner == child {
@@ -333,8 +312,8 @@ impl<A: Adapter> ComponentHost<A> {
             scope.contexts = environment.contexts;
             scope.provided_contexts = environment.provided;
             scope.window = pending.window;
+            scope.dependencies = pending.dependencies;
             self.prepared_effects.push((pending.id, effects));
-            self.replace_dependencies(pending.id, pending.dependencies);
         }
     }
 
@@ -365,9 +344,6 @@ impl<A: Adapter> ComponentHost<A> {
             .unwrap_or_default();
         for child in children {
             self.retire_scope(child);
-        }
-        for consumers in self.context_consumers.values_mut() {
-            consumers.remove(&id);
         }
         let slot = &mut self.scopes[id.index as usize];
         let Some(mut scope) = slot.scope.take() else {

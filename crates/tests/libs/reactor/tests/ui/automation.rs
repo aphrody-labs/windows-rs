@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use windows_core::{HRESULT, Interface};
 
 pub const ELEMENT_UNAVAILABLE: HRESULT = HRESULT(0x80040201u32 as i32);
+const UIA_TIMEOUT: HRESULT = HRESULT(0x80131505u32 as i32);
 pub const INVOKE_PATTERN: i32 = 10000;
 pub(super) const VALUE_PATTERN: i32 = 10002;
 pub(super) const RANGE_VALUE_PATTERN: i32 = 10003;
@@ -14,6 +15,57 @@ pub(super) const SELECTION_PATTERN: i32 = 10001;
 const PROCESS_ID: i32 = 30002;
 pub(super) const LIST_ITEM: i32 = 50007;
 const MENU_ITEM: i32 = 50011;
+
+pub fn snapshot(element: &IUIAutomationElement) -> windows_core::Result<(i32, i32, Vec<u32>)> {
+    let bounds = unsafe { element.CurrentBoundingRectangle()? };
+    let width = bounds.right - bounds.left;
+    let height = bounds.bottom - bounds.top;
+    assert!(width > 0 && height > 0);
+    unsafe {
+        let dc = GetDC(std::ptr::null_mut());
+        assert!(!dc.is_null(), "GetDC failed");
+        let memory = CreateCompatibleDC(dc);
+        assert!(!memory.is_null(), "CreateCompatibleDC failed");
+        let bitmap = CreateCompatibleBitmap(dc, width, height);
+        assert!(!bitmap.is_null(), "CreateCompatibleBitmap failed");
+        let previous = SelectObject(memory, bitmap.cast());
+        assert!(!previous.is_null());
+        let copied = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            dc,
+            bounds.left,
+            bounds.top,
+            SRCCOPY,
+        );
+        assert!(!SelectObject(memory, previous).is_null());
+        let mut info = BITMAPINFO::default();
+        info.bmiHeader.biSize = size_of_val(&info.bmiHeader) as u32;
+        info.bmiHeader.biWidth = width;
+        info.bmiHeader.biHeight = -height;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        let mut buffer = vec![0u32; (width * height) as usize];
+        let lines = GetDIBits(
+            dc,
+            bitmap,
+            0,
+            height as u32,
+            buffer.as_mut_ptr().cast(),
+            &mut info,
+            DIB_RGB_COLORS as u32,
+        );
+        assert!(DeleteObject(bitmap.cast()).as_bool());
+        assert!(DeleteDC(memory).as_bool());
+        assert_ne!(ReleaseDC(std::ptr::null_mut(), dc), 0);
+        assert!(copied.as_bool(), "BitBlt failed");
+        assert_eq!(lines, height, "GetDIBits failed");
+        Ok((width, height, buffer))
+    }
+}
 
 pub fn retired(ui: &Automation, item: &IUIAutomationInvokePattern, selection: &str) -> Result<()> {
     let result = unsafe { item.Invoke() };
@@ -47,6 +99,7 @@ pub struct Automation {
     window: Cell<Option<usize>>,
     cancelled: Arc<AtomicBool>,
     pressed: Arc<Mutex<bool>>,
+    stderr: std::path::PathBuf,
 }
 
 impl Automation {
@@ -55,6 +108,7 @@ impl Automation {
         fixture: &str,
         cancelled: Arc<AtomicBool>,
         pressed: Arc<Mutex<bool>>,
+        stderr: std::path::PathBuf,
     ) -> Result<Self> {
         unsafe {
             let mut raw = std::ptr::null_mut();
@@ -91,6 +145,7 @@ impl Automation {
                 window: Cell::new(None),
                 cancelled,
                 pressed,
+                stderr,
             })
         }
     }
@@ -120,9 +175,10 @@ impl Automation {
             let all = self.client.CreateTrueCondition()?;
             let mut found = None;
             for root in 0..roots.Length()? {
-                let elements = roots
-                    .GetElement(root)?
-                    .FindAll(TreeScope_Descendants, &all)?;
+                let root = roots.GetElement(root)?;
+                let elements = root
+                    .FindAll(TreeScope_Descendants, &all)
+                    .inspect_err(|error| log_root(&root, error))?;
                 for index in 0..elements.Length()? {
                     let element = elements.GetElement(index)?;
                     let name = if let Some(control_type) = control_type {
@@ -159,13 +215,27 @@ impl Automation {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             self.ensure_active()?;
+            let started = Instant::now();
             let observed = sample();
             self.ensure_active()?;
             match &observed {
                 Ok(value) if ready(value) => return Ok(observed?),
                 Ok(_) => {}
-                Err(error) if error.code() == ELEMENT_UNAVAILABLE => {}
-                Err(error) => return Err(format!("{description}: {error}").into()),
+                Err(error) if transient(error) => {
+                    if error.code() == UIA_TIMEOUT {
+                        eprintln!(
+                            "sample timed out after {} ms; repeating",
+                            started.elapsed().as_millis()
+                        );
+                    }
+                }
+                Err(error) => {
+                    eprintln!(
+                        "sample failed after {} ms: {error}",
+                        started.elapsed().as_millis()
+                    );
+                    return Err(format!("{description}: {error}").into());
+                }
             }
             if Instant::now() >= deadline {
                 if let Err(error) = self.dump() {
@@ -450,6 +520,52 @@ impl Automation {
         self.tray_event(NIN_SELECT as u32)
     }
 
+    pub fn remove_tray_registration(&self) -> Result<()> {
+        let window = self
+            .tray_window()?
+            .ok_or("fixture icon window is missing")?;
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: window,
+            uID: 1,
+            ..Default::default()
+        };
+        assert!(
+            unsafe { Shell_NotifyIconW(NIM_DELETE as u32, &mut data) }.as_bool(),
+            "failed to remove fixture's Shell registration"
+        );
+        Ok(())
+    }
+
+    pub fn recover_tray_registration(&self) -> Result<()> {
+        let window = self
+            .tray_window()?
+            .ok_or("fixture icon window is missing")?;
+        unsafe {
+            let message = RegisterWindowMessageW(windows_core::w!("TaskbarCreated"));
+            assert_ne!(message, 0);
+            let mut result = 0;
+            assert_ne!(
+                SendMessageTimeoutW(
+                    window,
+                    message,
+                    0,
+                    0,
+                    SMTO_ABORTIFHUNG as u32,
+                    5000,
+                    &mut result,
+                ),
+                0,
+                "fixture did not queue Shell recovery"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn stderr(&self) -> Result<String> {
+        Ok(std::fs::read_to_string(&self.stderr)?)
+    }
+
     fn tray_event(&self, event: u32) -> Result<()> {
         eprintln!("send Shell notification {event:#x} to fixture icon");
         let hwnd = self
@@ -636,6 +752,45 @@ impl Automation {
         self.pointer_move_to(&self.element(id)?, id, x, y)
     }
 
+    /// Moves the pointer onto `id` until the fixture reports `expected` as the name of `observed`.
+    /// WinUI drops pointer input for a short time after a window is first shown, with no signal
+    /// for when input is accepted, so a move that the fixture does not observe is repeated. See
+    /// microsoft/microsoft-ui-xaml#12753.
+    pub fn pointer_enter(&self, id: &str, observed: &str, expected: &str) -> Result<()> {
+        let element = self.element(id)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut x = 0.5;
+        loop {
+            self.pointer_move_to(&element, id, x, 0.5)?;
+            x = if x == 0.5 { 0.52 } else { 0.5 };
+            let delivered = Instant::now() + Duration::from_millis(100);
+            loop {
+                let name = unsafe {
+                    self.find(observed, None).and_then(|element| {
+                        element.map(|element| element.CurrentName()).transpose()
+                    })
+                };
+                match name {
+                    Ok(Some(name)) if name == expected => return Ok(()),
+                    Ok(_) => {}
+                    Err(error) if transient(&error) => {}
+                    Err(error) => return Err(error.into()),
+                }
+                if Instant::now() >= delivered {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "pointer did not enter {id:?}: {observed:?} is not {expected:?}"
+                )
+                .into());
+            }
+            eprintln!("pointer move onto {id:?} was not delivered");
+        }
+    }
+
     pub fn pointer_move_to(
         &self,
         element: &IUIAutomationElement,
@@ -694,6 +849,8 @@ impl Automation {
             if !*pressed && GetAsyncKeyState(0x01) & i16::MIN != 0 {
                 return Err("left mouse button is held by another input source".into());
             }
+            let mut before = POINT::default();
+            GetCursorPos(&mut before).ok()?;
             send_mouse(
                 MOUSEEVENTF_MOVE
                     | MOUSEEVENTF_MOVE_NOCOALESCE
@@ -701,7 +858,14 @@ impl Automation {
                     | MOUSEEVENTF_VIRTUALDESK,
                 ((f64::from(point.x - x) * 65535.0) / f64::from(width - 1)).round() as i32,
                 ((f64::from(point.y - y) * 65535.0) / f64::from(height - 1)).round() as i32,
-            )
+            )?;
+            let mut after = POINT::default();
+            GetCursorPos(&mut after).ok()?;
+            eprintln!(
+                "pointer target ({}, {}); cursor ({}, {}) -> ({}, {})",
+                point.x, point.y, before.x, before.y, after.x, after.y
+            );
+            Ok(())
         }
     }
 
@@ -1058,4 +1222,22 @@ impl Automation {
         }
         Ok(())
     }
+}
+
+// A search that overlaps a change to the UI tree can fail with ELEMENT_UNAVAILABLE. WinUI can
+// instead fail it with UIA_E_TIMEOUT within about 100 ms, for example while a popup window closes
+// or while a fixture starts; a WinForms popup only produced ELEMENT_UNAVAILABLE. Both mean the
+// tree changed during the search, so the sample is repeated until the caller's deadline.
+fn transient(error: &windows_core::Error) -> bool {
+    error.code() == ELEMENT_UNAVAILABLE || error.code() == UIA_TIMEOUT
+}
+
+// Identifies the top-level window whose subtree failed so it can be matched with the window probe.
+fn log_root(root: &IUIAutomationElement, error: &windows_core::Error) {
+    if transient(error) {
+        return;
+    }
+    let window = unsafe { root.CurrentNativeWindowHandle() };
+    let name = unsafe { root.CurrentName() };
+    eprintln!("root {window:?} {name:?} failed: {error}");
 }

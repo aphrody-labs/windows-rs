@@ -1,11 +1,10 @@
 #[allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
 mod bindings;
+use super::*;
 use bindings::*;
-use std::mem::size_of;
-use std::os::windows::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-use windows_core::{Error, PCWSTR, Result};
-use windows_window::{Window, WindowBuilder};
+use std::os::windows::ffi::*;
+use windows_core::*;
+use windows_window::*;
 
 const CALLBACK_MESSAGE: u32 = WM_USER as u32 + 1;
 const ICON_ID: u32 = 1;
@@ -111,18 +110,6 @@ impl Registration {
         Ok(())
     }
 
-    fn update_with<F>(&self, hwnd: *mut core::ffi::c_void, notify: &mut F) -> Result<()>
-    where
-        F: FnMut(u32, &NOTIFYICONDATAW) -> bool,
-    {
-        let data = self.data(hwnd);
-        if notify(NIM_MODIFY as u32, &data) {
-            Ok(())
-        } else {
-            Err(shell_error("failed to update notification-area icon"))
-        }
-    }
-
     fn recover(&self, hwnd: *mut core::ffi::c_void) -> Result<()> {
         let mut notify = shell_notify;
         self.recover_with(hwnd, &mut notify)
@@ -158,16 +145,17 @@ impl Registration {
         icon: OwnedIcon,
         hwnd: *mut core::ffi::c_void,
         notify: &mut F,
-    ) -> Result<()>
+    ) -> bool
     where
         F: FnMut(u32, &NOTIFYICONDATAW) -> bool,
     {
-        let previous = std::mem::replace(&mut self.icon, icon);
-        if let Err(error) = self.update_with(hwnd, notify) {
-            self.icon = previous;
-            return Err(error);
+        let mut data = self.data(hwnd);
+        data.hIcon = icon.handle.cast();
+        if !notify(NIM_MODIFY as u32, &data) {
+            return false;
         }
-        Ok(())
+        self.icon = icon;
+        true
     }
 
     fn set_tooltip_with<F>(
@@ -175,16 +163,17 @@ impl Registration {
         tooltip: Option<[u16; 128]>,
         hwnd: *mut core::ffi::c_void,
         notify: &mut F,
-    ) -> Result<()>
+    ) -> bool
     where
         F: FnMut(u32, &NOTIFYICONDATAW) -> bool,
     {
-        let previous = std::mem::replace(&mut self.tooltip, tooltip);
-        if let Err(error) = self.update_with(hwnd, notify) {
-            self.tooltip = previous;
-            return Err(error);
+        let mut data = self.data(hwnd);
+        data.szTip = tooltip.unwrap_or([0; 128]);
+        if !notify(NIM_MODIFY as u32, &data) {
+            return false;
         }
-        Ok(())
+        self.tooltip = tooltip;
+        true
     }
 
     fn data(&self, hwnd: *mut core::ffi::c_void) -> NOTIFYICONDATAW {
@@ -220,17 +209,27 @@ impl NotifyIcon {
     }
 
     /// Replaces the icon using an `.ico` file.
-    pub fn set_icon(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    ///
+    /// Returns `false` if the Shell rejects the update, retaining the last applied image.
+    pub fn set_icon(&mut self, path: impl AsRef<Path>) -> Result<bool> {
         let icon = OwnedIcon::load(path.as_ref())?;
-        self.registration
-            .replace_icon_with(icon, self.callback_window.hwnd(), &mut shell_notify)
+        Ok(self.registration.replace_icon_with(
+            icon,
+            self.callback_window.hwnd(),
+            &mut shell_notify,
+        ))
     }
 
     /// Sets or clears the standard tooltip.
-    pub fn set_tooltip(&mut self, tooltip: Option<&str>) -> Result<()> {
+    ///
+    /// Returns `false` if the Shell rejects the update, retaining the last applied tooltip.
+    pub fn set_tooltip(&mut self, tooltip: Option<&str>) -> Result<bool> {
         let tooltip = tooltip.map(tooltip_text).transpose()?;
-        self.registration
-            .set_tooltip_with(tooltip, self.callback_window.hwnd(), &mut shell_notify)
+        Ok(self.registration.set_tooltip_with(
+            tooltip,
+            self.callback_window.hwnd(),
+            &mut shell_notify,
+        ))
     }
 
     pub fn recover(&self) -> Result<()> {
@@ -461,7 +460,6 @@ mod tests {
     #[test]
     fn preserves_windows_paths_that_are_not_utf8() {
         use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
 
         let path = PathBuf::from(OsString::from_wide(&[b'a' as u16, 0xd800]));
         assert_eq!(wide_path(&path).unwrap(), [b'a' as u16, 0xd800, 0]);
@@ -476,16 +474,12 @@ mod tests {
             true
         };
 
-        registration
-            .set_tooltip_with(
-                Some(tooltip_text("updated").unwrap()),
-                core::ptr::null_mut(),
-                &mut notify,
-            )
-            .unwrap();
-        registration
-            .set_tooltip_with(None, core::ptr::null_mut(), &mut notify)
-            .unwrap();
+        assert!(registration.set_tooltip_with(
+            Some(tooltip_text("updated").unwrap()),
+            core::ptr::null_mut(),
+            &mut notify,
+        ));
+        assert!(registration.set_tooltip_with(None, core::ptr::null_mut(), &mut notify));
 
         assert_eq!(payloads[0].0, NIM_MODIFY as u32);
         assert_ne!(payloads[0].1 & NIF_TIP as u32, 0);
@@ -507,21 +501,72 @@ mod tests {
     }
 
     #[test]
-    fn failed_icon_replacement_restores_the_previous_icon() {
+    fn refused_tooltip_updates_preserve_applied_payload_until_retry_succeeds() {
         let mut registration = registration(1);
+        let previous = Some(tooltip_text("previous").unwrap());
+        let updated = tooltip_text("updated").unwrap();
+        registration.tooltip = previous;
+        let mut results = [false, true, false, true].into_iter();
         let mut payloads = Vec::new();
         let mut notify = |message, data: &NOTIFYICONDATAW| {
-            payloads.push((message, data.hIcon as usize));
-            false
+            assert_eq!(message, NIM_MODIFY as u32);
+            assert_eq!(data.hIcon as usize, 1);
+            payloads.push(data.szTip);
+            results.next().unwrap()
         };
 
-        assert!(
-            registration
-                .replace_icon_with(OwnedIcon::borrowed(2), core::ptr::null_mut(), &mut notify)
-                .is_err()
-        );
+        assert!(!registration.set_tooltip_with(Some(updated), core::ptr::null_mut(), &mut notify));
+        assert_eq!(registration.tooltip, previous);
+        assert!(registration.set_tooltip_with(Some(updated), core::ptr::null_mut(), &mut notify));
+        assert_eq!(registration.tooltip, Some(updated));
+        assert!(!registration.set_tooltip_with(None, core::ptr::null_mut(), &mut notify));
+        assert_eq!(registration.tooltip, Some(updated));
+        assert!(registration.set_tooltip_with(None, core::ptr::null_mut(), &mut notify));
+        assert_eq!(registration.tooltip, None);
+        assert_eq!(payloads, [updated, updated, [0; 128], [0; 128]]);
+    }
+
+    #[test]
+    fn refused_image_updates_preserve_applied_payload_until_retry_succeeds() {
+        let mut registration = registration(1);
+        let tooltip = tooltip_text("retained").unwrap();
+        registration.tooltip = Some(tooltip);
+        let mut results = [false, false, true].into_iter();
+        let mut payloads = Vec::new();
+        let mut notify = |message, data: &NOTIFYICONDATAW| {
+            assert_ne!(data.uFlags & NIF_ICON as u32, 0);
+            assert_eq!({ data.szTip }, tooltip);
+            payloads.push((message, data.hIcon as usize));
+            results.next().unwrap()
+        };
+
+        assert!(!registration.replace_icon_with(
+            OwnedIcon::borrowed(2),
+            core::ptr::null_mut(),
+            &mut notify,
+        ));
         assert_eq!(registration.icon.handle as usize, 1);
-        assert_eq!(payloads, [(NIM_MODIFY as u32, 2)]);
+        assert!(!registration.replace_icon_with(
+            OwnedIcon::borrowed(3),
+            core::ptr::null_mut(),
+            &mut notify,
+        ));
+        assert_eq!(registration.icon.handle as usize, 1);
+        assert!(registration.replace_icon_with(
+            OwnedIcon::borrowed(3),
+            core::ptr::null_mut(),
+            &mut notify,
+        ));
+        assert_eq!(registration.icon.handle as usize, 3);
+        assert_eq!(registration.tooltip, Some(tooltip));
+        assert_eq!(
+            payloads,
+            [
+                (NIM_MODIFY as u32, 2),
+                (NIM_MODIFY as u32, 3),
+                (NIM_MODIFY as u32, 3)
+            ]
+        );
     }
 
     #[test]
@@ -543,23 +588,6 @@ mod tests {
             calls,
             [NIM_ADD as u32, NIM_SETVERSION as u32, NIM_DELETE as u32]
         );
-    }
-
-    #[test]
-    fn failed_modify_does_not_attempt_registration() {
-        let registration = registration(1);
-        let mut calls = Vec::new();
-        let mut notify = |message, _: &NOTIFYICONDATAW| {
-            calls.push(message);
-            false
-        };
-
-        assert!(
-            registration
-                .update_with(core::ptr::null_mut(), &mut notify)
-                .is_err()
-        );
-        assert_eq!(calls, [NIM_MODIFY as u32]);
     }
 
     #[test]

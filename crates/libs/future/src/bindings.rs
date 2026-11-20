@@ -782,7 +782,7 @@ impl IAsyncAction {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn GetResults(&self) -> windows_core::Result<()> {
@@ -875,8 +875,7 @@ impl IAsyncAction_Vtbl {
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncAction_Impl::Completed(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -945,7 +944,7 @@ impl<TProgress: windows_core::RuntimeType + 'static> IAsyncActionWithProgress<TP
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn SetCompleted<P0>(&self, value: P0) -> windows_core::Result<()>
@@ -969,7 +968,7 @@ impl<TProgress: windows_core::RuntimeType + 'static> IAsyncActionWithProgress<TP
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn GetResults(&self) -> windows_core::Result<()> {
@@ -1091,8 +1090,7 @@ impl<TProgress: windows_core::RuntimeType + 'static> IAsyncActionWithProgress_Vt
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncActionWithProgress_Impl::Progress(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1130,8 +1128,7 @@ impl<TProgress: windows_core::RuntimeType + 'static> IAsyncActionWithProgress_Vt
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncActionWithProgress_Impl::Completed(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1389,17 +1386,18 @@ impl<TResult: windows_core::RuntimeType + 'static> IAsyncOperation<TResult> {
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn GetResults(&self) -> windows_core::Result<TResult> {
         unsafe {
-            let mut result__ = core::mem::zeroed();
+            let mut result__ =
+                core::mem::MaybeUninit::<<TResult as windows_core::imp::Type>::Default>::zeroed();
             (windows_core::Interface::vtable(self).GetResults)(
                 windows_core::Interface::as_raw(self),
-                &mut result__,
+                result__.as_mut_ptr().cast(),
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::Type::from_default_owned(result__.assume_init()))
         }
     }
     pub fn Id(&self) -> windows_core::Result<u32> {
@@ -1499,8 +1497,7 @@ impl<TResult: windows_core::RuntimeType + 'static> IAsyncOperation_Vtbl<TResult>
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncOperation_Impl::Completed(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1523,8 +1520,7 @@ impl<TResult: windows_core::RuntimeType + 'static> IAsyncOperation_Vtbl<TResult>
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncOperation_Impl::GetResults(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1596,7 +1592,7 @@ impl<TResult: windows_core::RuntimeType + 'static, TProgress: windows_core::Runt
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn SetCompleted<P0>(&self, value: P0) -> windows_core::Result<()>
@@ -1620,17 +1616,18 @@ impl<TResult: windows_core::RuntimeType + 'static, TProgress: windows_core::Runt
                 windows_core::Interface::as_raw(self),
                 &mut result__,
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::from_abi(result__))
         }
     }
     pub fn GetResults(&self) -> windows_core::Result<TResult> {
         unsafe {
-            let mut result__ = core::mem::zeroed();
+            let mut result__ =
+                core::mem::MaybeUninit::<<TResult as windows_core::imp::Type>::Default>::zeroed();
             (windows_core::Interface::vtable(self).GetResults)(
                 windows_core::Interface::as_raw(self),
-                &mut result__,
+                result__.as_mut_ptr().cast(),
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::Type::from_default_owned(result__.assume_init()))
         }
     }
     pub fn Id(&self) -> windows_core::Result<u32> {
@@ -1759,8 +1756,7 @@ impl<TResult: windows_core::RuntimeType + 'static, TProgress: windows_core::Runt
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncOperationWithProgress_Impl::Progress(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1803,8 +1799,7 @@ impl<TResult: windows_core::RuntimeType + 'static, TProgress: windows_core::Runt
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncOperationWithProgress_Impl::Completed(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {
@@ -1828,8 +1823,7 @@ impl<TResult: windows_core::RuntimeType + 'static, TProgress: windows_core::Runt
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IAsyncOperationWithProgress_Impl::GetResults(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {

@@ -8,6 +8,49 @@ architecture knowledge needed to work on this repository.
 Do not create git commits automatically. The maintainer reviews all changes first and handles
 commits manually. Make changes locally, run fmt/clippy/tests to verify, and report back.
 
+### Reactor and Canvas reliability gates
+
+Treat reliability work as a sequence of small contracts, not a broad cleanup or rewrite. A fast
+demo, a green suite, and a review with no findings do not establish an untested contract.
+
+1. **Define the claim before implementation.** State the observable behavior, failure behavior,
+   and non-goals. Trace it through callers, queues, native calls, completion, and teardown,
+   including unchanged code. Distinguish input delivery, drawing completion, swap-chain submission,
+   and physical display. Do not use evidence from one stage to claim another.
+2. **Make the claim falsifiable.** For a fix, reproduce the defect before changing production code.
+   For a new contract, identify a violation the test must detect. Exercise failures at the layer
+   that produces them: returning an error from a draw callback does not test Direct2D `EndDraw`.
+   Use focused state/WARP tests for deterministic logic and `test-reactor` fixtures for native
+   input, completion, and lifetime contracts. Do not add public test-only APIs or separate runners.
+3. **Preserve failing conditions.** Do not make a failure disappear by adding pointer movement,
+   changing focus, waiting longer, retrying, or weakening an assertion. A fixture correction needs
+   evidence that its setup, rather than the product contract, was wrong. A narrower passing case
+   does not resolve the original failure; retain its reproduction in a fixture or focused issue.
+   Synchronize on the relevant completion, not elapsed time or successful `SendInput`.
+4. **Fix one owning layer before expanding scope.** Do not combine unresolved runtime guarantees
+   with sample replacement, API growth, or presentation tuning. Keep independently useful fixes
+   separable. Do not revive shelved ownership wrappers, transactional emulation, or crate splits
+   without evidence that they remove the demonstrated failure mechanism.
+5. **Validate the actual configuration.** Before PR readiness, run the applicable workflow's
+   toolchain, flags, feature combinations, and commands on the final code. In particular, follow
+   `.github/workflows/reactor.yml`: nightly or feature-unified Clippy is not a substitute for its
+   isolated stable checks. Run the default `test-reactor` suite with its COM diagnostics for
+   native runtime changes. Report unavailable checks, ignored cases, and toolchain differences.
+6. **Review the guarantee, not the test count.** Before recommending a runtime/API change for PR,
+   obtain an independent review of the final diff and failure evidence. Give the reviewer the
+   contract, assumptions, and unresolved observations, not a desired verdict. Check which defects
+   could still pass the tests. If independent review is unavailable, report it as pending.
+   Reconcile external findings before recommending merge.
+
+A known defect in the claimed path blocks readiness for that path. A Reactor-only reproduction is
+not proof of a WinUI defect; preserve the exact conditions and compare a minimal native reproduction
+before assigning ownership. Do not replace a failing contract with a timing workaround.
+
+Report what is verified, what failed, and what remains unverified. Do not call the whole framework
+"solid", "hardened", or "ready" from a bounded result. Once a contract has its regression, fix,
+validation, and review, stop expanding it and deliver that change. More tests, agents, benchmarks,
+or speculative refactoring are not substitutes for closing the specific failure.
+
 ## Repository Layout
 
 Cargo workspace (`resolver = "3"`). Members are globbed from:
@@ -74,7 +117,7 @@ cargo run -p tool-bindings --quiet
 cargo check -p windows-reactor --quiet
 
 # Unit tests (headless, fast)
-cargo test -p windows-reactor --all-features --quiet
+cargo test -p windows-reactor --quiet
 
 # Public API tests (x64 interactive desktop; Cargo deploys the runtime)
 cargo test -p test-reactor
@@ -163,12 +206,66 @@ After regenerating, verify: `cargo check -p <affected-crate> --quiet`.
 - COM casts: classes Deref to their default interface (zero-cost). Only cast to non-default parent
   interfaces. The `Param` trait handles parent-class conversions automatically.
 
+### Reactor architectural decisions
+
+Read these decisions before proposing another redesign. Shelving code or starting a new session
+does not reset the conclusions. Reopening a direction requires naming the changed premise and a
+bounded experiment that can disprove the claimed improvement.
+
+- **Construction-once WinUI replacement: shelved, not adopted.** The scoped native-owned editor
+  hid weak references, subscription lists, and explicit row refreshes, but added ownership,
+  binding, and row-adapter machinery. It did not demonstrate lower total application-plus-library
+  complexity. Revisit only with a representative workload that reduces total obligations, not
+  just the visible application or wrapper size.
+- **Optimistic scalar reconciliation: shelved, not adopted.** Comparing declarations alone misses
+  normalization back to the previous model value. The experiment needed explicit writes and
+  application guards against native event echoes; passing headless tests did not establish native
+  editing behavior. Do not revive it without resolving same-value normalization, callback delivery,
+  caret/selection, and IME obligations without application repair logic.
+- **List-control replacement is not a general reliability fix.** In the closed #5380
+  investigation, top-of-list cases passed while nonzero-scroll resets jumped; granular updates
+  traded reset behavior for per-item notification cost. Native reorder also separated item keys
+  from source indices and container leases. Preserve these distinctions in any replacement.
+  Compare the same workload, including nonzero scroll and churn; do not transfer readiness claims
+  from a discarded branch to the current implementation.
+- **Subscription-owned event lifetime: preserve when porting.** The experimental
+  `NativeSubscription` owns the lifetime token; queued and deferred occurrences hold only weak
+  references. Callback replacement preserves the subscription; removal or owner destruction
+  expires its occurrences. This makes cancellation follow ownership instead of depending solely
+  on every teardown path remembering to clear queues. Preserve both sides of this contract when
+  assessing the change independently of the custom control.
+- **Canvas process table: specialized control, not a backend replacement.** The experimental
+  viewport-sized surface avoids native row containers and has promising manual visual/input
+  results. That does not establish failure-path correctness, input-to-pixel latency, or a complete
+  control toolkit. Keep its missing accessibility and input capabilities explicit. An owned
+  Direct3D backend remains unproven: rendering/text primitives do not settle editing, IME, focus,
+  or accessibility.
+
+When an experiment ends, update its decision, evidence, limitations, and reopening condition here
+before shelving or replacing it. Keep executable regressions in the owning test crate and unresolved
+reproductions in Focused Investigations or focused issues. Preserve the resulting invariant after
+removing a resolved investigation; do not rely on chat history or local stashes as the only record.
+Keep this section to current decisions, not a chronological account of rewrites.
+
 ### Canvas architecture
 
 - Canvas wraps D2D/DXGI behind safe Rust types (`GpuDevice`, `SwapChain`, `DrawingSession`,
   `PathBuilder`).
 - `animated_canvas()` (reactor feature) renders on UI thread via `CompositionTarget::Rendering`.
 - Device-lost recovery is automatic.
+- Owned drawing sessions retain the complete `EndDraw` result until the owner checks it.
+  `SwapChain::present` must reject failed drawing before calling DXGI; `RenderTarget::draw` must
+  report deferred errors. Native `EndDraw` device loss takes precedence; otherwise callback
+  device-loss errors are preserved. Borrowed sessions leave draw completion to their caller.
+  Preserve the native-error regressions in `test_canvas` and the Canvas error-path fixture in
+  `test-reactor`; a successful draw closure is not completion.
+- `Canvas::on_submitted` runs only after successful drawing and swap-chain submission, outside the
+  render-state borrow. Publish prepared hit-test geometry there and resolve it in routed pointer
+  callbacks before queuing messages. Changing pointer delivery mode replaces the callback, not the
+  subscription: queued occurrences retain their original callbacks. Test replacement before removal
+  or teardown, which cancel pending occurrences and can mask a replacement bug. Preserve
+  the native submitted-input and routing fixtures described in the `test-reactor` README; neither
+  submission nor their injected callback device loss proves physical display or native removal.
 
 ## Conventions
 
@@ -339,24 +436,66 @@ for reproducible bugs. Remove resolved entries rather than appending a history o
 
 ### Native UI behavior and coverage
 
+#### Canvas details recovery
+
+The destination is a reusable in-house details/list control, proved with the Task Manager sample.
+Use that workload to harden Reactor and Canvas at the layer owning each demonstrated failure.
+This is not another Reactor rewrite or an attempt to match every WinUI ListView feature.
+
+Build on updated master, retaining `reactor-experiments` and closed PR #5382 as salvage references,
+not a patch to import wholesale. Paths and symbols for the custom control below refer to that
+experimental branch until ported. Keep each iteration independently reviewable and leave the
+sample runnable. Subscription-lifetime fixes can be assessed separately.
+
+Current gate: maintainer acceptance of the bounded submitted-frame input change. After acceptance,
+integrate that boundary into the existing table, harden it under churn, and adopt it in Task Manager,
+keeping those changes separate. Measure performance against the same workload and an agreed
+baseline; drawing time is not input-to-pixel latency.
+
+1. **Integrate submitted-frame input in the table.** Use `Canvas::on_submitted` to publish prepared
+   geometry and routed pointer callbacks to resolve row targets before queuing messages. Retain
+   the small Canvas fixture while adding control-level coverage; do not infer the table's behavior
+   from the framework fixture.
+   In `crates/tests/libs/reactor/tests/ui/canvas_details.rs`, wheel injection alone is not evidence
+   that the scrolled frame was submitted; observe the marker before asserting a new-frame click.
+2. **One submitted geometry for input feedback.** In
+   `crates/samples/reactor/task-manager/src/details_view/`, review `Frames::present`, pointer
+   state, and drawing together. Hover and divider feedback must follow the submitted geometry
+   when scrolling or resizing without pointer movement. Cover wheel, keyboard, and scrollbar
+   changes, stale row targets, and failed-frame publication with focused cases.
+3. **Resolve the cursor observation without changing the reproduction.** In the experimental
+   `RoutingFixture` in `crates/tests/libs/reactor/src/pointer.rs`, change a child's cursor while the
+   pointer stays over it and its ancestor has an explicit cursor. The experimental test in
+   `tests/ui/main.rs` moves away before changing mode; it proves re-entry behavior only. Compare the
+   unchanged case with native WinUI before fixing Reactor or documenting a native limitation.
+
+The drawing-completion contract is a prerequisite for claiming successful-frame publication.
+Only then assess the complete process-view replacement. Remove resolved items from this recovery
+section rather than extending it into a change journal.
+
+#### Other native observations
+
 Investigate `MenuThemeState::refresh` and `show_pending` in
 `crates/libs/reactor/src/native/transient_menu.rs`: a CI run observed a flyout item remaining Light
 while its anchor reported Dark. The cause is unconfirmed; headless preference and callback tests
 do not establish native theme propagation.
 
-Live coverage still needs flyout-driven `DatePicker::on_date_changed` and
-`TimePicker::on_time_changed` cases. Objects without UIA peers (`InfoBadge`, `PersonPicture`,
-shapes, icons) have lifecycle coverage without observed property values. WebView process failure,
-actual downloads, and deferral paths also need behavioral coverage.
+Live coverage still needs a flyout-driven `DatePicker::on_date_changed` case. Objects without UIA
+peers (`InfoBadge`, `PersonPicture`, shapes, icons) have lifecycle coverage without observed
+property values. WebView process failure, actual downloads, and deferral paths also need behavioral
+coverage.
 
 Keep native reproductions separate from Reactor-only observations; do not add timing workarounds:
 
 | Area | Observation | Reproduction |
 | --- | --- | --- |
 | `ToggleSwitch.IsOn` | Repeated updates become progressively slower | Plain C# WinUI |
+| `UIElement.ScaleTransition` | Setting a scale axis to zero hides the element immediately, without visible intermediate shrinkage | Plain C# WinUI 2.6.4; `test-reactor` scale fixture: full, transition, zero |
 | `NavigationView.IsPaneOpen` | Reopening before layout leaves compact width while the property reads true | Plain C# WinUI |
 | `TeachingTip.IsOpen` | Changes during open/close animation can be ignored without an event | Reactor only |
 | `ListView.ScrollIntoView` (#5146) | Access violation after seven removals, insert, append, and scroll on the next tick | Rust and C# WinUI; C# hangs after the same access violation |
+| `ItemsRepeater` pinned element (microsoft/microsoft-ui-xaml#12659) | A focused row scrolled out of view keeps its old index after a reorder; the next keyed Reset fails with "unique id is not unique" | Plain C# WinUI; the same steps in ListView are correct |
+| Pointer input after first show (microsoft/microsoft-ui-xaml#12753) | The first injected move within about 40-60 ms of root `Loaded` raises no pointer events; `Loaded` and `Rendered` do not signal readiness | Plain C# WinUI; WinForms receives the same move |
 
 For `NavigationView`, reopening from `PaneClosed` avoided the width defect in the native repro,
 but visibly closes and reopens the pane. That behavior is not implemented in Reactor; the `pane`

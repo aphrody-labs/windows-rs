@@ -219,6 +219,7 @@ struct GeneratedCheckBox {
 }
 struct GeneratedBorder {
     value: native::Border,
+    scale: RefCell<Option<windows_core::EventRevoker>>,
     capture_pointer_on_press: Rc<Cell<bool>>,
     focus_on_pointer_release: Rc<Cell<bool>>,
     drop_policy: Rc<RefCell<Option<Rc<DragDropPolicy>>>>,
@@ -236,6 +237,8 @@ struct GeneratedBorder {
     _pointer_capture_lost: Option<GeneratedRevoker>,
     pointer_canceled: Rc<RefCell<NativeUnitEvent>>,
     _pointer_canceled: Option<GeneratedRevoker>,
+    double_tapped: Rc<RefCell<NativeUnitEvent>>,
+    _double_tapped: Option<GeneratedRevoker>,
     preview_key_down: Rc<RefCell<NativeKeyEventInfoEvent>>,
     _preview_key_down: Option<GeneratedRevoker>,
     key_up: Rc<RefCell<NativeKeyEventInfoEvent>>,
@@ -732,6 +735,7 @@ impl GeneratedHandle {
             }
             ObjectType::Border => {
                 let value = native::Border::new()?;
+                let scale = RefCell::new(None);
                 let capture_pointer_on_press = Rc::new(Cell::new(false));
                 let focus_on_pointer_release = Rc::new(Cell::new(false));
                 let drop_policy = Rc::new(RefCell::new(None));
@@ -750,6 +754,8 @@ impl GeneratedHandle {
                 let _pointer_capture_lost = None;
                 let pointer_canceled = Rc::new(RefCell::new(NativeUnitEvent::default()));
                 let _pointer_canceled = None;
+                let double_tapped = Rc::new(RefCell::new(NativeUnitEvent::default()));
+                let _double_tapped = None;
                 let preview_key_down = Rc::new(RefCell::new(NativeKeyEventInfoEvent::default()));
                 let _preview_key_down = None;
                 let key_up = Rc::new(RefCell::new(NativeKeyEventInfoEvent::default()));
@@ -771,6 +777,7 @@ impl GeneratedHandle {
                 let _drop = None;
                 Self::Border(Box::new(GeneratedBorder {
                     value,
+                    scale,
                     capture_pointer_on_press,
                     focus_on_pointer_release,
                     drop_policy,
@@ -788,6 +795,8 @@ impl GeneratedHandle {
                     _pointer_capture_lost,
                     pointer_canceled,
                     _pointer_canceled,
+                    double_tapped,
+                    _double_tapped,
                     preview_key_down,
                     _preview_key_down,
                     key_up,
@@ -1796,7 +1805,7 @@ impl GeneratedHandle {
                         EventId::SelectionChanged,
                         source_selection_changed
                             .SelectedItem()
-                            .and_then(|selected| selected.cast::<IInspectable>()),
+                            .map(IInspectable::from),
                         PropertyId::Text,
                     );
                 }))?;
@@ -2666,10 +2675,7 @@ impl GeneratedHandle {
             ),
             (Self::SelectorBar(object), EventId::SelectionChanged) => {
                 Some(match object.value.SelectedItem() {
-                    Ok(selected) => selected
-                        .cast::<IInspectable>()
-                        .map(Some)
-                        .map_err(Into::into),
+                    Ok(selected) => Ok(Some(selected.into())),
                     Err(error) if error.code().is_ok() => Ok(None),
                     Err(error) => Err(error.into()),
                 })
@@ -2854,6 +2860,10 @@ impl GeneratedHandle {
                 Conversion::Value,
             ),
             (_, PropertyId::Opacity) => (native::UIElement::OpacityProperty, Conversion::Value),
+            (_, PropertyId::IsHitTestVisible) => (
+                native::UIElement::IsHitTestVisibleProperty,
+                Conversion::Value,
+            ),
             (_, PropertyId::Transitions) => {
                 (native::UIElement::TransitionsProperty, Conversion::Value)
             }
@@ -2923,6 +2933,15 @@ impl GeneratedHandle {
             (ObjectType::TextBox, PropertyId::BorderThickness) => {
                 (native::Control::BorderThicknessProperty, Conversion::Value)
             }
+            (ObjectType::TextBox, PropertyId::Padding) => {
+                (native::Control::PaddingProperty, Conversion::Value)
+            }
+            (ObjectType::TextBox, PropertyId::CornerRadius) => {
+                (native::Control::CornerRadiusProperty, Conversion::Value)
+            }
+            (ObjectType::Button, PropertyId::Padding) => {
+                (native::Control::PaddingProperty, Conversion::Value)
+            }
             (ObjectType::Button, PropertyId::Background) => {
                 (native::Control::BackgroundProperty, Conversion::Value)
             }
@@ -2936,6 +2955,9 @@ impl GeneratedHandle {
             ),
             (ObjectType::CheckBox, PropertyId::IsChecked) => {
                 (native::ToggleButton::IsCheckedProperty, Conversion::Value)
+            }
+            (ObjectType::Border, PropertyId::ChildTransitions) => {
+                (native::Border::ChildTransitionsProperty, Conversion::Value)
             }
             (ObjectType::Border, PropertyId::Background) => {
                 (native::Border::BackgroundProperty, Conversion::Value)
@@ -2959,6 +2981,10 @@ impl GeneratedHandle {
                 native::FrameworkElement::AllowFocusOnInteractionProperty,
                 Conversion::Value,
             ),
+            (ObjectType::Grid, PropertyId::ChildrenTransitions) => (
+                native::Panel::ChildrenTransitionsProperty,
+                Conversion::Value,
+            ),
             (ObjectType::Grid, PropertyId::RowSpacing) => {
                 (native::Grid::RowSpacingProperty, Conversion::Value)
             }
@@ -2968,12 +2994,20 @@ impl GeneratedHandle {
             (ObjectType::Grid, PropertyId::Background) => {
                 (native::Panel::BackgroundProperty, Conversion::Value)
             }
+            (ObjectType::StackPanel, PropertyId::ChildrenTransitions) => (
+                native::Panel::ChildrenTransitionsProperty,
+                Conversion::Value,
+            ),
             (ObjectType::StackPanel, PropertyId::Spacing) => {
                 (native::StackPanel::SpacingProperty, Conversion::Value)
             }
             (ObjectType::StackPanel, PropertyId::Orientation) => {
                 (native::StackPanel::OrientationProperty, Conversion::Value)
             }
+            (ObjectType::Canvas, PropertyId::ChildrenTransitions) => (
+                native::Panel::ChildrenTransitionsProperty,
+                Conversion::Value,
+            ),
             (ObjectType::ScrollViewer, PropertyId::HorizontalScrollBarVisibility) => (
                 native::ScrollViewer::HorizontalScrollBarVisibilityProperty,
                 Conversion::Value,
@@ -3051,6 +3085,10 @@ impl GeneratedHandle {
             }
             (ObjectType::BreadcrumbBar, PropertyId::ItemsSource) => (
                 native::BreadcrumbBar::ItemsSourceProperty,
+                Conversion::Value,
+            ),
+            (ObjectType::VariableSizedWrapGrid, PropertyId::ChildrenTransitions) => (
+                native::Panel::ChildrenTransitionsProperty,
                 Conversion::Value,
             ),
             (ObjectType::VariableSizedWrapGrid, PropertyId::Orientation) => (
@@ -3232,6 +3270,18 @@ impl GeneratedHandle {
             (ObjectType::PersonPicture, PropertyId::Initials) => {
                 (native::PersonPicture::InitialsProperty, Conversion::Value)
             }
+            (ObjectType::ScrollView, PropertyId::ContentOrientation) => (
+                native::ScrollView::ContentOrientationProperty,
+                Conversion::Value,
+            ),
+            (ObjectType::ScrollView, PropertyId::HorizontalAnchorRatio) => (
+                native::ScrollView::HorizontalAnchorRatioProperty,
+                Conversion::Value,
+            ),
+            (ObjectType::ScrollView, PropertyId::VerticalAnchorRatio) => (
+                native::ScrollView::VerticalAnchorRatioProperty,
+                Conversion::Value,
+            ),
             (ObjectType::ScrollView, PropertyId::HorizontalScrollBarVisibility) => (
                 native::ScrollView::HorizontalScrollBarVisibilityProperty,
                 Conversion::Value,
@@ -3540,6 +3590,10 @@ impl GeneratedHandle {
             (ObjectType::GridViewItem, PropertyId::Tag) => {
                 (native::FrameworkElement::TagProperty, Conversion::Value)
             }
+            (ObjectType::RelativePanel, PropertyId::ChildrenTransitions) => (
+                native::Panel::ChildrenTransitionsProperty,
+                Conversion::Value,
+            ),
             (ObjectType::RichEditBox, PropertyId::PlaceholderText) => (
                 native::RichEditBox::PlaceholderTextProperty,
                 Conversion::Value,
@@ -3661,6 +3715,14 @@ impl GeneratedHandle {
                 "Auto" => native::ScrollBarVisibility::Auto,
                 "Hidden" => native::ScrollBarVisibility::Hidden,
                 "Visible" => native::ScrollBarVisibility::Visible,
+                _ => unreachable!("validated enum variant"),
+            })
+            .into(),
+            "ScrollingContentOrientation" => windows_reference::IReference::from(match variant {
+                "Vertical" => native::ScrollingContentOrientation::Vertical,
+                "Horizontal" => native::ScrollingContentOrientation::Horizontal,
+                "None" => native::ScrollingContentOrientation::None,
+                "Both" => native::ScrollingContentOrientation::Both,
                 _ => unreachable!("validated enum variant"),
             })
             .into(),
@@ -4325,14 +4387,14 @@ impl GeneratedHandle {
                     .value
                     .cast::<native::UIElement>()
                     .map_err(Into::into)
-                    .and_then(|object| set_implicit_scale(&object, 1.0)),
+                    .and_then(|element| set_implicit_scale(&element, &object.scale, [1.0, 1.0])),
             ),
-            (Self::Border(object), PropertyId::Scale, Some(PropertyValue::F64(value))) => Some(
+            (Self::Border(object), PropertyId::Scale, Some(PropertyValue::Vector2(value))) => Some(
                 object
                     .value
                     .cast::<native::UIElement>()
                     .map_err(Into::into)
-                    .and_then(|object| set_implicit_scale(&object, *value)),
+                    .and_then(|element| set_implicit_scale(&element, &object.scale, *value)),
             ),
             (Self::Border(object), PropertyId::ScaleTransition, None) => Some(
                 object
@@ -4411,6 +4473,57 @@ impl GeneratedHandle {
             ) => {
                 object.capture_pointer_on_press.set(*value);
                 Some(Ok(()))
+            }
+            (Self::Border(object), PropertyId::PointerCursor, None) => Some(
+                object
+                    .value
+                    .cast::<native::IUIElementProtected>()
+                    .map_err(Into::into)
+                    .and_then(|object| {
+                        object
+                            .SetProtectedCursor(None::<&native::InputCursor>)
+                            .map_err(Into::into)
+                    }),
+            ),
+            (
+                Self::Border(object),
+                PropertyId::PointerCursor,
+                Some(PropertyValue::Enum {
+                    kind: "InputSystemCursorShape",
+                    variant,
+                }),
+            ) => {
+                let shape = match *variant {
+                    "Arrow" => native::InputSystemCursorShape::Arrow,
+                    "Cross" => native::InputSystemCursorShape::Cross,
+                    "Hand" => native::InputSystemCursorShape::Hand,
+                    "Help" => native::InputSystemCursorShape::Help,
+                    "IBeam" => native::InputSystemCursorShape::IBeam,
+                    "SizeAll" => native::InputSystemCursorShape::SizeAll,
+                    "SizeNortheastSouthwest" => {
+                        native::InputSystemCursorShape::SizeNortheastSouthwest
+                    }
+                    "SizeNorthSouth" => native::InputSystemCursorShape::SizeNorthSouth,
+                    "SizeNorthwestSoutheast" => {
+                        native::InputSystemCursorShape::SizeNorthwestSoutheast
+                    }
+                    "SizeWestEast" => native::InputSystemCursorShape::SizeWestEast,
+                    "UniversalNo" => native::InputSystemCursorShape::UniversalNo,
+                    "UpArrow" => native::InputSystemCursorShape::UpArrow,
+                    "Wait" => native::InputSystemCursorShape::Wait,
+                    "Pin" => native::InputSystemCursorShape::Pin,
+                    "Person" => native::InputSystemCursorShape::Person,
+                    "AppStarting" => native::InputSystemCursorShape::AppStarting,
+                    _ => unreachable!("validated enum variant"),
+                };
+                Some((|| -> Result<(), WinUiError> {
+                    let cursor = native::InputSystemCursor::Create(shape)?;
+                    object
+                        .value
+                        .cast::<native::IUIElementProtected>()?
+                        .SetProtectedCursor(&cursor)?;
+                    Ok(())
+                })())
             }
             (Self::Border(object), PropertyId::FocusOnPointerRelease, None) => {
                 object.focus_on_pointer_release.set(false);
@@ -4633,6 +4746,9 @@ impl GeneratedHandle {
                 if clear.contains(&EventId::PointerCanceled) {
                     object.pointer_canceled.borrow_mut().set(None);
                 }
+                if clear.contains(&EventId::DoubleTapped) {
+                    object.double_tapped.borrow_mut().set(None);
+                }
                 if clear.contains(&EventId::PreviewKeyDown) {
                     object.preview_key_down.borrow_mut().set(None);
                 }
@@ -4710,6 +4826,13 @@ impl GeneratedHandle {
                                 .borrow_mut()
                                 .set(Some(callback.clone()));
                             object.subscribe_pointer_canceled(object_id, context)?;
+                        }
+                        (EventId::DoubleTapped, EventValue::Unit(callback)) => {
+                            object
+                                .double_tapped
+                                .borrow_mut()
+                                .set(Some(callback.clone()));
+                            object.subscribe_double_tapped(object_id, context)?;
                         }
                         (EventId::PreviewKeyDown, EventValue::KeyEventInfo(callback)) => {
                             object
@@ -5931,12 +6054,11 @@ impl GeneratedBorder {
         let source_pointer_pressed = value.cast::<native::UIElement>()?;
         let pending_focus_states_pointer_pressed = Rc::clone(context.pending_focus_states);
         let capture_pointer_on_press_pointer_pressed = Rc::clone(&self.capture_pointer_on_press);
-        let revoker = value
-            .cast::<native::IUIElement>()?
+        let revoker = source_pointer_pressed
+            .clone()
             .PointerPressed(local::handler(
                 move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
+                    let args = args.unwrap();
                     let value = WinUiAdapter::pointer_event_info(
                         object,
                         &source_pointer_pressed,
@@ -5947,15 +6069,14 @@ impl GeneratedBorder {
                         &pending_focus_states_pointer_pressed,
                     )
                     .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_pointer_pressed,
-                            object,
-                            EventId::PointerPressed,
-                            observation,
-                            value,
-                        );
+                    if WinUiAdapter::dispatch_pointer(
+                        &event_for_callback,
+                        &event_queue_pointer_pressed,
+                        object,
+                        EventId::PointerPressed,
+                        value,
+                    ) {
+                        args.SetHandled(true).unwrap();
                     }
                 },
             ))?;
@@ -5975,34 +6096,30 @@ impl GeneratedBorder {
         let event_queue_pointer_moved = Rc::clone(context.event_queue);
         let source_pointer_moved = value.cast::<native::UIElement>()?;
         let pending_focus_states_pointer_moved = Rc::clone(context.pending_focus_states);
-        let revoker = value
-            .cast::<native::IUIElement>()?
-            .PointerMoved(local::handler(
-                move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
-                    let value = WinUiAdapter::pointer_event_info(
-                        object,
-                        &source_pointer_moved,
-                        args,
-                        None,
-                        false,
-                        false,
-                        &pending_focus_states_pointer_moved,
-                    )
-                    .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_pointer_moved,
-                            object,
-                            EventId::PointerMoved,
-                            observation,
-                            value,
-                        );
-                    }
-                },
-            ))?;
+        let revoker = source_pointer_moved.clone().PointerMoved(local::handler(
+            move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
+                let args = args.unwrap();
+                let value = WinUiAdapter::pointer_event_info(
+                    object,
+                    &source_pointer_moved,
+                    args,
+                    None,
+                    false,
+                    false,
+                    &pending_focus_states_pointer_moved,
+                )
+                .unwrap();
+                if WinUiAdapter::dispatch_pointer(
+                    &event_for_callback,
+                    &event_queue_pointer_moved,
+                    object,
+                    EventId::PointerMoved,
+                    value,
+                ) {
+                    args.SetHandled(true).unwrap();
+                }
+            },
+        ))?;
         self._pointer_moved = Some(GeneratedRevoker::Event(revoker));
         Ok(())
     }
@@ -6019,12 +6136,11 @@ impl GeneratedBorder {
         let event_queue_pointer_entered = Rc::clone(context.event_queue);
         let source_pointer_entered = value.cast::<native::UIElement>()?;
         let pending_focus_states_pointer_entered = Rc::clone(context.pending_focus_states);
-        let revoker = value
-            .cast::<native::IUIElement>()?
+        let revoker = source_pointer_entered
+            .clone()
             .PointerEntered(local::handler(
                 move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
+                    let args = args.unwrap();
                     let value = WinUiAdapter::pointer_event_info(
                         object,
                         &source_pointer_entered,
@@ -6035,15 +6151,14 @@ impl GeneratedBorder {
                         &pending_focus_states_pointer_entered,
                     )
                     .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_pointer_entered,
-                            object,
-                            EventId::PointerEntered,
-                            observation,
-                            value,
-                        );
+                    if WinUiAdapter::dispatch_pointer(
+                        &event_for_callback,
+                        &event_queue_pointer_entered,
+                        object,
+                        EventId::PointerEntered,
+                        value,
+                    ) {
+                        args.SetHandled(true).unwrap();
                     }
                 },
             ))?;
@@ -6063,34 +6178,30 @@ impl GeneratedBorder {
         let event_queue_pointer_exited = Rc::clone(context.event_queue);
         let source_pointer_exited = value.cast::<native::UIElement>()?;
         let pending_focus_states_pointer_exited = Rc::clone(context.pending_focus_states);
-        let revoker = value
-            .cast::<native::IUIElement>()?
-            .PointerExited(local::handler(
-                move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
-                    let value = WinUiAdapter::pointer_event_info(
-                        object,
-                        &source_pointer_exited,
-                        args,
-                        None,
-                        false,
-                        false,
-                        &pending_focus_states_pointer_exited,
-                    )
-                    .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_pointer_exited,
-                            object,
-                            EventId::PointerExited,
-                            observation,
-                            value,
-                        );
-                    }
-                },
-            ))?;
+        let revoker = source_pointer_exited.clone().PointerExited(local::handler(
+            move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
+                let args = args.unwrap();
+                let value = WinUiAdapter::pointer_event_info(
+                    object,
+                    &source_pointer_exited,
+                    args,
+                    None,
+                    false,
+                    false,
+                    &pending_focus_states_pointer_exited,
+                )
+                .unwrap();
+                if WinUiAdapter::dispatch_pointer(
+                    &event_for_callback,
+                    &event_queue_pointer_exited,
+                    object,
+                    EventId::PointerExited,
+                    value,
+                ) {
+                    args.SetHandled(true).unwrap();
+                }
+            },
+        ))?;
         self._pointer_exited = Some(GeneratedRevoker::Event(revoker));
         Ok(())
     }
@@ -6109,12 +6220,11 @@ impl GeneratedBorder {
         let pending_focus_states_pointer_released = Rc::clone(context.pending_focus_states);
         let capture_pointer_on_press_pointer_released = Rc::clone(&self.capture_pointer_on_press);
         let focus_on_pointer_release_pointer_released = Rc::clone(&self.focus_on_pointer_release);
-        let revoker = value
-            .cast::<native::IUIElement>()?
+        let revoker = source_pointer_released
+            .clone()
             .PointerReleased(local::handler(
                 move |_, args: windows_core::InRef<'_, native::PointerRoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
+                    let args = args.unwrap();
                     let value = WinUiAdapter::pointer_event_info(
                         object,
                         &source_pointer_released,
@@ -6125,15 +6235,14 @@ impl GeneratedBorder {
                         &pending_focus_states_pointer_released,
                     )
                     .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_pointer_released,
-                            object,
-                            EventId::PointerReleased,
-                            observation,
-                            value,
-                        );
+                    if WinUiAdapter::dispatch_pointer(
+                        &event_for_callback,
+                        &event_queue_pointer_released,
+                        object,
+                        EventId::PointerReleased,
+                        value,
+                    ) {
+                        args.SetHandled(true).unwrap();
                     }
                 },
             ))?;
@@ -6198,6 +6307,36 @@ impl GeneratedBorder {
                 }
             }))?;
         self._pointer_canceled = Some(GeneratedRevoker::Event(revoker));
+        Ok(())
+    }
+    fn subscribe_double_tapped(
+        &mut self,
+        object: ObjectId,
+        context: EventContext,
+    ) -> Result<(), WinUiError> {
+        if self._double_tapped.is_some() {
+            return Ok(());
+        }
+        let value = &self.value;
+        let event_for_callback = Rc::clone(&self.double_tapped);
+        let event_queue_double_tapped = Rc::clone(context.event_queue);
+        let revoker = value
+            .cast::<native::IUIElement>()?
+            .DoubleTapped(local::handler(move |_, _| {
+                let dispatch = true;
+                let observation = None;
+                if dispatch {
+                    WinUiAdapter::dispatch(
+                        &event_for_callback,
+                        &event_queue_double_tapped,
+                        object,
+                        EventId::DoubleTapped,
+                        observation,
+                        (),
+                    );
+                }
+            }))?;
+        self._double_tapped = Some(GeneratedRevoker::Event(revoker));
         Ok(())
     }
     fn subscribe_preview_key_down(
@@ -6297,32 +6436,30 @@ impl GeneratedBorder {
         let event_queue_got_focus = Rc::clone(context.event_queue);
         let source_got_focus = value.cast::<native::UIElement>()?;
         let pending_focus_states_got_focus = Rc::clone(context.pending_focus_states);
-        let revoker = value
-            .cast::<native::IUIElement>()?
-            .GotFocus(local::handler(
-                move |_, args: windows_core::InRef<'_, native::RoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
-                    let value = WinUiAdapter::focus_event_info(
+        let revoker = source_got_focus.clone().GotFocus(local::handler(
+            move |_, args: windows_core::InRef<'_, native::RoutedEventArgs>| {
+                let dispatch = true;
+                let observation = None;
+                let value = WinUiAdapter::focus_event_info(
+                    object,
+                    &source_got_focus,
+                    args,
+                    true,
+                    &pending_focus_states_got_focus,
+                )
+                .unwrap();
+                if dispatch {
+                    WinUiAdapter::dispatch(
+                        &event_for_callback,
+                        &event_queue_got_focus,
                         object,
-                        &source_got_focus,
-                        args,
-                        true,
-                        &pending_focus_states_got_focus,
-                    )
-                    .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_got_focus,
-                            object,
-                            EventId::GotFocus,
-                            observation,
-                            value,
-                        );
-                    }
-                },
-            ))?;
+                        EventId::GotFocus,
+                        observation,
+                        value,
+                    );
+                }
+            },
+        ))?;
         self._got_focus = Some(GeneratedRevoker::Event(revoker));
         Ok(())
     }
@@ -6339,32 +6476,30 @@ impl GeneratedBorder {
         let event_queue_lost_focus = Rc::clone(context.event_queue);
         let source_lost_focus = value.cast::<native::UIElement>()?;
         let pending_focus_states_lost_focus = Rc::clone(context.pending_focus_states);
-        let revoker = value
-            .cast::<native::IUIElement>()?
-            .LostFocus(local::handler(
-                move |_, args: windows_core::InRef<'_, native::RoutedEventArgs>| {
-                    let dispatch = true;
-                    let observation = None;
-                    let value = WinUiAdapter::focus_event_info(
+        let revoker = source_lost_focus.clone().LostFocus(local::handler(
+            move |_, args: windows_core::InRef<'_, native::RoutedEventArgs>| {
+                let dispatch = true;
+                let observation = None;
+                let value = WinUiAdapter::focus_event_info(
+                    object,
+                    &source_lost_focus,
+                    args,
+                    false,
+                    &pending_focus_states_lost_focus,
+                )
+                .unwrap();
+                if dispatch {
+                    WinUiAdapter::dispatch(
+                        &event_for_callback,
+                        &event_queue_lost_focus,
                         object,
-                        &source_lost_focus,
-                        args,
-                        false,
-                        &pending_focus_states_lost_focus,
-                    )
-                    .unwrap();
-                    if dispatch {
-                        WinUiAdapter::dispatch(
-                            &event_for_callback,
-                            &event_queue_lost_focus,
-                            object,
-                            EventId::LostFocus,
-                            observation,
-                            value,
-                        );
-                    }
-                },
-            ))?;
+                        EventId::LostFocus,
+                        observation,
+                        value,
+                    );
+                }
+            },
+        ))?;
         self._lost_focus = Some(GeneratedRevoker::Event(revoker));
         Ok(())
     }
@@ -6789,13 +6924,8 @@ impl GeneratedTabView {
                 let dispatch = true;
                 let observation = None;
                 let args = args.unwrap();
-                let payload = event_queue_tab_close_requested.item_object(
-                    object,
-                    &args
-                        .Tab()
-                        .and_then(|value| value.cast::<IInspectable>())
-                        .unwrap(),
-                );
+                let payload = event_queue_tab_close_requested
+                    .item_object(object, &args.Tab().map(IInspectable::from).unwrap());
                 let Some(payload) = payload else {
                     return;
                 };

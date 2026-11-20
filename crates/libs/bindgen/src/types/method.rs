@@ -63,19 +63,12 @@ impl Method {
                     }
                 }
             }
-            Type::Array(element_type) => {
-                // Pointer-ABI arrays need transmute; value arrays already match their ABI type.
-                let write_result = if element_type.has_pointer_abi() {
-                    quote! { result__.write(ok_data__.cast()); }
-                } else {
-                    quote! { result__.write(ok_data__); }
-                };
-
+            Type::Array(_) => {
                 if noexcept {
                     quote! {
                         let ok__ = #inner(#this #(#invoke_args,)*);
                         let (ok_data__, ok_data_len__) = ok__.into_abi();
-                        #write_result
+                        result__.write(ok_data__.cast());
                         result_size__.write(ok_data_len__);
                         windows_core::HRESULT(0)
                     }
@@ -84,7 +77,7 @@ impl Method {
                         match #inner(#this #(#invoke_args,)*) {
                             Ok(ok__) => {
                                 let (ok_data__, ok_data_len__) = ok__.into_abi();
-                                #write_result
+                                result__.write(ok_data__.cast());
                                 result_size__.write(ok_data_len__);
                                 windows_core::HRESULT(0)
                             }
@@ -98,14 +91,10 @@ impl Method {
                 }
             }
             _ => {
-                // Non-copyable return values need ABI transmute without double-drop.
                 let write_result = if self.signature.return_type.is_copyable(reader) {
                     quote! { result__.write(ok__); }
                 } else {
-                    quote! {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
-                    }
+                    quote! { core::ptr::write(result__.cast(), ok__); }
                 };
 
                 if noexcept {
@@ -280,7 +269,11 @@ impl Method {
     pub fn write_abi(&self, config: &Config, named_params: bool) -> TokenStream {
         let args = self.signature.params.iter().map(|param| {
             let name = param.write_ident();
-            let abi = param.write_abi(config);
+            let abi = if param.is_input_only() && !param.is_winrt_array() && !param.is_const_ref() {
+                param.write_abi(config)
+            } else {
+                param.write_abi_pointee(config)
+            };
             let abi_size_name: TokenStream = format!("{name}_array_size").parse().unwrap();
 
             if param.is_input_only() {
@@ -323,7 +316,7 @@ impl Method {
         let return_arg = match &self.signature.return_type {
             Type::Void => quote! {},
             Type::Array(ty) => {
-                let ty = ty.write_abi(config);
+                let ty = ty.write_abi_pointee(config);
                 if named_params {
                     quote! { result_size__: *mut u32, result__: *mut *mut #ty }
                 } else {
@@ -331,7 +324,7 @@ impl Method {
                 }
             }
             ty => {
-                let ty = ty.write_abi(config);
+                let ty = ty.write_abi_pointee(config);
                 if named_params {
                     quote! { result__: *mut #ty }
                 } else {
@@ -430,7 +423,7 @@ impl Method {
                 if ty.is_winrt_array() {
                     quote! { &mut result_size__, &mut result__ }
                 } else {
-                    quote! { &mut result__ }
+                    ty.write_result_arg(config.reader)
                 }
             }
         };
@@ -699,13 +692,27 @@ impl Method {
                     }
                 }
                 _ => {
+                    let init = self.signature.return_type.write_result_init(config);
+                    let value = self.signature.return_type.write_result_value(config.reader);
                     if noexcept {
-                        if self.signature.return_type.is_copyable(config.reader) {
+                        if matches!(self.signature.return_type, Type::Generic(_)) {
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 let hresult__ = #vcall;
                                 #assert_success
-                                result__
+                                windows_core::imp::Type::from_default_owned(#value).unwrap()
+                            }
+                        } else if self.signature.return_type.is_copyable(config.reader)
+                            || self
+                                .signature
+                                .return_type
+                                .needs_result_storage(config.reader)
+                        {
+                            quote! {
+                                #init
+                                let hresult__ = #vcall;
+                                #assert_success
+                                #value
                             }
                         } else if config
                             .bindgen
@@ -713,10 +720,10 @@ impl Method {
                             .minimal_string_return(&self.signature.return_type)
                         {
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 let hresult__ = #vcall;
                                 #assert_success
-                                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                                let hstring: windows_core::HSTRING = core::mem::transmute(#value);
                                 hstring.to_string_lossy()
                             }
                         } else {
@@ -728,10 +735,10 @@ impl Method {
                                 name
                             };
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 let hresult__ = #vcall;
                                 #assert_success
-                                core::mem::transmute::<#abi, #name>(result__)
+                                core::mem::transmute::<#abi, #name>(#value)
                             }
                         }
                     } else {
@@ -743,7 +750,7 @@ impl Method {
                             // Explicit type annotation pins `from_abi`'s generic.
                             let iref = self.signature.return_type.write_name(config);
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 #vcall.#map.and_then(|r__: #iref| r__.Value())
                             }
                         } else if config
@@ -753,15 +760,15 @@ impl Method {
                         {
                             // In minimal mode, return String instead of HSTRING.
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 #vcall.map(|| {
-                                    let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                                    let hstring: windows_core::HSTRING = core::mem::transmute(#value);
                                     hstring.to_string_lossy()
                                 })
                             }
                         } else {
                             quote! {
-                                let mut result__ = core::mem::zeroed();
+                                #init
                                 #vcall.#map
                             }
                         }
@@ -1063,7 +1070,7 @@ impl Method {
                                 // Keep `derived__` alive until the factory returns; its owning
                                 // ref is replaced by the delegating ref in `result__`.
                                 let _ = &derived__;
-                                windows_core::imp::Type::from_abi(result__)
+                                windows_core::imp::from_abi(result__)
                             })
                         }
                     }

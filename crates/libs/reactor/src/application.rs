@@ -136,7 +136,7 @@ impl ApplicationView {
 /// A notification-area icon owned by an application declaration.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NotifyIcon {
-    pub(crate) path: std::path::PathBuf,
+    pub(crate) path: PathBuf,
     pub(crate) tooltip: Option<String>,
     pub(crate) on_activate: Option<Callback<ScreenPoint>>,
     pub(crate) menu: Option<Menu>,
@@ -144,7 +144,11 @@ pub struct NotifyIcon {
 
 impl NotifyIcon {
     /// Uses an `.ico` file. A file that fails to load panics, like other contract violations.
-    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+    ///
+    /// If the Shell rejects an image update to an existing icon, the previous image is retained
+    /// and the failure is logged. The latest path is retried on the next application render;
+    /// rejection does not schedule a render.
+    pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
             tooltip: None,
@@ -153,6 +157,10 @@ impl NotifyIcon {
         }
     }
 
+    /// Sets the standard tooltip. Invalid text panics when the declaration is applied.
+    ///
+    /// Updates rejected by the Shell are logged and retried on the next application render.
+    /// A rejected update does not schedule a render.
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
@@ -173,7 +181,6 @@ impl NotifyIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::component::ApplicationMessages;
 
     struct TestApp;
 
@@ -276,116 +283,5 @@ mod tests {
         callback(&first).call(());
         assert_eq!(first.pop(), Some(true));
         assert!(second.is_empty());
-    }
-
-    struct ObservedWindow(Callback<&'static str>);
-
-    impl Component for ObservedWindow {
-        type Input = (u32, Callback<&'static str>);
-        type Message = ();
-
-        fn create(input: &Self::Input, _: &ComponentContext<Self>) -> Self {
-            input.1.call("create");
-            Self(input.1.clone())
-        }
-
-        fn input_changed(&mut self, _: &Self::Input, _: &ComponentContext<Self>) {
-            self.0.call("input");
-        }
-
-        fn view(&self, input: &Self::Input, _: &mut ViewContext<Self>) -> View {
-            self.0.call("view");
-            let click = self.0.clone();
-            Button::new()
-                .content(input.0.to_string())
-                .on_click(move || click.call("click"))
-                .into()
-        }
-    }
-
-    impl Drop for ObservedWindow {
-        fn drop(&mut self) {
-            self.0.call("drop");
-        }
-    }
-
-    #[test]
-    fn live_root_input_updates_preserve_component_state() {
-        let events = Rc::new(RefCell::new(Vec::new()));
-        let record = Rc::clone(&events);
-        let callback = Callback::new(move |event| record.borrow_mut().push(event));
-        let mut host = ComponentHost::mount(
-            RecordingAdapter::default(),
-            [component::<ObservedWindow>("main", (1, callback.clone()))],
-        );
-        host.update_root(component::<ObservedWindow>("main", (1, callback.clone())));
-        host.drain(64);
-        assert_eq!(*events.borrow(), ["create", "view"]);
-        host.update_root(component::<ObservedWindow>("main", (2, callback)));
-        host.drain(64);
-        assert_eq!(*events.borrow(), ["create", "view", "input", "view"]);
-        drop(host);
-        assert_eq!(
-            *events.borrow(),
-            ["create", "view", "input", "view", "drop"]
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "changed type")]
-    fn live_root_input_cannot_change_component_type() {
-        let mut host = ComponentHost::mount(
-            RecordingAdapter::default(),
-            [component::<TestWindow>("main", ())],
-        );
-        host.update_root(component::<ObservedWindow>(
-            "main",
-            (1, Callback::new(|_| {})),
-        ));
-    }
-
-    #[test]
-    fn root_inputs_wait_for_native_events_and_coalesce() {
-        let events = Rc::new(RefCell::new(Vec::new()));
-        let record = Rc::clone(&events);
-        let callback = Callback::new(move |event| record.borrow_mut().push(event));
-        let mut host = ComponentHost::mount(
-            RecordingAdapter::default(),
-            [component::<ObservedWindow>("main", (1, callback.clone()))],
-        );
-        let object = host.reference(&Key::from("main")).unwrap().get().unwrap();
-        let event = host.runtime().graph().events(object).unwrap()[0].clone();
-        let EventValue::Unit(activated) = event.value else {
-            panic!("expected a unit event");
-        };
-        host.queue_event(EventDispatch::new(
-            object,
-            event.id,
-            EventCall::Unit(activated),
-        ));
-        host.update_root(component::<ObservedWindow>("main", (2, callback.clone())));
-        host.update_root(component::<ObservedWindow>("main", (3, callback)));
-        assert_eq!(*events.borrow(), ["create", "view"]);
-        assert!(host.has_pending_input());
-        host.drain(64);
-        assert!(!host.has_pending_input());
-        assert_eq!(
-            *events.borrow(),
-            ["create", "view", "click", "input", "view"]
-        );
-        let content = host
-            .runtime()
-            .graph()
-            .child(object, RelationId::Content)
-            .unwrap();
-        assert!(
-            host.runtime()
-                .graph()
-                .properties(content)
-                .unwrap()
-                .iter()
-                .any(|property| property.id == PropertyId::Text
-                    && property.value == PropertyValue::String(Rc::from("3")))
-        );
     }
 }

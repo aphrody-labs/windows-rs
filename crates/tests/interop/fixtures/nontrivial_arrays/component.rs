@@ -43,14 +43,11 @@ impl IWidget_Impl for Widget_Impl {
     }
 }
 
-fn exchange<T: Type<T>>(
+fn exchange<T: Type>(
     input: &[T::Default],
     fill: &mut [T::Default],
     output: &mut Array<T>,
-) -> Result<Array<T>>
-where
-    T::Default: Clone,
-{
+) -> Result<Array<T>> {
     check(input.len() == fill.len())?;
     for (target, source) in fill.iter_mut().zip(input.iter().rev()) {
         target.clone_from(source);

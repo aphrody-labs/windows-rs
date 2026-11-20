@@ -2,12 +2,13 @@ windows_core::imp::define_winrt_interface!(IIterator < T >, IIterator_Vtbl < T, 
 impl<T: windows_core::RuntimeType + 'static> IIterator<T> {
     pub fn Current(&self) -> windows_core::Result<T> {
         unsafe {
-            let mut result__ = core::mem::zeroed();
+            let mut result__ =
+                core::mem::MaybeUninit::<<T as windows_core::imp::Type>::Default>::zeroed();
             (windows_core::Interface::vtable(self).Current)(
                 windows_core::Interface::as_raw(self),
-                &mut result__,
+                result__.as_mut_ptr().cast(),
             )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
+            .and_then(|| windows_core::imp::Type::from_default_owned(result__.assume_init()))
         }
     }
     pub fn HasCurrent(&self) -> windows_core::Result<bool> {
@@ -32,9 +33,9 @@ impl<T: windows_core::RuntimeType + 'static> IIterator<T> {
     }
     pub fn GetMany(
         &self,
-        items: &mut [<T as windows_core::imp::Type<T>>::Default],
+        items: &mut [<T as windows_core::imp::Type>::Default],
     ) -> windows_core::Result<u32> {
-        if core::mem::needs_drop::<<T as windows_core::imp::Type<T>>::Default>() {
+        if core::mem::needs_drop::<<T as windows_core::imp::Type>::Default>() {
             items.fill_with(|| unsafe { core::mem::zeroed() });
         }
         unsafe {
@@ -63,7 +64,7 @@ where
     fn MoveNext(&self) -> windows_core::Result<bool>;
     fn GetMany(
         &self,
-        items: &mut [<T as windows_core::imp::Type<T>>::Default],
+        items: &mut [<T as windows_core::imp::Type>::Default],
     ) -> windows_core::Result<u32>;
 }
 impl<T: windows_core::RuntimeType + 'static> IIterator_Vtbl<T> {
@@ -81,8 +82,7 @@ impl<T: windows_core::RuntimeType + 'static> IIterator_Vtbl<T> {
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IIterator_Impl::Current(this) {
                     Ok(ok__) => {
-                        result__.write(core::mem::transmute_copy(&ok__));
-                        core::mem::forget(ok__);
+                        core::ptr::write(result__.cast(), ok__);
                         windows_core::HRESULT(0)
                     }
                     Err(err) => {

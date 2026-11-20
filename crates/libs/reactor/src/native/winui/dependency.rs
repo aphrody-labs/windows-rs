@@ -117,7 +117,7 @@ fn box_property_value(
                 .map(|value| Some(windows_reference::IReference::from(value.as_ref()).into()))
                 .collect();
             let values: IVector<IInspectable> = values.into();
-            object(values.cast::<IInspectable>())
+            object(Ok(values))
         }
         (PropertyValue::ThemeTransitions(values), _) => theme_transitions(values),
         (PropertyValue::Enum { kind, variant }, _) => {
@@ -131,6 +131,15 @@ fn theme_transitions(values: &[ThemeTransition]) -> Result<Option<IInspectable>,
     let collection = native::TransitionCollection::new()?;
     for value in values {
         let transition = match value {
+            ThemeTransition::AddDelete => {
+                native::AddDeleteThemeTransition::new()?.cast::<native::Transition>()?
+            }
+            ThemeTransition::Content => {
+                native::ContentThemeTransition::new()?.cast::<native::Transition>()?
+            }
+            ThemeTransition::Entrance => {
+                native::EntranceThemeTransition::new()?.cast::<native::Transition>()?
+            }
             ThemeTransition::Reposition => {
                 native::RepositionThemeTransition::new()?.cast::<native::Transition>()?
             }

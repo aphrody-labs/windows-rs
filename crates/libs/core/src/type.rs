@@ -15,9 +15,9 @@ pub struct CloneType;
 pub struct CopyType;
 
 #[doc(hidden)]
-pub trait Type<T: TypeKind, C = <T as TypeKind>::TypeKind>: TypeKind + Sized + Clone {
+pub trait Type<C = <Self as TypeKind>::TypeKind>: TypeKind + Sized + Clone {
     type Abi;
-    type Default;
+    type Default: Clone;
 
     /// The parameter type used in `_Impl` trait method signatures.
     ///
@@ -29,10 +29,10 @@ pub trait Type<T: TypeKind, C = <T as TypeKind>::TypeKind>: TypeKind + Sized + C
     where
         Self: 'a;
 
-    fn is_null(abi: &Self::Abi) -> bool;
-    unsafe fn assume_init_ref(abi: &Self::Abi) -> &Self;
-    unsafe fn from_abi(abi: Self::Abi) -> Result<Self>;
-    fn from_default(default: &Self::Default) -> Result<Self>;
+    fn as_ref(default: &Self::Default) -> Option<&Self>;
+    fn from_default(default: &Self::Default) -> Result<Self> {
+        Self::as_ref(default).cloned().ok_or(Error::empty())
+    }
 
     /// Like [`from_default`](Self::from_default) but consumes the value, transferring ownership
     /// instead of cloning. For interface types this moves the existing reference out rather than
@@ -41,7 +41,7 @@ pub trait Type<T: TypeKind, C = <T as TypeKind>::TypeKind>: TypeKind + Sized + C
     fn from_default_owned(default: Self::Default) -> Result<Self>;
 }
 
-impl<T> Type<T, InterfaceType> for T
+impl<T> Type<InterfaceType> for T
 where
     T: TypeKind<TypeKind = InterfaceType> + Clone,
 {
@@ -52,26 +52,8 @@ where
     where
         Self: 'a;
 
-    fn is_null(abi: &Self::Abi) -> bool {
-        abi.is_null()
-    }
-
-    unsafe fn assume_init_ref(abi: &Self::Abi) -> &Self {
-        unsafe { core::mem::transmute::<&*mut core::ffi::c_void, &T>(abi) }
-    }
-
-    unsafe fn from_abi(abi: Self::Abi) -> Result<Self> {
-        unsafe {
-            if !abi.is_null() {
-                Ok(core::mem::transmute_copy(&abi))
-            } else {
-                Err(Error::empty())
-            }
-        }
-    }
-
-    fn from_default(default: &Self::Default) -> Result<Self> {
-        default.as_ref().cloned().ok_or(Error::empty())
+    fn as_ref(default: &Self::Default) -> Option<&Self> {
+        default.as_ref()
     }
 
     fn from_default_owned(default: Self::Default) -> Result<Self> {
@@ -79,31 +61,19 @@ where
     }
 }
 
-impl<T> Type<T, CloneType> for T
+impl<T> Type<CloneType> for T
 where
     T: TypeKind<TypeKind = CloneType> + Clone,
 {
-    type Abi = core::mem::MaybeUninit<Self>;
+    type Abi = core::mem::ManuallyDrop<Self>;
     type Default = Self;
     type Ref<'a>
         = InRef<'a, Self>
     where
         Self: 'a;
 
-    fn is_null(_: &Self::Abi) -> bool {
-        false
-    }
-
-    unsafe fn assume_init_ref(abi: &Self::Abi) -> &Self {
-        unsafe { abi.assume_init_ref() }
-    }
-
-    unsafe fn from_abi(abi: Self::Abi) -> Result<Self> {
-        unsafe { Ok(abi.assume_init()) }
-    }
-
-    fn from_default(default: &Self::Default) -> Result<Self> {
-        Ok(default.clone())
+    fn as_ref(default: &Self::Default) -> Option<&Self> {
+        Some(default)
     }
 
     fn from_default_owned(default: Self::Default) -> Result<Self> {
@@ -111,7 +81,7 @@ where
     }
 }
 
-impl<T> Type<T, CopyType> for T
+impl<T> Type<CopyType> for T
 where
     T: TypeKind<TypeKind = CopyType> + Clone,
 {
@@ -122,20 +92,8 @@ where
     where
         Self: 'a;
 
-    fn is_null(_: &Self::Abi) -> bool {
-        false
-    }
-
-    unsafe fn assume_init_ref(abi: &Self::Abi) -> &Self {
-        abi
-    }
-
-    unsafe fn from_abi(abi: Self::Abi) -> Result<Self> {
-        Ok(abi)
-    }
-
-    fn from_default(default: &Self) -> Result<Self> {
-        Ok(default.clone())
+    fn as_ref(default: &Self::Default) -> Option<&Self> {
+        Some(default)
     }
 
     fn from_default_owned(default: Self) -> Result<Self> {
@@ -166,12 +124,12 @@ primitives!(
 );
 
 #[doc(hidden)]
-pub type AbiType<T> = <T as Type<T>>::Abi;
+pub type AbiType<T> = <T as Type>::Abi;
 
 /// The parameter type for a generic type `T` used in `_Impl` trait method signatures.
 ///
 /// Copy types resolve to `T`; strings and interfaces use a borrowed ABI-compatible wrapper.
-pub type Ref<'a, T> = <T as Type<T>>::Ref<'a>;
+pub type Ref<'a, T> = <T as Type>::Ref<'a>;
 
 /// Converts a [`Ref<T>`](Ref) reference into a reference to the corresponding
 /// [`Default`](Type::Default) representation.
@@ -182,6 +140,6 @@ pub type Ref<'a, T> = <T as Type<T>>::Ref<'a>;
 /// - For `CloneType` (HSTRING, etc.) and `InterfaceType` (COM interfaces):
 ///   `Ref<'_> = InRef<'_, T>`, which is `#[repr(transparent)]` over `T::Abi`, and
 ///   `T::Abi` has the same layout as `T::Default`.
-pub fn ref_as_default<'a, 'b, T: Type<T>>(param: &'a <T as Type<T>>::Ref<'b>) -> &'a T::Default {
-    unsafe { &*(param as *const <T as Type<T>>::Ref<'b> as *const T::Default) }
+pub fn ref_as_default<'a, 'b, T: Type>(param: &'a <T as Type>::Ref<'b>) -> &'a T::Default {
+    unsafe { &*(param as *const <T as Type>::Ref<'b> as *const T::Default) }
 }

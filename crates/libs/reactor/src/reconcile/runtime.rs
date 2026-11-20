@@ -1,7 +1,7 @@
 use super::*;
 
-impl<A: Adapter> Runtime<A> {
-    pub fn new(adapter: A) -> Self {
+impl Runtime {
+    pub fn new(adapter: SharedWinUiAdapter) -> Self {
         Self {
             graph: RetainedGraph::default(),
             adapter,
@@ -17,7 +17,7 @@ impl<A: Adapter> Runtime<A> {
         &self.graph
     }
 
-    pub fn adapter(&self) -> &A {
+    pub fn adapter(&self) -> &SharedWinUiAdapter {
         &self.adapter
     }
 
@@ -54,21 +54,17 @@ impl<A: Adapter> Runtime<A> {
         stats
     }
 
-    pub(crate) fn set_imperative_waker(&self, waker: impl Fn() + 'static) {
-        self.references.set_waker(waker);
+    pub(crate) fn set_imperative_drain(&self, drain: UiCallback) {
+        self.references.set_drain(drain);
     }
 
     fn dispatch_imperative(&mut self) -> bool {
         let Some(queued) = self.references.pop() else {
             return false;
         };
-        // Revocations must also reach retiring objects, whose native subscriptions stay live until
-        // the exit transition completes.
-        let available = if matches!(queued.request, ImperativeRequest::RevokeObservation { .. }) {
-            self.graph.is_allocated(queued.object)
-        } else {
-            self.graph.kind(queued.object).is_some() && queued.is_current()
-        };
+        let available = self.graph.kind(queued.object).is_some()
+            && (matches!(queued.request, ImperativeRequest::RevokeObservation { .. })
+                || queued.is_current());
         if available {
             self.adapter.imperative(queued.request);
         } else {
@@ -85,10 +81,6 @@ impl<A: Adapter> Runtime<A> {
             }
             NativeEvent::Record(observation) => {
                 self.graph.apply_observation(observation, true);
-                return Some(NativeWork::Maintenance);
-            }
-            NativeEvent::Retirement(completion) => {
-                self.apply_retirement_completion(completion);
                 return Some(NativeWork::Maintenance);
             }
             NativeEvent::Realization(request) => {
@@ -187,8 +179,8 @@ impl<A: Adapter> Runtime<A> {
             .map_or(NativeWork::Maintenance, NativeWork::Virtual)
     }
 
-    /// Applies queued native observations and retirement completions. Returns `false` while a
-    /// native callback or virtual realization must run before the next update.
+    /// Applies queued native observations. Returns `false` while a native callback or virtual
+    /// realization must run before the next update.
     pub(crate) fn prepare_update(&mut self) -> bool {
         if self.native_event_active.get() {
             return true;

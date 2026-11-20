@@ -85,7 +85,7 @@ impl UiCallback {
     }
 
     /// Runs the callback now. Only valid on the UI thread.
-    fn invoke(&self) {
+    pub(crate) fn invoke(&self) {
         invoke_ui_callback(self.id);
     }
 
@@ -106,15 +106,15 @@ fn invoke_ui_callback(id: u64) {
     }
 }
 
-struct DispatcherTimerRegistration {
+pub(crate) struct TimerRegistration {
     cancelled: AtomicBool,
     dispatcher: DispatcherQueue,
     id: u64,
     ui_thread: u32,
 }
 
-impl ComponentTimerRegistration for DispatcherTimerRegistration {
-    fn cancel(&self) {
+impl TimerRegistration {
+    pub(crate) fn cancel(&self) {
         if self.cancelled.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -130,7 +130,7 @@ impl ComponentTimerRegistration for DispatcherTimerRegistration {
     }
 }
 
-struct DispatcherComponentServices {
+pub(crate) struct ComponentServices {
     dispatcher: DispatcherQueue,
 }
 
@@ -140,16 +140,16 @@ struct DispatcherTimerState {
     timer: DispatcherQueueTimer,
 }
 
-impl ComponentServices for DispatcherComponentServices {
-    fn spawn_background(&self, work: Box<dyn FnOnce() + Send>) {
+impl ComponentServices {
+    pub(crate) fn spawn_background(&self, work: Box<dyn FnOnce() + Send>) {
         windows_threading::submit(work);
     }
 
-    fn set_timeout(
+    pub(crate) fn set_timeout(
         &self,
         delay: Duration,
         callback: Box<dyn FnOnce() + Send>,
-    ) -> Arc<dyn ComponentTimerRegistration> {
+    ) -> Arc<TimerRegistration> {
         let id = NEXT_UI_TIMER.fetch_add(1, Ordering::Relaxed);
         let timer = self.dispatcher.CreateTimer().unwrap();
         timer
@@ -173,7 +173,7 @@ impl ComponentServices for DispatcherComponentServices {
             );
         });
         timer.Start().unwrap();
-        Arc::new(DispatcherTimerRegistration {
+        Arc::new(TimerRegistration {
             cancelled: AtomicBool::new(false),
             dispatcher: self.dispatcher.clone(),
             id,
@@ -217,7 +217,7 @@ fn queue_exit(dispatcher: &DispatcherQueue) {
 pub struct App;
 
 struct ComponentWindowState {
-    host: ComponentHost<SharedWinUiAdapter>,
+    host: ComponentHost,
     window: NativeWindow,
     lifecycle: Rc<Cell<ComponentWindowLifecycle>>,
     color_scheme_generation: Option<u64>,
@@ -308,7 +308,7 @@ impl WindowDispatch {
         work: impl Fn() + 'static,
     ) -> UiCallback {
         let dispatch = Rc::clone(self);
-        let registration = Rc::new(std::cell::OnceCell::<UiCallback>::new());
+        let registration = Rc::new(OnceCell::<UiCallback>::new());
         let wake = Rc::clone(&registration);
         let callback = UiCallback::new(dispatcher, move || {
             let wake = wake.get().unwrap();
@@ -516,29 +516,29 @@ impl LiveWindowServices {
     }
 }
 
-struct LiveComponentWindowServices {
+pub(crate) struct WindowServices {
     application: Rc<LiveWindowServices>,
     window: u64,
 }
 
-impl ComponentUiServices for LiveComponentWindowServices {
-    fn open_window(&self, root: ComponentNode, policy: WindowPolicy) -> bool {
+impl WindowServices {
+    pub(crate) fn open_window(&self, root: ComponentNode, policy: WindowPolicy) -> bool {
         self.application.push(WindowWork::Open { policy, root })
     }
 
-    fn publish_window(&self, publication: WindowPublication) {
+    pub(crate) fn publish_window(&self, publication: WindowPublication) {
         _ = self.application.publish(publication, self.window);
     }
 
-    fn activate_window(&self) -> bool {
+    pub(crate) fn activate_window(&self) -> bool {
         self.application.push(WindowWork::Activate(self.window))
     }
 
-    fn close_window(&self) -> bool {
+    pub(crate) fn close_window(&self) -> bool {
         self.application.push(WindowWork::Close(self.window))
     }
 
-    fn run_window(&self, operation: Box<dyn FnOnce(*mut core::ffi::c_void)>) -> bool {
+    pub(crate) fn run_window(&self, operation: Box<dyn FnOnce(*mut core::ffi::c_void)>) -> bool {
         self.application.push(WindowWork::Operation {
             window: self.window,
             operation,
@@ -548,7 +548,7 @@ impl ComponentUiServices for LiveComponentWindowServices {
 
 struct LiveApplicationState {
     dispatcher: DispatcherQueue,
-    services: Arc<DispatcherComponentServices>,
+    services: Arc<ComponentServices>,
     exit_when_empty: bool,
     next_window: u64,
     windows: HashMap<u64, ComponentWindow>,
@@ -566,7 +566,7 @@ impl LiveApplication {
         let services = Rc::new(LiveWindowServices::default());
         let state = Rc::new(RefCell::new(LiveApplicationState {
             dispatcher: dispatcher.clone(),
-            services: Arc::new(DispatcherComponentServices {
+            services: Arc::new(ComponentServices {
                 dispatcher: dispatcher.clone(),
             }),
             exit_when_empty,
@@ -732,9 +732,7 @@ fn report_casts() {
     }
 }
 
-fn window_host(
-    state: &mut Option<ComponentWindowState>,
-) -> Option<&mut ComponentHost<SharedWinUiAdapter>> {
+fn window_host(state: &mut Option<ComponentWindowState>) -> Option<&mut ComponentHost> {
     state.as_mut().map(|state| &mut state.host)
 }
 
@@ -755,7 +753,7 @@ fn open_component_window(
         (application.dispatcher.clone(), application.services.clone())
     };
     let state = Rc::new(RefCell::new(None::<ComponentWindowState>));
-    let ui_services: Rc<dyn ComponentUiServices> = Rc::new(LiveComponentWindowServices {
+    let ui_services = Rc::new(WindowServices {
         application: Rc::clone(services),
         window: id,
     });
@@ -786,13 +784,7 @@ fn open_component_window(
             changed.wake();
         }
     });
-    let wake = drain.clone();
-    host.set_waker(move || wake.wake());
-    let native_drain = drain.clone();
-    let wake = drain.clone();
-    host.set_native_event_wakers(move || native_drain.invoke(), move || wake.wake());
-    let wake = drain.clone();
-    host.set_continuation_waker(move || wake.wake());
+    host.set_drain(&drain);
     let realize_state = Rc::downgrade(&state);
     let realize_dispatch = Rc::clone(&services.dispatch);
     host.set_realizer(move || {
@@ -1227,9 +1219,3 @@ fn exit_ui_thread() {
 #[cfg(test)]
 #[path = "../../tests/native/app.rs"]
 mod tests;
-
-#[cfg(feature = "test")]
-#[path = "../../test_support/native/app.rs"]
-mod test_support;
-#[cfg(feature = "test")]
-pub use test_support::*;

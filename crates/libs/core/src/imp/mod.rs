@@ -36,6 +36,19 @@ pub use ref_count::*;
 pub use sha1::*;
 pub use weak_ref_count::*;
 
+/// Takes ownership of a nullable interface pointer.
+///
+/// # Safety
+///
+/// A non-null `raw` must satisfy [`crate::Interface::from_raw`]'s safety requirements for `T`.
+pub unsafe fn from_abi<T: crate::Interface>(raw: *mut core::ffi::c_void) -> crate::Result<T> {
+    if raw.is_null() {
+        Err(crate::Error::empty())
+    } else {
+        Ok(unsafe { T::from_raw(raw) })
+    }
+}
+
 /// Returns an opaque, process-specific encoding of a pointer suitable for use
 /// as a delegate token. On Windows this calls `EncodePointer` so tokens cannot
 /// be forged from raw pointer values; on non-Windows targets the raw pointer
@@ -168,6 +181,34 @@ macro_rules! define_winrt_interface {
             $crate::imp::CanInto<$crate::IUnknown> for $name<$($generic),+> {}
         impl<$($generic: $crate::RuntimeType + 'static),+>
             $crate::imp::CanInto<$crate::IInspectable> for $name<$($generic),+> {}
+        impl<$($generic: $crate::RuntimeType + 'static),+>
+            ::core::convert::From<$name<$($generic),+>> for $crate::IUnknown
+        {
+            fn from(value: $name<$($generic),+>) -> Self {
+                value.0
+            }
+        }
+        impl<'a, $($generic: $crate::RuntimeType + 'static),+>
+            ::core::convert::From<&'a $name<$($generic),+>> for &'a $crate::IUnknown
+        {
+            fn from(value: &'a $name<$($generic),+>) -> Self {
+                &value.0
+            }
+        }
+        impl<$($generic: $crate::RuntimeType + 'static),+>
+            ::core::convert::From<$name<$($generic),+>> for $crate::IInspectable
+        {
+            fn from(value: $name<$($generic),+>) -> Self {
+                $crate::IInspectable(value.0)
+            }
+        }
+        impl<'a, $($generic: $crate::RuntimeType + 'static),+>
+            ::core::convert::From<&'a $name<$($generic),+>> for &'a $crate::IInspectable
+        {
+            fn from(value: &'a $name<$($generic),+>) -> Self {
+                unsafe { ::core::mem::transmute::<&$crate::IUnknown, &$crate::IInspectable>(&value.0) }
+            }
+        }
         unsafe impl<$($generic: $crate::RuntimeType + 'static),+>
             $crate::Interface for $name<$($generic),+>
         {

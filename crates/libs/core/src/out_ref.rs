@@ -2,9 +2,9 @@ use super::*;
 
 /// A borrowed ABI-compatible out parameter.
 #[repr(transparent)]
-pub struct OutRef<'a, T: Type<T>>(*mut T::Abi, core::marker::PhantomData<&'a T>);
+pub struct OutRef<'a, T: Type>(*mut T::Abi, core::marker::PhantomData<&'a T>);
 
-impl<T: Type<T>> OutRef<'_, T> {
+impl<T: Type> OutRef<'_, T> {
     /// Returns `true` if the argument is null.
     pub fn is_null(&self) -> bool {
         self.0.is_null()
@@ -15,14 +15,13 @@ impl<T: Type<T>> OutRef<'_, T> {
         if self.0.is_null() {
             Err(Error::from_hresult(imp::E_POINTER))
         } else {
-            unsafe { *self.0 = core::mem::transmute_copy(&value) }
-            core::mem::forget(value);
+            unsafe { self.0.cast::<T::Default>().write(value) }
             Ok(())
         }
     }
 }
 
-impl<'a, T: Type<T>> From<&'a mut T::Default> for OutRef<'a, T>
+impl<'a, T: Type> From<&'a mut T::Default> for OutRef<'a, T>
 where
     &'a mut T::Default: OutParam<T>,
 {
@@ -36,7 +35,7 @@ where
     }
 }
 
-impl<T: Type<T>> Default for OutRef<'_, T> {
+impl<T: Type> Default for OutRef<'_, T> {
     fn default() -> Self {
         OutRef(core::ptr::null_mut(), core::marker::PhantomData)
     }

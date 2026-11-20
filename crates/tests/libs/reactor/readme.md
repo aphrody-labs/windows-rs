@@ -2,12 +2,8 @@
 
 `test-reactor` exercises Reactor's public API in real WinUI applications. Fixtures live in `src/`;
 UI Automation tests live in `tests/ui/`. Keep deterministic unit tests in `windows-reactor` and
-performance benchmarks separate.
-
-| Benchmark | Purpose |
-| --- | --- |
-| [`test-reactor-bench`](../reactor_bench/readme.md) | Headless update, allocation, and memory measurements |
-| [`test_reactor_perf`](../reactor_perf/readme.md) | Live WinUI workload for the Rust/C# comparison harness |
+performance benchmarks separate. [`test_reactor_perf`](../reactor_perf/readme.md) is the live WinUI
+workload for the Rust/C# comparison harness.
 
 ## Running
 
@@ -20,24 +16,104 @@ Use Cargo name filters to select cases and `-- --nocapture` to see driver steps.
 
 Live UI tests run on x64 and require an interactive desktop. Start them from a foreground terminal,
 keep other windows from covering the fixtures, and leave the mouse and keyboard idle.
+Active-scroll removal coverage requires Windows animation effects to be enabled. It removes the
+view after observing an intermediate offset, checks one `Unavailable` completion per request, and
+compares delegate counts across repeated removals when COM diagnostics are enabled.
+CI enables animation effects on its disposable runners; the tests do not change desktop settings.
+Scale transition coverage also requires animations. It observes centered intermediate rendering,
+including interrupted transitions, clearing scale, resizing, and removal.
+WinUI hides an element immediately when its scale changes to zero; the tests check growth from zero
+and shrinkage to a nonzero factor, not animated collapse to zero. To reproduce the native limitation,
+run the `scale` fixture and invoke `full`, `transition`, then `zero`. The same sequence with a plain
+WinUI Border and a three-second `Vector3Transition` shows the same immediate disappearance.
 Cases are serialized and run in separate fixture processes with bounded timeouts. Failures report
 the child process's stdout/stderr log directory; successful cases remove their logs.
 
 `build.rs` generates native bindings and deploys the Windows App Runtime and WebView2 projection
 DLL. The first build needs network access for the pinned packages. Canvas uses WARP rendering.
 
-Run this crate alone to check default features; workspace builds can enable Reactor's `test`
-feature through benchmark dependencies.
-
-## Leak checks
+## Leak and cast checks
 
 With `RUSTFLAGS=--cfg windows_cast_diagnostics`, each fixture process asserts that no
-`#[implement]` objects or delegates remain alive after the app exits. CI runs the suite this way.
+`#[implement]` objects or delegates remain alive after the app exits and that it made no avoidable
+casts: a cast to the same interface or from a WinRT interface to `IInspectable`, which need no
+`QueryInterface` call. CI runs the suite this way.
 
 ```text
 $env:RUSTFLAGS = "--cfg windows_cast_diagnostics"
 cargo test -p test-reactor
 ```
+
+## Scroll layout
+
+`scroll-layout` checks far-edge anchoring on both axes during content growth and shrinkage,
+scrolling away from the edge, disabling anchoring with `NaN`, and clearing the declared ratios.
+It does not register anchor candidates or test row preservation inside the content or during
+animated scrolling. `scroll-orientation` uses a stretched square image to observe measurement
+constraints and the restored native default; content orientation does not cap explicitly sized
+children.
+
+## Button padding
+
+`button-padding` compares a 24-DIP FontIcon in a 40-DIP Subtle button against an unclipped reference.
+It checks padding at mount, uniform and asymmetric updates, zero padding, and restoration of the
+native default when omitted. Rendered icon bounds, button identity, and click delivery are observed.
+
+## TextBox appearance
+
+`text-appearance` observes padding through native layout and corner radius through rendered pixels,
+including updates and clearing back to native defaults without replacing the TextBox. A keyboard
+shortcut changes these properties during editing; focus, text, and continued typing are checked.
+A leading icon overlay checks pointer pass-through, interception, and default hit testing after
+clearing the property. This does not test state-specific resource styling or resource-dictionary
+updates.
+
+## Window maximization
+
+`window-maximizable` and `window-maximizable-frame` check the setting at mount, live changes,
+and omission restoring the default for standard and WinUI title bars. Tests inspect native window
+styles and synchronously send caption double-click messages to observe maximize/restore behavior,
+including the disabled no-op. They preserve native content identity and resize/minimize flags.
+This tests caption handling, not physical pointer routing or programmatic maximize requests.
+
+## Submitted-frame input
+
+`canvas-submitted-input` stages a two-row layout separately from drawing it. Its `submitted`
+marker is updated from `Canvas::on_submitted`, not from the draw callback. New-frame clicks wait
+for that marker; staged or failed drawing must leave old-frame hit testing intact. Click sequence
+numbers prevent an old result from satisfying a later assertion. The fixture also checks callback
+invalidation and removal. Its device-loss case returns an error from the draw callback; it does
+not remove the native device or measure physical display.
+
+`pointer-routing` checks queued delivery, routed bubbling, handled events, and mode replacement.
+Headless pointer tests separately check synchronous capture and reentrant callback replacement.
+Mode replacement must preserve queued occurrences and their original callbacks before any removal
+or teardown; those later operations cancel pending occurrences.
+
+`pointer-cursor` checks that a Border's declared cursor, its inherited ancestor cursor, and clearing
+both apply while the pointer stays still. It compares the global cursor with shared system cursors.
+
+WinUI can drop the first pointer move shortly after a window is shown
+([microsoft/microsoft-ui-xaml#12753](https://github.com/microsoft/microsoft-ui-xaml/issues/12753)),
+so `pointer-routing` and `pointer-cursor` repeat their first move until the fixture observes the
+pointer entering.
+
+```powershell
+cargo test -p test-reactor --test ui -- `
+    canvas_input_follows_submission_not_pending_drawing `
+    pointer_delivery_modes_preserve_routing_and_queued_order
+```
+
+## Notification icon updates
+
+The `tray` image- and tooltip-refusal cases remove only the fixture's Shell registration, leaving
+its callback window alive, to force a real `NIM_MODIFY` failure. They check refusal diagnostics,
+retry on an unchanged declaration, current callbacks, and removal with pending work.
+The image case also changes the requested path while both image and tooltip updates are pending.
+It loads the same image through distinct paths to exercise replacement, not pixel appearance.
+Each case sends `TaskbarCreated` only to that callback window to restore the registration; it does not
+restart Explorer or reproduce the cause of a post-resume Shell failure. Headless tests check the image
+and tooltip payload retained on failure and applied on a successful retry.
 
 ## Opt-in drag/drop coverage
 

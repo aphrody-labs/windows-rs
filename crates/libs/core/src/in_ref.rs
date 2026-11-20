@@ -3,12 +3,12 @@ use core::mem::transmute;
 
 /// A borrowed ABI-compatible input parameter.
 #[repr(transparent)]
-pub struct InRef<'a, T: Type<T>>(T::Abi, core::marker::PhantomData<&'a T>);
+pub struct InRef<'a, T: Type>(T::Abi, core::marker::PhantomData<&'a T>);
 
-impl<T: Type<T>> InRef<'_, T> {
+impl<T: Type> InRef<'_, T> {
     /// Returns `true` if the argument is null.
     pub fn is_null(&self) -> bool {
-        T::is_null(&self.0)
+        self.as_ref().is_none()
     }
 
     /// Returns the referenced value or `E_POINTER` if null.
@@ -19,11 +19,7 @@ impl<T: Type<T>> InRef<'_, T> {
 
     /// Returns the referenced value if non-null.
     pub fn as_ref(&self) -> Option<&T> {
-        if self.is_null() {
-            None
-        } else {
-            unsafe { Some(self.assume_init_ref()) }
-        }
+        T::as_ref(self)
     }
 
     /// Returns the referenced value.
@@ -41,26 +37,22 @@ impl<T: Type<T>> InRef<'_, T> {
     pub fn cloned(&self) -> Option<T> {
         self.as_ref().cloned()
     }
-
-    unsafe fn assume_init_ref(&self) -> &T {
-        unsafe { T::assume_init_ref(&self.0) }
-    }
 }
 
-impl<T: Type<T>> Default for InRef<'_, T> {
+impl<T: Type> Default for InRef<'_, T> {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
 }
 
-impl<T: Type<T>> core::ops::Deref for InRef<'_, T> {
+impl<T: Type> core::ops::Deref for InRef<'_, T> {
     type Target = T::Default;
     fn deref(&self) -> &Self::Target {
         unsafe { transmute(&self.0) }
     }
 }
 
-impl<'a, T: Type<T, InterfaceType>> From<&'a Option<T>> for InRef<'a, T>
+impl<'a, T: Type<InterfaceType>> From<&'a Option<T>> for InRef<'a, T>
 where
     T: TypeKind<TypeKind = InterfaceType>,
 {
@@ -69,7 +61,7 @@ where
     }
 }
 
-impl<'a, T: Type<T, InterfaceType>> From<Option<&'a T>> for InRef<'a, T>
+impl<'a, T: Type<InterfaceType>> From<Option<&'a T>> for InRef<'a, T>
 where
     T: TypeKind<TypeKind = InterfaceType>,
 {
@@ -82,7 +74,7 @@ where
     }
 }
 
-impl<'a, T: Type<T>> From<&'a T> for InRef<'a, T> {
+impl<'a, T: Type> From<&'a T> for InRef<'a, T> {
     fn from(from: &'a T) -> Self {
         unsafe { core::mem::transmute_copy(from) }
     }

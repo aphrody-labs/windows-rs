@@ -7,10 +7,12 @@ mod background;
 mod callback_lifetime;
 mod canvas;
 mod canvas_image;
+mod context;
 mod controlled;
 mod dialog;
 mod dialog_theme;
 mod drag;
+mod events;
 mod flyout;
 mod image;
 mod keyboard;
@@ -19,7 +21,10 @@ mod pane;
 mod pointer;
 mod reference;
 mod repeater;
+mod resources;
 mod retirement;
+mod scale;
+mod scroll;
 mod selection;
 mod smoke;
 mod surface;
@@ -312,15 +317,20 @@ pub fn run(fixture: &str) -> windows_core::Result<()> {
         "exit-with-window" => App::run_application::<application::ExitFixture>(())?,
         "canvas" => App::run_component::<canvas::CanvasFixture>(false)?,
         "canvas-demand" => App::run_component::<canvas::CanvasFixture>(true)?,
+        "canvas-submitted-input" => App::run_component::<canvas::SubmittedInputFixture>(())?,
         "canvas-root" => App::run_application::<canvas::CanvasRootFixture>(())?,
         "canvas-image" => App::run_component::<canvas_image::CanvasImageFixture>(())?,
+        "context" => App::run_component::<context::ContextFixture>(())?,
         "controlled" => App::run_component::<controlled::ControlledFixture>(())?,
         "property-ownership" => App::run_component::<controlled::OwnershipFixture>(())?,
         "radio" => App::run_component::<controlled::RadioFixture>(())?,
         "controlled-input" => App::run_component::<controlled::InputFixture>(())?,
         "controlled-churn" => App::run_component::<controlled::ChurnFixture>(())?,
-        "flyout" => App::run_component::<flyout::FlyoutFixture>(())?,
+        "flyout" => App::run_component::<flyout::FlyoutFixture>(false)?,
+        "flyout-dropdown" => App::run_component::<flyout::FlyoutFixture>(true)?,
         "smoke" => App::run_component::<smoke::SmokeFixture>(())?,
+        "button-padding" => App::run_component::<smoke::ButtonPaddingFixture>(())?,
+        "scale" => App::run_component::<scale::ScaleFixture>(())?,
         "surface" => App::run_component::<surface::SurfaceFixture>(())?,
         "pane" => App::run_component::<pane::PaneFixture>(())?,
         "dialog" => App::run_component::<dialog::DialogFixture>(())?,
@@ -374,7 +384,13 @@ pub fn run(fixture: &str) -> windows_core::Result<()> {
                 repeater::Selector::FlipViewBeforeReset,
             )?;
         }
+        "events" => App::run_component::<events::EventsFixture>(())?,
+        "resources" => App::run_component::<resources::ResourcesFixture>(())?,
         "retirement" => App::run_component::<retirement::RetirementFixture>(())?,
+        "scroll" => App::run_component::<scroll::ScrollFixture>(())?,
+        "scroll-layout" => App::run_component::<scroll::ScrollLayoutFixture>(false)?,
+        "scroll-orientation" => App::run_component::<scroll::ScrollLayoutFixture>(true)?,
+        "scroll-prepend" => App::run_component::<scroll::ScrollPrependFixture>(())?,
         "selection" => App::run_component::<selection::SelectionFixture>(())?,
         "selection-index" => App::run_component::<selection::IndexSelectionFixture>(())?,
         "selection-items" => App::run_component::<selection::ItemSelectionFixture>(())?,
@@ -396,7 +412,10 @@ pub fn run(fixture: &str) -> windows_core::Result<()> {
         "command-bar" => App::run_component::<MenuFixture>(MenuSurface::CommandBar)?,
         "tray" => App::run_application::<tray::TrayFixture>(())?,
         "window" => App::run_component::<window::WindowFixture>(window::WindowMode::Native)?,
+        "window-maximizable" => App::run_component::<window::MaximizableFixture>(false)?,
+        "window-maximizable-frame" => App::run_component::<window::MaximizableFixture>(true)?,
         "window-placement" => App::run_component::<window::PlacementFixture>(())?,
+        "window-visuals" => App::run_component::<window::VisualsFixture>(())?,
         "window-titlebar-initial" => App::run_component::<window::TitleBarFixture>(true)?,
         "window-titlebar-dynamic" => App::run_component::<window::TitleBarFixture>(false)?,
         "window-frame" => App::run_component::<window::WindowFixture>(window::WindowMode::Custom)?,
@@ -405,6 +424,7 @@ pub fn run(fixture: &str) -> windows_core::Result<()> {
             WindowPolicy::new().client_size(480.0, 320.0),
         )?,
         "text" => App::run_component::<TextFixture>(())?,
+        "text-appearance" => App::run_component::<text::AppearanceFixture>(())?,
         "text-multiline" => App::run_component::<text::MultilineFixture>(())?,
         "text-transform" => {
             App::run_component::<text::TransformFixture>(text::TextControl::Text)?;
@@ -425,6 +445,8 @@ pub fn run(fixture: &str) -> windows_core::Result<()> {
         "pointer-focus-mounted" => pointer::run(false, true)?,
         "pointer-focus-added" => pointer::run(false, false)?,
         "pointer-clicks" => pointer::run_clicks()?,
+        "pointer-routing" => pointer::run_routing()?,
+        "pointer-cursor" => pointer::run_cursor()?,
         "drag-mounted" => drag::run(true)?,
         "drag-added" => drag::run(false)?,
         "exit" => {}
