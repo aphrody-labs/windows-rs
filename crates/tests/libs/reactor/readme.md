@@ -66,6 +66,32 @@ shadowing, removal, and element identity. Its consumer wraps `ViewContext` with 
 `context-virtual` checks two contexts in retained and newly realized rows, a row-local override,
 provider removal and reapplication, and row-local messages reading the latest snapshot.
 
+## Background cancellation
+
+`background` retains a worker and local timer across child replacement, observing timer-payload
+release before releasing the worker and checking its cancellation snapshot. `background-shutdown`
+keeps both handles and the worker gate outside the host. It records timer-payload release during
+the owner's effect cleanup, before final application timer cleanup, then releases the worker after
+the app exits and waits for its pre-enqueue cancellation acknowledgement. Process exit alone is not
+evidence of cancellation.
+
+## Nested retirement
+
+`retirement-nested` removes and remounts a five-component subtree while keeping a sibling alive.
+`retirement-virtual` scrolls that subtree offscreen, removes its virtual key, and then restores it.
+WinUI can recycle the first row during startup and can keep offscreen rows realized. The fixture
+audits those startup lifetimes too; scrolling alone is not treated as a retirement boundary.
+
+Both cases check timer-payload release before effect cleanup, parent-before-child cleanup,
+reverse effect order, and child-before-parent component destruction. Timer handles stay in the
+surviving fixture. Cleanup records capture release at that moment, not after handle destruction.
+Retained senders are exercised after remount, with a later message marking completion of the check.
+The surviving sibling must retain its native identity and have no cleanup or drop.
+
+These tests do not impose sibling traversal order or cover host shutdown. They also do not observe
+private ancestor-scope availability or native-reference availability during cleanup; changes to
+those boundaries need their own evidence.
+
 ## TextBox appearance
 
 `text-appearance` observes padding through native layout and corner radius through rendered pixels,

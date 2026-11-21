@@ -36,7 +36,7 @@ pub(super) struct TypedScope<C: Component> {
     pub(super) view: Option<View>,
     pub(super) local_sender: LocalSender<C::Message>,
     pub(super) services: Arc<ComponentServices>,
-    pub(super) tasks: Arc<Mutex<Vec<SyncWeak<TaskControl>>>>,
+    pub(super) tasks: Rc<RefCell<Vec<SyncWeak<TaskControl>>>>,
     pub(super) ui_services: Rc<WindowServices>,
 }
 
@@ -47,7 +47,7 @@ impl<C: Component> TypedScope<C> {
             reference,
             local_sender: self.local_sender.clone(),
             services: Arc::clone(&self.services),
-            tasks: Arc::clone(&self.tasks),
+            tasks: Rc::clone(&self.tasks),
             ui_services: Rc::clone(&self.ui_services),
         }
     }
@@ -99,15 +99,11 @@ impl<C: Component> ErasedComponent for TypedScope<C> {
     }
 
     fn cancel_tasks(&self) {
-        let mut tasks = self.tasks.lock().unwrap();
-        tasks.retain(|task| {
+        for task in self.tasks.borrow_mut().drain(..) {
             if let Some(task) = task.upgrade() {
                 task.cancel();
-                false
-            } else {
-                false
             }
-        });
+        }
     }
 
     fn dispatch(
@@ -288,16 +284,14 @@ impl ComponentHost {
         let mut retired = Vec::new();
         for (parent, keys) in seen {
             let scope = self.scope_mut(*parent).unwrap();
-            let removed = scope
-                .children
-                .iter()
-                .filter(|(key, _)| !keys.contains(*key))
-                .map(|(key, id)| (key.clone(), *id))
-                .collect::<Vec<_>>();
-            for (key, id) in removed {
-                scope.children.remove(&key);
-                retired.push(id);
-            }
+            scope.children.retain(|key, id| {
+                if keys.contains(key) {
+                    true
+                } else {
+                    retired.push(*id);
+                    false
+                }
+            });
         }
         for id in retired {
             self.retire_scope(id);
@@ -305,12 +299,15 @@ impl ComponentHost {
     }
 
     pub(super) fn retire_scope(&mut self, id: ComponentId) {
-        let children = self
-            .scope(id)
-            .map(|scope| scope.children.values().copied().collect::<Vec<_>>())
-            .unwrap_or_default();
-        for child in children {
-            self.retire_scope(child);
+        if let Some(scope) = self.scope_mut(id)
+            && !scope.children.is_empty()
+        {
+            let children = std::mem::take(&mut scope.children);
+            for &child in children.values() {
+                self.retire_scope(child);
+            }
+            // Drop child keys with the parent scope, before its component.
+            self.scope_mut(id).unwrap().children = children;
         }
         let slot = &mut self.scopes[id.index as usize];
         let Some(mut scope) = slot.scope.take() else {
