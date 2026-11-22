@@ -24,18 +24,21 @@ windows-bindgen = "0.101"
 In `build.rs`:
 
 ```rust,no_run
-use std::path::PathBuf;
+use windows_bindgen::*;
 
 fn main() {
-    let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("bindings.rs");
-    windows_bindgen::builder()
-        .output(output)
-        .filter("GetTickCount64")
-        .flat()
-        .sys()
-        .write();
+    println!("cargo:rerun-if-changed=build.rs");
+    builder().filter("GetTickCount64").sys().write();
 }
 ```
+
+Without `.output(...)`, bindgen writes `bindings.rs` in Cargo's `OUT_DIR`. An explicit output is
+required outside Cargo when `OUT_DIR` is unset or empty, and always for `.package()`. Use distinct
+explicit paths when generating multiple files.
+
+Bindgen does not emit Cargo dependency-tracking directives. The example above watches only
+`build.rs`; declare any other inputs your script reads, including metadata and filter files, with
+`cargo:rerun-if-changed`.
 
 In `src/main.rs`:
 
@@ -55,7 +58,9 @@ the generator in consumer builds. Install `rustfmt` to format generated source.
 ## Select APIs
 
 Filters select native names, including any `A` or `W` suffix. Signature dependencies are included
-automatically. Qualify names when more than one namespace defines them.
+automatically. Qualify names when more than one namespace defines them. Output is a flat list of
+items; selecting the same name from two namespaces fails to compile unless you exclude one or use
+`.modules()`.
 
 | Filter | Selects |
 | --- | --- |
@@ -75,15 +80,16 @@ The bundled Win32 metadata uses `Windows.Win32`, not the umbrella crates' Cargo 
 
 | Option | Result |
 | --- | --- |
-| Default | Typed bindings using `windows-core` |
+| Default | Minimal typed bindings using `windows-core` |
+| `.full()` | Adds class wrappers, inherited forwarders, handle and function wrappers |
 | `.sys()` | Raw bindings using `windows-link` |
-| `.minimal()` | Bindings for hand-written wrappers |
-| `.flat()` | One flat module instead of namespace modules |
+| `.modules()` | One module per namespace instead of a single flat list |
 | `.implement(name)` | Implementation traits for an interface |
 
-`sys` and `minimal` are mutually exclusive. Add any focused support crates referenced by the output.
-Minimal bindings omit implementation traits unless selected with `.implement(name)` or
-`.implement_all()`. Select the base or required interfaces too when implementing an interface hierarchy.
+`sys` and `full` are mutually exclusive. Add any focused support crates referenced by the output.
+Full mode adds implementation traits for interfaces not marked `ExclusiveTo`. Otherwise select them
+with `.implement(name)` or `.implement_all()`; an explicit selection also replaces the full-mode
+default. Select the base or required interfaces too when implementing an interface hierarchy.
 
 With no input, bindgen uses bundled Windows metadata. `.input("component.winmd")` replaces that
 default; add `.input_default()` when the component also references Windows definitions.

@@ -2,7 +2,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     windows_bindgen::builder()
-        .output(std::path::Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("bindings.rs"))
         .filters([
             "D3D11CreateDevice",
             "D3D11_BIND_CONSTANT_BUFFER",
@@ -48,7 +47,5 @@ fn main() {
             "WM_DPICHANGED",
             "WM_MOUSEWHEEL",
         ])
-        .flat()
-        .minimal()
         .write();
 }

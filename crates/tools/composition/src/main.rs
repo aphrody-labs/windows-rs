@@ -15,9 +15,7 @@ fn main() {
     builder()
         .input_default()
         .output("crates/libs/composition/src/bindings.rs")
-        .minimal()
         .dead_code()
-        .flat()
         .filter_file(FILTER)
         .write();
 
@@ -36,9 +34,7 @@ fn main() {
             interop.to_str().unwrap(),
         ])
         .output("crates/libs/composition/src/bindings_lifted.rs")
-        .minimal()
         .dead_code()
-        .flat()
         .filter_file(lifted_filter)
         .write();
 

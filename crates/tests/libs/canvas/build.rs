@@ -13,7 +13,5 @@ fn main() {
             "IDXGISwapChain::GetLastPresentCount",
             "D2DERR_PUSH_POP_UNBALANCED",
         ])
-        .flat()
-        .minimal()
         .write();
 }

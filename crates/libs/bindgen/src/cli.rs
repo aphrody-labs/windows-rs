@@ -20,20 +20,23 @@ use super::*;
 /// - `--filter`: Included or excluded APIs.
 /// - `--rustfmt`: Comma-separated `rustfmt --config` options, such as `max_width=120`.
 /// - `--derive`: Extra derived traits.
-/// - `--flat`: Omits namespace modules.
+/// - `--modules`: Nests items in one module per namespace.
 /// - `--package`: Generates a package with one file per namespace.
 /// - `--sys`: Generates raw bindings that depend only on `windows-link`.
 /// - `--extern`: Uses extern declarations with `--sys`.
-/// - `--minimal`: Omits class wrappers, inherited forwarders, and handle wrappers.
+/// - `--full`: Adds class wrappers, inherited forwarders, handle wrappers, and implementation traits
+///   for interfaces not marked `ExclusiveTo`.
 /// - `--implement`: Emits implementation traits for selected native and WinRT interfaces.
-/// - `--compose`: Selects minimal-mode WinRT class composition targets.
+/// - `--compose`: Selects WinRT class composition targets.
 /// - `--dead-code`: Emits `pub(crate)` items for dead-code analysis.
 /// - `--etc`: Reads arguments from command files.
 /// - `--filter-file`: Reads filters from text files.
 ///
 /// # `--out`
 ///
-/// Exactly one `--out` argument is required.
+/// Defaults to `bindings.rs` in the runtime `OUT_DIR` directory. An explicit path is required when
+/// `OUT_DIR` is unset or empty, and always with `--package`. Bindgen does not emit Cargo
+/// dependency-tracking directives.
 ///
 /// # `--filter`
 ///
@@ -94,24 +97,29 @@ where
     let mut builder = Bindgen::new();
     let mut kind = ArgKind::None;
     let mut has_output = false;
+    let mut output_required = false;
     let mut implement = None::<Vec<String>>;
     let mut compose = None::<Vec<String>>;
 
     for arg in args {
         if arg.starts_with('-') {
+            assert!(!output_required, "`--out` requires a path");
             kind = ArgKind::None;
         }
 
         match kind {
             ArgKind::None => match arg.as_str() {
                 "--in" => kind = ArgKind::Input,
-                "--out" => kind = ArgKind::Output,
+                "--out" => {
+                    kind = ArgKind::Output;
+                    output_required = true;
+                }
                 "--filter" => kind = ArgKind::Filter,
                 "--filter-file" => kind = ArgKind::FilterFile,
                 "--rustfmt" => kind = ArgKind::Rustfmt,
                 "--derive" => kind = ArgKind::Derive,
-                "--flat" => {
-                    builder.flat();
+                "--modules" => {
+                    builder.modules();
                 }
                 "--package" => {
                     builder.package();
@@ -119,8 +127,8 @@ where
                 "--sys" => {
                     builder.sys();
                 }
-                "--minimal" => {
-                    builder.minimal();
+                "--full" => {
+                    builder.full();
                 }
                 "--dead-code" => {
                     builder.dead_code();
@@ -142,6 +150,7 @@ where
                 assert!(!has_output, "exactly one `--out` is required");
                 builder.output(arg);
                 has_output = true;
+                output_required = false;
             }
             ArgKind::Input => {
                 if arg == "default" {
@@ -170,6 +179,8 @@ where
             }
         }
     }
+
+    assert!(!output_required, "`--out` requires a path");
 
     if let Some(implement) = implement {
         if implement.is_empty() {

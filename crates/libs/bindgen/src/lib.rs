@@ -77,7 +77,7 @@ pub struct Bindgen {
     input: Vec<Input>,
     input_default: bool,
     filter: Vec<String>,
-    output: PathBuf,
+    output: Option<PathBuf>,
     derive: Vec<String>,
     implement: Option<Vec<String>>,
     compose: Vec<String>,
@@ -95,11 +95,11 @@ enum Input {
 /// Output layout for the generated bindings.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 enum Layout {
-    /// One Rust module per metadata namespace (the default).
+    /// A single flat list of items (the default).
     #[default]
-    Modules,
-    /// A single flat list of items (no namespace modules).
     Flat,
+    /// One Rust module per metadata namespace.
+    Modules,
     /// One file per namespace + `Cargo.toml` features.
     Package,
 }
@@ -116,17 +116,17 @@ impl Layout {
 /// Code-style mode for the generated bindings.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 enum Style {
-    /// Full-fidelity bindings (the default).
+    /// Minimal bindings (no class wrappers, inherited forwarders, or handle ergonomics;
+    /// auto-revoke events).
     #[default]
-    Default,
+    Minimal,
+    /// Full-fidelity bindings.
+    Full,
     /// Raw / sys-style bindings.
     Sys {
         /// When `true`, emit `extern { fn ... }` instead of `link!` macros.
         extern_fns: bool,
     },
-    /// Minimal-mode bindings (drop class wrappers, inherited forwarders,
-    /// handle ergonomics; auto-revoke events).
-    Minimal,
 }
 
 impl Style {
@@ -230,8 +230,11 @@ impl Bindgen {
     }
 
     /// Sets the generated Rust file.
+    ///
+    /// Defaults to `bindings.rs` in the runtime `OUT_DIR` directory. An explicit path is required
+    /// when `OUT_DIR` is unset or empty, and always when generating a package.
     pub fn output(&mut self, output: impl AsRef<Path>) -> &mut Self {
-        self.output = output.as_ref().to_path_buf();
+        self.output = Some(output.as_ref().to_path_buf());
         self
     }
 
@@ -305,13 +308,15 @@ impl Bindgen {
         self
     }
 
-    /// Avoid the default namespace-to-module conversion.
+    /// Nest items in one Rust module per metadata namespace instead of a single flat list.
+    ///
+    /// Use this when the selected APIs define the same name in more than one namespace.
     #[track_caller]
-    pub fn flat(&mut self) -> &mut Self {
+    pub fn modules(&mut self) -> &mut Self {
         if matches!(self.layout, Layout::Package) {
-            panic!("cannot combine `--package` and `--flat`");
+            panic!("cannot combine `--package` and `--modules`");
         }
-        self.layout = Layout::Flat;
+        self.layout = Layout::Modules;
         self
     }
 
@@ -322,8 +327,8 @@ impl Bindgen {
     /// Generate bindings as a package with one file per namespace.
     #[track_caller]
     pub fn package(&mut self) -> &mut Self {
-        if matches!(self.layout, Layout::Flat) {
-            panic!("cannot combine `--package` and `--flat`");
+        if matches!(self.layout, Layout::Modules) {
+            panic!("cannot combine `--package` and `--modules`");
         }
         self.layout = Layout::Package;
         self
@@ -368,7 +373,7 @@ impl Bindgen {
         self
     }
 
-    /// Selects a composable WinRT class as a minimal-mode composition target.
+    /// Selects a composable WinRT class as a composition target.
     ///
     /// The class and its composable factory methods must also be selected by a filter.
     #[track_caller]
@@ -382,7 +387,7 @@ impl Bindgen {
         self
     }
 
-    /// Selects multiple composable WinRT classes as minimal-mode composition targets.
+    /// Selects multiple composable WinRT classes as composition targets.
     pub fn composes<I, S>(&mut self, names: I) -> &mut Self
     where
         I: IntoIterator<Item = S>,
@@ -394,34 +399,33 @@ impl Bindgen {
         self
     }
 
-    /// Generate raw or sys-style Rust bindings.
+    /// Generate raw or sys-style Rust bindings using `windows-link`.
     ///
-    /// Mutually exclusive with [`Bindgen::minimal`]; panics if `minimal` was
-    /// already selected.
+    /// Mutually exclusive with [`Bindgen::full`].
     #[track_caller]
     pub fn sys(&mut self) -> &mut Self {
         let extern_fns = matches!(self.style, Style::Sys { extern_fns: true });
-        if matches!(self.style, Style::Minimal) {
-            panic!("cannot combine `--sys` and `--minimal`");
+        if matches!(self.style, Style::Full) {
+            panic!("cannot combine `--sys` and `--full`");
         }
         self.style = Style::Sys { extern_fns };
         self
     }
 
-    /// Generate minimal-mode Rust bindings.
+    /// Generate full-fidelity Rust bindings.
     ///
-    /// Implementation traits require [`Bindgen::implement`] or [`Bindgen::implement_all`].
+    /// Adds per-class wrapper methods, inherited interface forwarders, handle ergonomics,
+    /// free-function wrappers, and implementation traits for interfaces not marked `ExclusiveTo`.
+    /// Use [`Bindgen::implement`] or [`Bindgen::implement_all`] for `ExclusiveTo` interfaces; an
+    /// explicit selection replaces the full-mode default.
     ///
-    /// Drops per-class wrapper methods, inherited interface forwarders, handle
-    /// ergonomics, and free-function wrappers.
-    ///
-    /// Mutually exclusive with `--sys`.
+    /// Mutually exclusive with [`Bindgen::sys`].
     #[track_caller]
-    pub fn minimal(&mut self) -> &mut Self {
+    pub fn full(&mut self) -> &mut Self {
         if matches!(self.style, Style::Sys { .. }) {
-            panic!("cannot combine `--sys` and `--minimal`");
+            panic!("cannot combine `--sys` and `--full`");
         }
-        self.style = Style::Minimal;
+        self.style = Style::Full;
         self
     }
 
@@ -447,16 +451,35 @@ impl Bindgen {
     }
 
     /// Generate the bindings.
+    ///
+    /// Without an explicit output, writes `OUT_DIR/bindings.rs`. Use distinct explicit paths for
+    /// multiple output files. Does not emit Cargo dependency-tracking directives.
     #[track_caller]
     pub fn write(&self) {
         // Validate before setting up reader and reference state.
+        let default_output;
+        let output = if let Some(output) = &self.output {
+            output.as_path()
+        } else {
+            assert!(
+                !self.layout.is_package(),
+                "package output is required (call `.output()` or pass `--out`)"
+            );
+            let directory = std::env::var_os("OUT_DIR")
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| {
+                    panic!("output is required (set `OUT_DIR`, call `.output()` or pass `--out`)")
+                });
+            default_output = PathBuf::from(directory).join("bindings.rs");
+            &default_output
+        };
         assert!(
-            !self.output.as_os_str().is_empty(),
+            !output.as_os_str().is_empty(),
             "output is required (call `.output()` or pass `--out`)"
         );
         assert!(
             self.compose.is_empty() || self.style.is_minimal(),
-            "`compose` requires `minimal`"
+            "`compose` cannot be combined with `--full` or `--sys`"
         );
 
         let mut include: Vec<&str> = vec![];
@@ -666,7 +689,7 @@ impl Bindgen {
         }
 
         let tree = TypeTree::new(&types, self.layout.is_flat());
-        config.write(tree);
+        config.write(tree, output);
     }
 }
 

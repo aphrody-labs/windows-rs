@@ -12,8 +12,6 @@ fn main() {
             "ID2D1RenderTarget::PopAxisAlignedClip",
             "D2DERR_PUSH_POP_UNBALANCED",
         ])
-        .flat()
-        .minimal()
         .write();
 
     windows_bindgen::builder()
@@ -203,8 +201,6 @@ fn main() {
             "ICON_BIG",
             "ICON_SMALL",
         ])
-        .flat()
-        .minimal()
         .write();
 
     println!("cargo:rerun-if-changed=../../../tools/reactor-metadata/winmd");
@@ -221,7 +217,5 @@ fn main() {
             "Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal",
             "Microsoft.UI.Dispatching.IDispatcherQueue.TryEnqueueWithPriority",
         ])
-        .flat()
-        .minimal()
         .write();
 }
