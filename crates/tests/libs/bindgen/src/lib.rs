@@ -21,6 +21,22 @@ mod record_tests;
 mod ownership_tests;
 
 #[test]
+fn formatting_preserves_string_constants() {
+    let text = unsafe {
+        let ptr = format_tokens::TEXT.as_ptr();
+        let mut len = 0;
+        while *ptr.add(len) != 0 {
+            len += 1;
+        }
+        core::slice::from_raw_parts(ptr, len)
+    };
+    assert_eq!(
+        String::from_utf16(text).unwrap(),
+        "macro ! (call ) , ; :: * mut \"quoted\" \\ end"
+    );
+}
+
+#[test]
 fn associated_enum_storage_and_sign_extension() {
     use associated_enum::*;
     let flags: u32 = CloseSource | SameAccess | HighBit;
@@ -184,6 +200,7 @@ const _: unsafe fn() -> i32 = package_arches::Windows::Win32::split_legacy::SetW
 
 #[test]
 fn nested_member_alignment() {
+    use core::mem::{align_of, size_of};
     use struct_nested_member_alignment::*;
 
     const {
